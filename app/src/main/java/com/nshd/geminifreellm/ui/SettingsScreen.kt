@@ -332,4 +332,4 @@ private fun formatBytes(value: Long): String {
     }
 }
 
-private fun isAllowedApiUrl(url:String):Boolean{val u=url.lowercase();return u.startsWith("https://")||u.startsWith("http://localhost")||u.startsWith("http://127.0.0.1")||u.startsWith("http://[::1]")}
+private fun isAllowedApiUrl(url: String): Boolean = url.lowercase().startsWith("https://")
