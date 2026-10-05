@@ -75,16 +75,8 @@ jobs:
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
-          python3 - "$APK" <<'PY'
-          import sys, zipfile
-          path = sys.argv[1]
-          with zipfile.ZipFile(path) as archive:
-              bad = archive.testzip()
-              if bad is not None:
-                  raise SystemExit(f"Corrupt APK entry: {bad}")
-              if "AndroidManifest.xml" not in archive.namelist():
-                  raise SystemExit("APK is missing AndroidManifest.xml")
-          PY
+          unzip -t "$APK" >/dev/null
+          unzip -l "$APK" | grep -F "AndroidManifest.xml" >/dev/null
 
       - name: Upload unsigned release APK
         if: ${{ steps.signing.outputs.configured != 'true' }}
