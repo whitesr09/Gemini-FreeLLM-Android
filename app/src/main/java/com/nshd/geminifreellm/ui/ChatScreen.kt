@@ -237,6 +237,7 @@ private fun formatContextSize(value: Long): String = if (value >= 1_000_000L) St
 
 @Composable private fun MessageBlock(message: ChatMessage, aiName: String, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit, branchIndex: Int, branchCount: Int, onBranchNavigate: (Int) -> Unit) {
     val c = LocalAppColors.current; val user = message.role == ChatMessage.Role.USER; val error = message.role == ChatMessage.Role.ERROR
+    var showDetails by remember(message.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.widthIn(max = 760.dp)) {
             if (!user) AiOrb(Modifier.size(28.dp), false)
@@ -245,7 +246,7 @@ private fun formatContextSize(value: Long): String = if (value >= 1_000_000L) St
                 if (user) Box(Modifier.background(c.userBubble, ChatRadius).padding(horizontal = 15.dp, vertical = 11.dp)) { MessageText(message.text, error, onCopy) } else MessageText(message.text, error, onCopy)
                 if (message.attachments.isNotEmpty()) { Spacer(Modifier.height(8.dp)); AttachmentList(message.attachments, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, { attachment -> onRegenerateMedia(message, attachment) }) }
                 if (message.text.isNotBlank() && !error) {
-                    MessageActions(message, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport)
+                    MessageActions(message, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport) { showDetails = true }
                     if (branchCount > 1) {
                         Row(Modifier.height(48.dp).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                             BranchButton("‹", "Previous response", branchIndex > 0) { onBranchNavigate(-1) }
@@ -273,8 +274,52 @@ private fun BranchButton(symbol: String, description: String, enabled: Boolean, 
 }
 
 @Composable private fun MessageText(text:String,error:Boolean,onCopyCode:(String)->Unit){if(text.isNotBlank())MarkdownMessage(text,error,onCopyCode)}
-@Composable private fun MessageActions(message: ChatMessage, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit) { Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) { ActionText("Copy") { onCopy(message.text) }; ActionText("Share") { onShare(message.text) }; ActionText("Read") { onSpeak(message.text) }; if (message.role == ChatMessage.Role.USER) ActionText("Edit") { onEdit(message.id, message.text) }; ActionText("Retry") { onRegenerate(message.id) }; ActionText("Export") { onExport(message, ExportFormat.MARKDOWN) }; ActionText("TXT") { onExport(message, ExportFormat.TEXT) }; ActionText("JSON") { onExport(message, ExportFormat.JSON) }; ActionText("HTML") { onExport(message, ExportFormat.HTML) } } }
-@Composable private fun ActionText(label:String,onClick:()->Unit){val icon=when(label){"Copy"->"copy";"Share"->"share";"Read"->"read";"Edit"->"edit";"Retry"->"retry";"Export"->"save";else->null};if(icon!=null)AppIconButton(icon,label,onClick)else Box(Modifier.height(48.dp).clickable(onClick=onClick).semantics{role=Role.Button;contentDescription=label}.padding(horizontal=8.dp),contentAlignment=Alignment.Center){BasicText(label,color=LocalAppColors.current.muted,fontSize=10.sp)}}
+@Composable
+private fun MessageActions(
+    message: ChatMessage,
+    onCopy: (String) -> Unit,
+    onShare: (String) -> Unit,
+    onSpeak: (String) -> Unit,
+    onEdit: (Long, String) -> Unit,
+    onRegenerate: (Long) -> Unit,
+    onExport: (ChatMessage, ExportFormat) -> Unit,
+    onDetails: () -> Unit
+) {
+    Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        ActionText("Copy") { onCopy(message.text) }
+        ActionText("Share") { onShare(message.text) }
+        ActionText("Read") { onSpeak(message.text) }
+        if (message.role == ChatMessage.Role.USER) ActionText("Edit") { onEdit(message.id, message.text) }
+        if (message.role == ChatMessage.Role.ASSISTANT) ActionText("Retry") { onRegenerate(message.id) }
+        if (message.metadata != null) ActionText("Details") { onDetails() }
+        ActionText("Export") { onExport(message, ExportFormat.MARKDOWN) }
+        ActionText("TXT") { onExport(message, ExportFormat.TEXT) }
+        ActionText("JSON") { onExport(message, ExportFormat.JSON) }
+        ActionText("HTML") { onExport(message, ExportFormat.HTML) }
+    }
+}
+
+@Composable
+private fun MetadataDetailsDialog(message: ChatMessage, onDismiss: () -> Unit) {
+    val meta = message.metadata ?: return
+    AppDialog(
+        title = "Response details",
+        onDismiss = onDismiss,
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                meta.model?.let { BasicText("Model  $it", color = LocalAppColors.current.text, fontSize = 12.sp) }
+                meta.provider?.let { BasicText("Provider  $it", color = LocalAppColors.current.text, fontSize = 12.sp) }
+                meta.routedVia?.let { BasicText("Route  $it", color = LocalAppColors.current.muted, fontSize = 12.sp) }
+                if (meta.fallbackAttempts > 0) BasicText("Fallbacks  ${meta.fallbackAttempts}", color = LocalAppColors.current.muted, fontSize = 12.sp)
+                meta.latencyMs?.let { BasicText("Latency  $it ms", color = LocalAppColors.current.muted, fontSize = 12.sp) }
+                meta.requestId?.let { BasicText("Request ID  $it", color = LocalAppColors.current.muted, fontSize = 12.sp) }
+                meta.tokenUsage?.let { BasicText("Usage  $it", color = LocalAppColors.current.muted, fontSize = 12.sp) }
+            }
+        },
+        actions = { AppTextButton("Close", onClick = onDismiss) }
+    )
+                if (showDetails) MetadataDetailsDialog(message, onDismiss = { showDetails = false })
+}
 
 @Composable private fun AttachmentList(attachments:List<Attachment>,onExport:(Attachment)->Unit,onOpen:(Attachment)->Unit,onDelete:(Attachment)->Unit,onShare:(Attachment)->Unit,onRegenerate:(Attachment)->Unit){
  val c=LocalAppColors.current;LazyRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){items(attachments,key={it.id}){a->
