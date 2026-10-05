@@ -94,6 +94,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Set up Gradle for instrumentation
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
       - name: Run Compose UI smoke tests
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -102,6 +106,20 @@ jobs:
           arch: x86_64
           profile: pixel_5
           force-avd-creation: true
-          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -gpu swiftshader_indirect
+          emulator-boot-timeout: 1200
+          disable-linux-hw-accel: false
+          emulator-options: -no-window -no-snapshot-load -no-snapshot-save -noaudio -no-boot-anim -camera-back none -camera-front none -gpu swiftshader_indirect
           disable-animations: true
-          script: gradle connectedDebugAndroidTest --no-daemon --stacktrace
+          script: |
+            adb wait-for-device
+            adb shell getprop ro.build.version.sdk
+            gradle connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Upload instrumentation reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeLLM-AI-instrumentation-reports
+          path: |
+            app/build/reports/androidTests/**
+            app/build/outputs/androidTest-results/**
+          if-no-files-found: ignore
