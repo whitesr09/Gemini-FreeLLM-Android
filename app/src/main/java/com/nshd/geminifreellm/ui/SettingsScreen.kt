@@ -137,7 +137,7 @@ fun SettingsDialog(
                     val normalized = normalizeBaseUrl(url)
                     when {
                         name.trim().isBlank() -> error = "Enter a name for your AI."
-                        normalized.isBlank() || !(normalized.startsWith("http://") || normalized.startsWith("https://")) -> error = "Enter a valid http/https base URL."
+                        normalized.isBlank() || !normalized.startsWith("https://") -> error = "Use an HTTPS FreeLLMAPI base URL."
                         else -> onSave(normalized, key.trim(), name.trim(), theme)
                     }
                 },
