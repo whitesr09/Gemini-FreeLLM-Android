@@ -44,7 +44,7 @@ import com.nshd.geminifreellm.ui.AiTheme
 import com.nshd.geminifreellm.ui.ChatScreen
 import com.nshd.geminifreellm.ui.SettingsDialog
 import com.nshd.geminifreellm.ui.ThemeMode
-import kotlinx.coroutines.Job
+import androidx.compose.runtime.DisposableEffect
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
@@ -66,6 +66,10 @@ private fun AiApp(context: Context) {
     val client = remember { FreeLlmApiClient() }
     val scope = rememberCoroutineScope()
     val ids = remember { AtomicLong(System.currentTimeMillis()) }
+
+    DisposableEffect(Unit) {
+        onDispose { client.cancelActive() }
+    }
 
     var baseUrl by remember {
         mutableStateOf(
@@ -108,7 +112,15 @@ private fun AiApp(context: Context) {
     var pendingSaveFile by remember { mutableStateOf<File?>(null) }
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
 
-    fun persist() {
+    fun persistSession(session: ChatSession) {
+        scope.launch {
+            runCatching { store.saveSession(session, selectedModel) }
+                .onFailure { AppDiagnostics.recordEvent(context, "room_save_failure") }
+            store.saveCurrentId(session.id)
+        }
+    }
+
+    fun persistAll() {
         scope.launch {
             sessions.forEach { session ->
                 runCatching { store.saveSession(session, selectedModel) }
@@ -121,7 +133,7 @@ private fun AiApp(context: Context) {
     fun replaceSession(session: ChatSession, persistNow: Boolean = true) {
         sessions = sessions.map { if (it.id == session.id) session else it }
         currentId = session.id
-        if (persistNow) persist()
+        if (persistNow) persistSession(session)
     }
 
     fun makeNewChat() {
@@ -130,7 +142,7 @@ private fun AiApp(context: Context) {
         currentId = newSession.id
         input = ""
         pendingAttachments = emptyList()
-        persist()
+        persistSession(newSession)
     }
 
     fun copyText(text: String) {
@@ -186,7 +198,7 @@ private fun AiApp(context: Context) {
                     imported.forEach { byId[it.id] = it }
                     sessions = byId.values.sortedByDescending { it.updatedAt }
                     currentId = sessions.firstOrNull()?.id
-                    persist()
+                    persistAll()
                     Toast.makeText(context, "Chats imported", Toast.LENGTH_SHORT).show()
                 }
             }.onFailure {
@@ -207,7 +219,7 @@ private fun AiApp(context: Context) {
             ?: emptyFallback.id
         if (loaded.isEmpty()) {
             sessions = listOf(emptyFallback)
-            persist()
+            persistSession(emptyFallback)
         }
     }
 
@@ -304,6 +316,7 @@ private fun AiApp(context: Context) {
                         current.copy(updatedAt = System.currentTimeMillis()),
                         persistNow = true
                     )
+                    AppDiagnostics.recordEvent(context, "chat_cancelled")
                 }
                 is ChatResult.Failure -> {
                     AppDiagnostics.recordEvent(context, "chat_failure: " + result.message)
@@ -539,6 +552,7 @@ private fun AiApp(context: Context) {
                 store.saveCurrentId(id)
             },
             onSettings = { showSettings = true },
+            onStop = { client.cancelActive() },
             onAttach = { attachmentLauncher.launch(arrayOf("*/*")) },
             onGenerateImage = { startGeneration("image") },
             onGenerateVideo = { startGeneration("video") },
@@ -566,13 +580,19 @@ private fun AiApp(context: Context) {
                 } else if (currentId in idsToDelete) {
                     currentId = sessions.first().id
                 }
-                persist()
+                scope.launch {
+                    runCatching { store.deleteSessions(idsToDelete.toSet()) }
+                        .onFailure { AppDiagnostics.recordEvent(context, "room_delete_failure") }
+                }
+                val selected = currentId?.let { id -> sessions.firstOrNull { it.id == id } }
+                if (selected != null) store.saveCurrentId(selected.id)
             },
             onToggleStar = { id ->
                 sessions = sessions.map {
                     if (it.id == id) it.copy(starred = !it.starred) else it
                 }
-                persist()
+                val changed = sessions.firstOrNull { it.id == id }
+                if (changed != null) persistSession(changed)
             }
         )
 
