@@ -384,7 +384,7 @@ private fun AiApp(context: Context) {
             SettingsDialog(
                 settings = chatState.settings,
                 apiKey = apiKey,
-                appVersion = BuildConfig.VERSION_NAME,
+                appVersion = "2.0",
                 storageUsage = chatState.storage,
                 diagnostics = diagnostics,
                 connectionTesting = chatState.connectionTesting,
@@ -460,13 +460,13 @@ private fun AiApp(context: Context) {
     }
     AiTheme(themeMode, chatState.settings.animationsEnabled) {
         val activity = context as? Activity
+        val systemDark = isSystemInDarkTheme()
         val colors = com.nshd.geminifreellm.ui.LocalAppColors.current
         androidx.compose.runtime.SideEffect {
             activity?.window?.statusBarColor = colors.background.toArgb()
             activity?.window?.navigationBarColor = colors.background.toArgb()
             activity?.window?.let { window ->
                 val controller = WindowInsetsControllerCompat(window, window.decorView)
-                val systemDark = isSystemInDarkTheme()
                 val lightBars = when (themeMode) {
                     ThemeMode.LIGHT -> true
                     ThemeMode.DARK, ThemeMode.AMOLED -> false
