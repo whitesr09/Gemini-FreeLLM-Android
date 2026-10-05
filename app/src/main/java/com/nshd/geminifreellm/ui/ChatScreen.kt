@@ -72,10 +72,7 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
         HeaderButton("model", onModel); HeaderButton("add", onNewChat); HeaderButton("settings", onSettings)
     }
 }
-@Composable private fun HeaderButton(symbol: String, onClick: () -> Unit) { val c = LocalAppColors.current; Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick).semantics {
-            role = Role.Button
-            contentDescription = iconLabel(symbol)
-        }, contentAlignment = Alignment.Center) { BasicText(symbol, color = c.muted, fontSize = 21.sp) } }
+@Composable private fun HeaderButton(symbol: String, onClick: () -> Unit) { AppIconButton(symbol, iconLabel(symbol), onClick) }
 
 @Composable private fun HistoryDrawer(aiName: String, sessions: List<ChatSession>, currentId: String, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit, onSelect: (String) -> Unit, onSettings: () -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit, onUnarchive: (String) -> Unit) {
     val c = LocalAppColors.current
@@ -339,16 +336,7 @@ private fun Composer(
 
 @Composable
 private fun CircleTool(symbol: String, onClick: () -> Unit) {
-    val c = LocalAppColors.current
-    Box(
-        Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        BasicText(symbol, color = c.muted, fontSize = 20.sp)
-    }
+    AppIconButton(symbol, symbol.replaceFirstChar { it.uppercase() }, onClick)
 }
 
 @Composable
