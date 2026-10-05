@@ -349,6 +349,7 @@ class FreeLlmApiClient {
                     if (url.isBlank()) error("The image provider returned no usable image.")
                     downloadToFile(url, file, MAX_MEDIA_BYTES)
                 }
+                validateImageFile(file)
                 MediaResult.Success(GeneratedMedia(file, mimeType, file.name))
             }
         }.getOrElse { MediaResult.Failure(it.message ?: "Image generation failed.") }
@@ -483,11 +484,19 @@ class FreeLlmApiClient {
         val request = Request.Builder().url(parsed).get().build()
         mediaClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Generated media download failed (" + response.code + ").")
+            require(response.request.url.isHttps) { "Generated media redirect was not HTTPS." }
             val body = response.body ?: error("Generated media response is empty.")
             val length = body.contentLength()
             require(length < 0L || length <= maxBytes) { "Generated media exceeds the safe size limit." }
             body.byteStream().use { input -> FileOutputStream(target).use { output -> copyBounded(input, output, maxBytes) } }
         }
+    }
+
+    private fun validateImageFile(file: File) {
+        val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
+        require(options.outWidth > 0 && options.outHeight > 0) { "Generated image is not a valid decodable image." }
+        require(options.outWidth <= 16_384 && options.outHeight <= 16_384) { "Generated image dimensions are unsafe." }
     }
 
     private fun parseServerError(body: String): String? {
