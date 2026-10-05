@@ -19,7 +19,7 @@ enum class ExportFormat(val extension: String, val mime: String) {
 
 object DocumentExporter {
     fun renderText(message: ChatMessage, format: ExportFormat): File {
-        val file = File.createTempFile("ai_export_", ".\${format.extension}")
+        val file = File.createTempFile("ai_export_", ".${format.extension}")
         when (format) {
             ExportFormat.TEXT, ExportFormat.MARKDOWN -> file.writeText(message.text, StandardCharsets.UTF_8)
             ExportFormat.PDF -> writePdf(file, message.text)
@@ -96,7 +96,7 @@ object DocumentExporter {
 
             zip.putNextEntry(ZipEntry("word/document.xml"))
             val body = text.split("\n").joinToString("") { line ->
-                "<w:p><w:r><w:t xml:space=\"preserve\">\${escapeXml(line)}</w:t></w:r></w:p>"
+                "<w:p><w:r><w:t xml:space=\"preserve\">${escapeXml(line)}</w:t></w:r></w:p>"
             }
             val xml = """<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>$body</w:body></w:document>"""
             zip.write(xml.toByteArray())
