@@ -99,4 +99,9 @@ fun MediaPreviewDialog(
 
 }
 
-private fun formatBytes
+private fun formatBytes(value: Long): String = when {
+    value < 1024L -> "$value B"
+    value < 1024L * 1024L -> (value / 1024f).roundToInt().toString() + " KB"
+    value < 1024L * 1024L * 1024L -> (value / (1024f * 1024f)).roundToInt().toString() + " MB"
+    else -> (value / (1024f * 1024f * 1024f)).roundToInt().toString() + " GB"
+}
