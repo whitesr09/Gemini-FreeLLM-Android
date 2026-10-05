@@ -12,6 +12,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.io.ByteArrayInputStream
+import android.util.Base64InputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -47,7 +50,8 @@ data class ConnectionCheck(
     val modelsAvailable: Int,
     val visionAvailable: Boolean,
     val imageGenerationAvailable: Boolean,
-    val videoGenerationAvailable: Boolean
+    val videoGenerationAvailable: Boolean,
+    val latencyMs: Long
 )
 
 sealed interface MediaResult {
@@ -74,6 +78,14 @@ class FreeLlmApiClient {
         activeCall.compareAndSet(call, null)
     }
 
+    private fun normalizeBaseUrl(raw: String): String {
+        val value = raw.trim().trimEnd('/')
+        require(value.startsWith("https://") || value.startsWith("http://")) { "Base URL must use http:// or https://." }
+        require(!value.contains("\n") && !value.contains("\r") && !value.contains(" ")) { "Base URL contains invalid whitespace." }
+        val normalized = value.removeSuffix("/chat/completions").removeSuffix("/models")
+        return normalized.trimEnd('/')
+    }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
@@ -90,8 +102,8 @@ class FreeLlmApiClient {
         messages: List<ChatMessage>,
         onDelta: (String) -> Unit
     ): ChatResult = withContext(Dispatchers.IO) {
-        val cleanBase = baseUrl.trim().trimEnd('/')
-        if (cleanBase.isBlank()) return@withContext ChatResult.Failure("Base URL is empty.")
+        val cleanBase = runCatching { normalizeBaseUrl(baseUrl) }.getOrElse { return@withContext ChatResult.Failure(it.message ?: "Invalid Base URL.") }
+
         if (apiKey.isBlank()) return@withContext ChatResult.Failure("Unified API key is missing.")
 
         try {
@@ -208,7 +220,7 @@ class FreeLlmApiClient {
     }
     suspend fun fetchModels(baseUrl: String, apiKey: String): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
         runCatching {
-            val cleanBase = baseUrl.trim().trimEnd('/')
+            val cleanBase = normalizeBaseUrl(baseUrl)
             val request = Request.Builder()
                 .url(cleanBase + "/models")
                 .header("Authorization", "Bearer " + apiKey)
@@ -216,7 +228,9 @@ class FreeLlmApiClient {
                 .get()
                 .build()
 
+            val started = System.nanoTime()
             client.newCall(request).execute().use { response ->
+                val latencyMs = (System.nanoTime() - started) / 1_000_000L
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) error(parseServerError(body) ?: "Couldn't load models (" + response.code + ").")
                 val data = JSONObject(body).optJSONArray("data") ?: JSONArray()
@@ -248,8 +262,7 @@ class FreeLlmApiClient {
 
     suspend fun testConnection(baseUrl: String, apiKey: String): Result<ConnectionCheck> = withContext(Dispatchers.IO) {
         runCatching {
-            val cleanBase = baseUrl.trim().trimEnd('/')
-            require(cleanBase.startsWith("https://") || cleanBase.startsWith("http://")) { "Enter a valid server URL first." }
+            val cleanBase = normalizeBaseUrl(baseUrl)
             require(apiKey.isNotBlank()) { "API key is missing. Add it in Settings." }
             val request = Request.Builder()
                 .url(cleanBase + "/models")
@@ -275,7 +288,8 @@ class FreeLlmApiClient {
                     modelsAvailable = models.size,
                     visionAvailable = models.any { it.optBoolean("vision") || it.optBoolean("supports_vision") },
                     imageGenerationAvailable = models.any { it.optBoolean("image_generation") || it.optBoolean("supports_image_generation") },
-                    videoGenerationAvailable = models.any { it.optBoolean("video_generation") || it.optBoolean("supports_video_generation") }
+                    videoGenerationAvailable = models.any { it.optBoolean("video_generation") || it.optBoolean("supports_video_generation") },
+                    latencyMs = latencyMs
                 )
             }
         }
@@ -291,7 +305,7 @@ class FreeLlmApiClient {
         runCatching {
             val cleanBase = baseUrl.trim().trimEnd('/')
             val payload = JSONObject()
-                .put("model", "auto")
+                .put("model", model.ifBlank { "auto" })
                 .put("prompt", prompt)
                 .put("n", 1)
                 .put("response_format", "url")
@@ -308,17 +322,22 @@ class FreeLlmApiClient {
                 if (!response.isSuccessful) error(parseServerError(body) ?: "Image generation failed (" + response.code + ").")
                 val item = JSONObject(body).optJSONArray("data")?.optJSONObject(0)
                     ?: error("The image provider returned no image.")
-                val bytes = if (item.has("b64_json")) {
-                    Base64.decode(item.optString("b64_json"), Base64.DEFAULT)
+                val dir = File(context.filesDir, "generated").apply { mkdirs() }
+                val mimeType = item.optString("mime_type").takeIf { it.startsWith("image/") } ?: "image/png"
+                val extension = if (mimeType == "image/jpeg") "jpg" else if (mimeType == "image/webp") "webp" else "png"
+                val file = File(dir, "image_" + System.currentTimeMillis() + ".$extension")
+                if (item.has("b64_json")) {
+                    val encoded = item.optString("b64_json")
+                    require(encoded.length <= MAX_BASE64_MEDIA_CHARS) { "Generated image is too large to store safely." }
+                    Base64InputStream(ByteArrayInputStream(encoded.toByteArray()), Base64.DEFAULT).use { input ->
+                        FileOutputStream(file).use { output -> copyBounded(input, output, MAX_MEDIA_BYTES) }
+                    }
                 } else {
                     val url = item.optString("url")
                     if (url.isBlank()) error("The image provider returned no usable image.")
-                    downloadBytes(url)
+                    downloadToFile(url, file, MAX_MEDIA_BYTES)
                 }
-                val dir = File(context.filesDir, "generated").apply { mkdirs() }
-                val file = File(dir, "image_" + System.currentTimeMillis() + ".png")
-                file.writeBytes(bytes)
-                MediaResult.Success(GeneratedMedia(file, "image/png", file.name))
+                MediaResult.Success(GeneratedMedia(file, mimeType, file.name))
             }
         }.getOrElse { MediaResult.Failure(it.message ?: "Image generation failed.") }
     }
@@ -431,6 +450,32 @@ class FreeLlmApiClient {
             val choices = JSONObject(body).optJSONArray("choices") ?: JSONArray()
             choices.optJSONObject(0)?.optJSONObject("message")?.optString("content").orEmpty()
         }.getOrDefault("")
+    }
+
+    private fun copyBounded(input: java.io.InputStream, output: java.io.OutputStream, maxBytes: Long): Long {
+        val buffer = ByteArray(32 * 1024)
+        var total = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            require(total <= maxBytes) { "Generated media exceeds the safe size limit." }
+            output.write(buffer, 0, read)
+        }
+        return total
+    }
+
+    private fun downloadToFile(url: String, target: File, maxBytes: Long) {
+        val parsed = okhttp3.HttpUrl.parse(url) ?: error("Generated media URL is invalid.")
+        require(parsed.isHttps) { "Generated media URL must use HTTPS." }
+        val request = Request.Builder().url(parsed).get().build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) error("Generated media download failed (" + response.code + ").")
+            val body = response.body ?: error("Generated media response is empty.")
+            val length = body.contentLength()
+            require(length < 0L || length <= maxBytes) { "Generated media exceeds the safe size limit." }
+            body.byteStream().use { input -> FileOutputStream(target).use { output -> copyBounded(input, output, maxBytes) } }
+        }
     }
 
     private fun parseServerError(body: String): String? {
