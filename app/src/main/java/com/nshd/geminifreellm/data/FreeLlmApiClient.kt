@@ -66,18 +66,12 @@ class FreeLlmApiClient {
                     ChatMessage.Role.ASSISTANT -> "assistant"
                     ChatMessage.Role.ERROR -> "user"
                 }
-
-                val content = if (message.role == ChatMessage.Role.USER && message.attachments.isNotEmpty()) {
+                val content: Any = if (message.role == ChatMessage.Role.USER && message.attachments.isNotEmpty()) {
                     buildContentParts(context, message)
                 } else {
                     message.text
                 }
-
-                jsonMessages.put(
-                    JSONObject()
-                        .put("role", role)
-                        .put("content", content)
-                )
+                jsonMessages.put(JSONObject().put("role", role).put("content", content))
             }
 
             val payload = JSONObject()
@@ -96,29 +90,27 @@ class FreeLlmApiClient {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
-                    return@use ChatResult.Failure(
-                        when (response.code) {
-                            401, 403 -> "The API key was rejected. Check your Unified API key."
-                            404 -> "API endpoint not found. Check the Base URL."
-                            429 -> "The provider is rate-limited. Try again in a moment."
-                            in 500..599 -> "Server error (" + response.code + "). Try again."
-                            else -> parseServerError(errorBody) ?: "Request failed (" + response.code + ")."
-                        }
-                    )
+                    val message = when (response.code) {
+                        401, 403 -> "The API key was rejected. Check your Unified API key."
+                        404 -> "API endpoint not found. Check the Base URL."
+                        429 -> "The provider is rate-limited. Try again in a moment."
+                        in 500..599 -> "Server error (" + response.code + "). Try again."
+                        else -> parseServerError(errorBody) ?: "Request failed (" + response.code + ")."
+                    }
+                    return@withContext ChatResult.Failure(message)
                 }
 
                 val source = response.body?.source()
-                    ?: return@use ChatResult.Failure("The server returned an empty response.")
+                if (source == null) return@withContext ChatResult.Failure("The server returned an empty response.")
 
                 val contentType = response.header("Content-Type").orEmpty()
                 val textBuilder = StringBuilder()
-
                 if (!contentType.contains("text/event-stream", ignoreCase = true)) {
                     val body = source.buffer().readUtf8()
                     val text = parseChatText(body)
-                    if (text.isBlank()) return@use ChatResult.Failure("The server returned an unreadable response.")
+                    if (text.isBlank()) return@withContext ChatResult.Failure("The server returned an unreadable response.")
                     onDeltaOnMain(onDelta, text)
-                    return@use ChatResult.Success(text)
+                    return@withContext ChatResult.Success(text)
                 }
 
                 while (!source.exhausted()) {
@@ -126,16 +118,11 @@ class FreeLlmApiClient {
                     if (!line.startsWith("data:")) continue
                     val raw = line.removePrefix("data:").trim()
                     if (raw.isBlank() || raw == "[DONE]") continue
-
                     val delta = runCatching {
                         val json = JSONObject(raw)
-                        val choices = json.optJSONArray("choices") ?: return@runCatching ""
-                        choices.optJSONObject(0)
-                            ?.optJSONObject("delta")
-                            ?.optString("content")
-                            .orEmpty()
+                        val choices = json.optJSONArray("choices") ?: JSONArray()
+                        choices.optJSONObject(0)?.optJSONObject("delta")?.optString("content").orEmpty()
                     }.getOrDefault("")
-
                     if (delta.isNotEmpty()) {
                         textBuilder.append(delta)
                         onDeltaOnMain(onDelta, delta)
@@ -152,7 +139,6 @@ class FreeLlmApiClient {
             ChatResult.Failure(e.message?.takeIf { it.isNotBlank() } ?: "Something went wrong.")
         }
     }
-
     suspend fun fetchModels(baseUrl: String, apiKey: String): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
         runCatching {
             val cleanBase = baseUrl.trim().trimEnd('/')
