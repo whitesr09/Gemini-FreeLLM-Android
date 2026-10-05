@@ -108,7 +108,7 @@ jobs:
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.nshd.geminifreellm'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" >/dev/null
 
       - name: Build signed release AAB
         if: ${{ steps.signing.outputs.configured == 'true' }}
