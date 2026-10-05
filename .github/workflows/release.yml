@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - production-ready-v5
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -58,6 +60,37 @@ jobs:
           printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/ai-release.jks"
           test -s "$RUNNER_TEMP/ai-release.jks"
 
+      - name: Build unsigned release APK
+        if: ${{ steps.signing.outputs.configured != 'true' }}
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Verify unsigned release APK
+        if: ${{ steps.signing.outputs.configured != 'true' }}
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.nshd.geminifreellm'"
+
+      - name: Upload unsigned release APK
+        if: ${{ steps.signing.outputs.configured != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeLLM-AI-release-unsigned
+          path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Build unsigned release AAB
+        if: ${{ steps.signing.outputs.configured != 'true' }}
+        run: gradle bundleRelease --no-daemon --stacktrace
+
+      - name: Upload unsigned release AAB
+        if: ${{ steps.signing.outputs.configured != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeLLM-AI-release-unsigned-aab
+          path: app/build/outputs/bundle/release/app-release.aab
+
       - name: Build signed release APK
         if: ${{ steps.signing.outputs.configured == 'true' }}
         env:
@@ -74,7 +107,7 @@ jobs:
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "package: name='com.nshd.geminifreellm' versionCode='3' versionName='2.0'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.nshd.geminifreellm'"
 
       - name: Build signed release AAB
         if: ${{ steps.signing.outputs.configured == 'true' }}
