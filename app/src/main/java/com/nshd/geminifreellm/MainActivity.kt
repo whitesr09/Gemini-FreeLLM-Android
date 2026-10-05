@@ -187,6 +187,7 @@ private fun AiApp(activity: MainActivity) {
     var generationMode by remember { mutableStateOf<String?>(null) }
     var generationPrompt by remember { mutableStateOf("") }
     var clearDialog by remember { mutableStateOf(false) }
+    var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var draftReady by rememberSaveable { mutableStateOf(false) }
 
     val speechLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
