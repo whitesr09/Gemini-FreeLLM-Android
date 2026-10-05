@@ -38,6 +38,8 @@ import com.nshd.geminifreellm.data.StorageManager
 import com.nshd.geminifreellm.data.BackupManager
 import com.nshd.geminifreellm.data.DocumentExporter
 import com.nshd.geminifreellm.data.DocumentProcessor
+import com.nshd.geminifreellm.data.DraftRepository
+import com.nshd.geminifreellm.data.DraftState
 import com.nshd.geminifreellm.data.ExportFormat
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.data.MediaResult
@@ -61,6 +63,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
@@ -112,6 +115,7 @@ private fun AiApp(context: Context) {
     val client = remember { FreeLlmApiClient() }
     val scope = rememberCoroutineScope()
     val ids = remember { AtomicLong(System.currentTimeMillis()) }
+    val draftRepository = remember { DraftRepository(context) }
 
     DisposableEffect(Unit) {
         onDispose { client.cancelActive() }
@@ -152,6 +156,7 @@ private fun AiApp(context: Context) {
     var generationMode by remember { mutableStateOf<String?>(null) }
     var generationPrompt by remember { mutableStateOf("") }
     var clearDialog by remember { mutableStateOf(false) }
+    var draftReady by rememberSaveable { mutableStateOf(false) }
 
     val speechLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -282,6 +287,17 @@ private fun AiApp(context: Context) {
         }
     }
 
+    LaunchedEffect(activeSession.id) {
+        draftReady = false
+        input = withContext(Dispatchers.IO) { draftRepository.load(activeSession.id).text }
+        draftReady = true
+    }
+    LaunchedEffect(activeSession.id, input, draftReady) {
+        if (draftReady) {
+            delay(250)
+            withContext(Dispatchers.IO) { draftRepository.save(activeSession.id, DraftState(input)) }
+        }
+    }
     LaunchedEffect(baseUrl, apiKey) {
         chatVm.refreshModels(baseUrl, apiKey)
     }

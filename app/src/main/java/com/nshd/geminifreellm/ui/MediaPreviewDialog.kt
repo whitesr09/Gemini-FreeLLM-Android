@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
@@ -33,6 +36,13 @@ fun MediaPreviewDialog(
     onRegenerate: (() -> Unit)?
 ) {
     val file = remember(attachment.localPath) { File(attachment.localPath) }
+    var videoView by remember { mutableStateOf<VideoView?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, videoView) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) videoView?.pause() }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); videoView?.stopPlayback(); videoView = null }
+    }
     val isVideo = attachment.mimeType.startsWith("video/") || attachment.kind == Attachment.Kind.GENERATED_VIDEO
     AppDialog(
         title = attachment.name,
@@ -45,6 +55,7 @@ fun MediaPreviewDialog(
                     AndroidView(
                         factory = { context ->
                             VideoView(context).apply {
+                                videoView = this
                                 layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                                 val controller = MediaController(context)
                                 controller.setAnchorView(this)

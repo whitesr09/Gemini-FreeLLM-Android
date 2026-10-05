@@ -67,9 +67,9 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
 @Composable private fun TopBar(aiName: String, selectedModel: String, busy: Boolean, onMenu: () -> Unit, onNewChat: () -> Unit, onSettings: () -> Unit, onModel: () -> Unit) {
     val c = LocalAppColors.current
     Row(Modifier.fillMaxWidth().height(60.dp).background(c.background).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        HeaderButton("☰", onMenu); Spacer(Modifier.width(8.dp)); AiOrb(Modifier.size(30.dp), busy); Spacer(Modifier.width(10.dp))
+        HeaderButton("menu", onMenu); Spacer(Modifier.width(8.dp)); AiOrb(Modifier.size(30.dp), busy); Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) { BasicText(aiName.ifBlank { "Assistant" }, color = c.text, fontSize = 15.sp, maxLines = 1); BasicText(selectedModel.ifBlank { "Auto" }, color = c.muted, fontSize = 11.sp, maxLines = 1) }
-        HeaderButton("⌄", onModel); HeaderButton("+", onNewChat); HeaderButton("⚙", onSettings)
+        HeaderButton("model", onModel); HeaderButton("add", onNewChat); HeaderButton("settings", onSettings)
     }
 }
 @Composable private fun HeaderButton(symbol: String, onClick: () -> Unit) { val c = LocalAppColors.current; Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick).semantics {
@@ -113,8 +113,8 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
                         BasicText(if (selecting) if (isSelected) "✓" else "○" else "•", color = if (isSelected) c.accent else c.muted, fontSize = 16.sp); Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) { BasicText(item.title, color = c.text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); item.preview().takeIf { it.isNotBlank() }?.let { BasicText(it, color = c.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) } }
                         if (!selecting) {
-                            BasicText(if (item.starred) "★" else "☆", color = if (item.starred) c.accent else c.muted, fontSize = 16.sp, modifier = Modifier.clickable { onToggleStar(item.id) }.padding(4.dp))
-                            BasicText(if (item.archived) "↗" else "⌄", color = c.muted, fontSize = 13.sp, modifier = Modifier.clickable { if (item.archived) onUnarchive(item.id) else onArchive(item.id) }.padding(5.dp))
+                            AppIconButton(if (item.starred) "star" else "starBorder", if (item.starred) "Unstar conversation" else "Star conversation") { onToggleStar(item.id) }
+                            AppIconButton(if (item.archived) "unarchive" else "archive", if (item.archived) "Unarchive conversation" else "Archive conversation") { if (item.archived) onUnarchive(item.id) else onArchive(item.id) }
                         }
                     }
                 }
@@ -142,7 +142,7 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-@Composable private fun SearchField(query: String, onChange: (String) -> Unit) { val c = LocalAppColors.current; BasicTextField(value = query, onValueChange = onChange, modifier = Modifier.fillMaxWidth().height(44.dp).background(c.elevated, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 11.dp), singleLine = true, textStyle = TextStyle(color = c.text, fontSize = 14.sp), cursorBrush = SolidColor(c.accent), decorationBox = { inner -> Box { if (query.isBlank()) BasicText("⌕  Search chats", color = c.muted, fontSize = 14.sp); inner() } }) }
+@Composable private fun SearchField(query: String, onChange: (String) -> Unit) { val c = LocalAppColors.current; BasicTextField(value = query, onValueChange = onChange, modifier = Modifier.fillMaxWidth().height(44.dp).background(c.elevated, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 11.dp), singleLine = true, textStyle = TextStyle(color = c.text, fontSize = 14.sp), cursorBrush = SolidColor(c.accent), decorationBox = { inner -> Box { if (query.isBlank()) Row(verticalAlignment = Alignment.CenterVertically) { AppIcon("search", "Search chats", Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); BasicText("Search chats", color = c.muted, fontSize = 14.sp) }; inner() } }) }
 
 @Composable private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (String) -> Unit) { val c = LocalAppColors.current; Column(Modifier.widthIn(min = 230.dp, max = 320.dp).background(c.surface, RoundedCornerShape(14.dp)).border(1.dp, c.border, RoundedCornerShape(14.dp)).padding(8.dp)) { val choices = models.filter { it.available }.ifEmpty { listOf(ModelInfo("auto", "Auto", true)) }; choices.forEach { model -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).clickable { onSelect(model.id) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { BasicText(model.name, color = c.text, fontSize = 13.sp); if (model.id != model.name) BasicText(model.id, color = c.muted, fontSize = 10.sp) }; if (model.id == selected) BasicText("✓", color = c.accent, fontSize = 16.sp) } } } }
 
@@ -170,19 +170,16 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
             if (!user) AiOrb(Modifier.size(28.dp), false)
             Column(horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
                 BasicText(if (user) "You" else if (error) "Error" else aiName, color = if (error) c.error else c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.height(5.dp))
-                if (user) Box(Modifier.background(c.userBubble, ChatRadius).padding(horizontal = 15.dp, vertical = 11.dp)) { MessageText(message.text, error) } else MessageText(message.text, error)
+                if (user) Box(Modifier.background(c.userBubble, ChatRadius).padding(horizontal = 15.dp, vertical = 11.dp)) { MessageText(message.text, error, onCopy) } else MessageText(message.text, error)
                 if (message.attachments.isNotEmpty()) { Spacer(Modifier.height(8.dp)); AttachmentList(message.attachments, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, { attachment -> onRegenerateMedia(message, attachment) }) }
                 if (message.text.isNotBlank() && !error) MessageActions(message, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport)
             }
         }
     }
 }
-@Composable private fun MessageText(text: String, error: Boolean) { val c = LocalAppColors.current; if (text.isBlank()) return; val chunks = remember(text) { text.split("```") }; Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { chunks.forEachIndexed { index, chunk -> if (index % 2 == 1) Box(Modifier.fillMaxWidth().background(c.surface, RoundedCornerShape(10.dp)).border(1.dp, c.border, RoundedCornerShape(10.dp)).horizontalScroll(rememberScrollState()).padding(12.dp)) { BasicText(chunk.trim(), color = c.text, fontSize = 12.sp, fontFamily = FontFamily.Monospace, lineHeight = 18.sp) } else if (chunk.isNotBlank()) BasicText(chunk.trim(), color = if (error) c.error else c.text, fontSize = 15.sp, lineHeight = 23.sp) } } }
+@Composable private fun MessageText(text:String,error:Boolean,onCopyCode:(String)->Unit){if(text.isNotBlank())MarkdownMessage(text,error,onCopyCode)}
 @Composable private fun MessageActions(message: ChatMessage, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit) { Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) { ActionText("Copy") { onCopy(message.text) }; ActionText("Share") { onShare(message.text) }; ActionText("Read") { onSpeak(message.text) }; if (message.role == ChatMessage.Role.USER) ActionText("Edit") { onEdit(message.id, message.text) }; ActionText("Retry") { onRegenerate(message.id) }; ActionText("Export") { onExport(message, ExportFormat.MARKDOWN) }; ActionText("TXT") { onExport(message, ExportFormat.TEXT) }; ActionText("JSON") { onExport(message, ExportFormat.JSON) }; ActionText("HTML") { onExport(message, ExportFormat.HTML) } } }
-@Composable private fun ActionText(label: String, onClick: () -> Unit) { BasicText(label, color = LocalAppColors.current.muted, fontSize = 10.sp, modifier = Modifier.clickable(onClick = onClick).semantics {
-            role = Role.Button
-            contentDescription = label
-        }.padding(horizontal = 7.dp, vertical = 5.dp)) }
+@Composable private fun ActionText(label:String,onClick:()->Unit){val icon=when(label){"Copy"->"copy";"Share"->"share";"Read"->"read";"Edit"->"edit";"Retry"->"retry";"Export"->"save";else->null};if(icon!=null)AppIconButton(icon,label,onClick)else Box(Modifier.height(48.dp).clickable(onClick=onClick).semantics{role=Role.Button;contentDescription=label}.padding(horizontal=8.dp),contentAlignment=Alignment.Center){BasicText(label,color=LocalAppColors.current.muted,fontSize=10.sp)}}
 
 @Composable private fun AttachmentList(attachments:List<Attachment>,onExport:(Attachment)->Unit,onOpen:(Attachment)->Unit,onDelete:(Attachment)->Unit,onShare:(Attachment)->Unit,onRegenerate:(Attachment)->Unit){
  val c=LocalAppColors.current;LazyRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){items(attachments,key={it.id}){a->
@@ -290,21 +287,21 @@ private fun Composer(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    CircleTool("+") { toolsOpen = !toolsOpen }
-                    CircleTool("⌕") { onVoice() }
+                    CircleTool("add") { toolsOpen = !toolsOpen }
+                    CircleTool("mic") { onVoice() }
 
                     if (toolsOpen) {
-                        CircleTool("▣") {
+                        CircleTool("attach") {
                             toolsOpen = false
                             onAttach()
                         }
-                        CircleTool(if (webSearchEnabled) "●" else "○") { onToggleWebSearch() }
-                        CircleTool(if (localToolsEnabled) "◇" else "·") { onToggleLocalTools() }
-                        if (imageSupported) CircleTool("▧") {
+                        CircleTool("web") { onToggleWebSearch() }
+                        CircleTool("tools") { onToggleLocalTools() }
+                        if (imageSupported) CircleTool("image") {
                             toolsOpen = false
                             onGenerateImage()
                         }
-                        if (videoSupported) CircleTool("▶") {
+                        if (videoSupported) CircleTool("video") {
                             toolsOpen = false
                             onGenerateVideo()
                         }
@@ -323,11 +320,7 @@ private fun Composer(
                             .clickable(enabled = canStop || canSend, onClick = if (canStop) onStop else onSend),
                         contentAlignment = Alignment.Center
                     ) {
-                        BasicText(
-                            if (canStop) "■" else "↑",
-                            color = if (canStop || canSend) Color.White else c.muted,
-                            fontSize = 22.sp
-                        )
+                        AppIcon(if (canStop) "stop" else "send", if (canStop) "Stop generation" else "Send message", Modifier.size(24.dp), if (canStop || canSend) Color.White else c.muted)
                     }
                 }
             }
