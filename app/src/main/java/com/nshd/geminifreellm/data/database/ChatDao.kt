@@ -45,6 +45,9 @@ interface ChatDao {
     @Query("DELETE FROM attachments WHERE messageId IN (SELECT id FROM chat_messages WHERE sessionId = :sessionId)")
     suspend fun deleteAttachmentsForSession(sessionId: String)
 
+    @Query("SELECT localPath FROM attachments")
+    suspend fun getAllAttachmentPaths(): List<String>
+
     @Query("DELETE FROM chat_sessions")
     suspend fun clearAll()
 }
