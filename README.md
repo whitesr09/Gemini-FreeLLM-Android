@@ -28,7 +28,7 @@ The app currently defaults to the project’s HTTPS-hosted FreeLLMAPI endpoint:
 
 You can replace it with your own FreeLLMAPI base URL in Settings.
 
-For local development, HTTP may be used explicitly (for example `http://127.0.0.1:3001/v1`), but production credentials should not be sent over cleartext HTTP.
+The Android client requires HTTPS for all configured FreeLLMAPI endpoints. For local development, expose the server through a trusted HTTPS tunnel or reverse proxy rather than weakening Android cleartext/TLS policy.
 
 The app sends prompts and supported attachment-derived content to the configured FreeLLMAPI server. **“Free” does not mean private**: the server operator controls the upstream provider configuration and can determine how requests are processed. Do not enter credentials or sensitive material unless you trust the configured server.
 
