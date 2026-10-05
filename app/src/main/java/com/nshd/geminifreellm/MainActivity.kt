@@ -28,7 +28,6 @@ import com.nshd.geminifreellm.data.DocumentProcessor
 import com.nshd.geminifreellm.data.ExportFormat
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.data.MediaResult
-import com.nshd.geminifreellm.data.ModelInfo
 import com.nshd.geminifreellm.model.Attachment
 import com.nshd.geminifreellm.model.ChatMessage
 import com.nshd.geminifreellm.model.ChatSession
@@ -90,7 +89,6 @@ private fun AiApp(context: Context) {
         )
     }
     var selectedModel by remember { mutableStateOf(prefs.getString("model", "auto") ?: "auto") }
-    var models by remember { mutableStateOf<List<ModelInfo>>(emptyList()) }
     var diagnostics by remember { mutableStateOf(AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())) }
 
     val sessions = chatState.sessions
