@@ -583,7 +583,7 @@ private fun AiApp(context: Context) {
                     store.saveCurrentId(currentId!!)
                 }
                 scope.launch {
-                    runCatching { store.deleteSessions(idsToDelete.toList()) }
+                    runCatching { store.deleteSessions(idsToDelete) }
                         .onFailure { AppDiagnostics.recordEvent(context, "room_delete_failure") }
                 }
             },
