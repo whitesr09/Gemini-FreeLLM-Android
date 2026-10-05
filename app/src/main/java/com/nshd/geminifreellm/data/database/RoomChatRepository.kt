@@ -42,8 +42,7 @@ class RoomChatRepository(context: Context) {
                     createdAt = session.createdAt,
                     updatedAt = session.updatedAt,
                     starred = session.starred,
-                    model = model,
-                    parentMessageId = message.parentMessageId
+                    model = model
                 )
             )
             dao.deleteAttachmentsForSession(session.id)
@@ -56,7 +55,8 @@ class RoomChatRepository(context: Context) {
                     content = message.text,
                     timestamp = message.timestamp,
                     status = if (message.role == ChatMessage.Role.ERROR) "error" else "complete",
-                    model = model
+                    model = model,
+                    parentMessageId = message.parentMessageId
                 )
             }
             dao.upsertMessages(messages)
