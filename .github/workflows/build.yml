@@ -6,6 +6,7 @@ on:
       - main
       - advanced-v2-safe
       - production-ready-v5
+      - production-ready-final
   pull_request:
     branches:
       - main
