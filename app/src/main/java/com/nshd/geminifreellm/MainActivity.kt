@@ -86,7 +86,12 @@ class MainActivity : ComponentActivity() {
 
     fun requestUnlock() {
         val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-        if (!keyguard.isKeyguardSecure || unlockPromptShowing) return
+        if (!keyguard.isKeyguardSecure) {
+            _locked.value = false
+            unlockPromptShowing = false
+            return
+        }
+        if (unlockPromptShowing) return
         unlockPromptShowing = true
         runCatching {
             startActivityForResult(
@@ -436,7 +441,7 @@ private fun AiApp(activity: MainActivity) {
     }
 
     val settingsContent: @Composable () -> Unit = {
-        if (showSettings) {
+        if (showSettings && !locked) {
             SettingsDialog(
                 settings = chatState.settings,
                 apiKey = apiKey,
