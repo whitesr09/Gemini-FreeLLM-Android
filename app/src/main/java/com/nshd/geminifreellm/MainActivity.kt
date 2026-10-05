@@ -21,14 +21,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.nshd.geminifreellm.data.ChatResult
 import com.nshd.geminifreellm.data.AppDiagnostics
 import com.nshd.geminifreellm.data.DocumentExporter
 import com.nshd.geminifreellm.data.DocumentProcessor
 import com.nshd.geminifreellm.data.ExportFormat
 import com.nshd.geminifreellm.data.FreeLlmApiClient
-import com.nshd.geminifreellm.data.GeneratedMedia
-import com.nshd.geminifreellm.data.database.RoomChatRepository
 import com.nshd.geminifreellm.data.MediaResult
 import com.nshd.geminifreellm.data.ModelInfo
 import com.nshd.geminifreellm.model.Attachment
@@ -45,6 +42,8 @@ import com.nshd.geminifreellm.ui.ChatScreen
 import com.nshd.geminifreellm.ui.SettingsDialog
 import com.nshd.geminifreellm.ui.ThemeMode
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
@@ -62,7 +61,8 @@ class MainActivity : ComponentActivity() {
 private fun AiApp(context: Context) {
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     val secureCredentials = remember { SecureCredentialStore(context).also { it.migrateLegacy(prefs) } }
-    val store = remember { RoomChatRepository(context) }
+    val chatVm: ChatViewModel = viewModel()
+    val chatState by chatVm.uiState.collectAsState()
     val client = remember { FreeLlmApiClient() }
     val scope = rememberCoroutineScope()
     val ids = remember { AtomicLong(System.currentTimeMillis()) }
@@ -92,17 +92,16 @@ private fun AiApp(context: Context) {
     var models by remember { mutableStateOf<List<ModelInfo>>(emptyList()) }
     var diagnostics by remember { mutableStateOf(AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())) }
 
-    var sessions by remember { mutableStateOf<List<ChatSession>>(emptyList()) }
-    var currentId by remember { mutableStateOf<String?>(null) }
-
-    val emptyFallback = remember { store.newSession() }
+    val sessions = chatState.sessions
+    val currentId = chatState.currentId
     val activeSession = sessions.firstOrNull { it.id == currentId }
         ?: sessions.firstOrNull()
-        ?: emptyFallback
+        ?: remember { ChatSession("draft", "New chat", System.currentTimeMillis(), System.currentTimeMillis()) }
 
     var input by rememberSaveable { mutableStateOf("") }
     var pendingAttachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
-    var busy by remember { mutableStateOf(false) }
+    var mediaBusy by remember { mutableStateOf(false) }
+    val busy = chatState.busy || mediaBusy
     var showSettings by remember { mutableStateOf(apiKey.isBlank()) }
     var showOnboarding by remember { mutableStateOf(aiName.isBlank()) }
     var generationMode by remember { mutableStateOf<String?>(null) }
@@ -136,14 +135,7 @@ private fun AiApp(context: Context) {
         if (persistNow) persistSession(session)
     }
 
-    fun makeNewChat() {
-        val newSession = store.newSession()
-        sessions = listOf(newSession) + sessions
-        currentId = newSession.id
-        input = ""
-        pendingAttachments = emptyList()
-        persistSession(newSession)
-    }
+    fun makeNewChat() = chatVm.newChat()
 
     fun copyText(text: String) {
         val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -191,35 +183,12 @@ private fun AiApp(context: Context) {
             runCatching {
                 val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
                     ?: error("Couldn't read the backup.")
-                store.importJson(raw)
-            }.onSuccess { imported ->
-                if (imported.isNotEmpty()) {
-                    val byId = sessions.associateBy { it.id }.toMutableMap()
-                    imported.forEach { byId[it.id] = it }
-                    sessions = byId.values.sortedByDescending { it.updatedAt }
-                    currentId = sessions.firstOrNull()?.id
-                    persistAll()
-                    Toast.makeText(context, "Chats imported", Toast.LENGTH_SHORT).show()
-                }
+                chatVm.importJson(raw, selectedModel)
+            }.onSuccess {
+                Toast.makeText(context, "Chats imported", Toast.LENGTH_SHORT).show()
             }.onFailure {
                 Toast.makeText(context, it.message ?: "Import failed", Toast.LENGTH_LONG).show()
             }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        val loaded = runCatching { store.loadSessions() }.getOrElse {
-            AppDiagnostics.recordEvent(context, "room_load_failure")
-            emptyList()
-        }
-        sessions = loaded
-        val savedId = store.currentId()
-        currentId = savedId?.takeIf { id -> loaded.any { it.id == id } }
-            ?: loaded.firstOrNull()?.id
-            ?: emptyFallback.id
-        if (loaded.isEmpty()) {
-            sessions = listOf(emptyFallback)
-            persistSession(emptyFallback)
         }
     }
 
@@ -240,161 +209,13 @@ private fun AiApp(context: Context) {
 
     fun sendMessage() {
         if (busy || (input.isBlank() && pendingAttachments.isEmpty())) return
-
-        val userText = input.trim()
-        val attachments = pendingAttachments
-        val userMessage = ChatMessage(
-            id = ids.incrementAndGet(),
-            text = userText,
-            role = ChatMessage.Role.USER,
-            attachments = attachments
-        )
-        val assistantId = ids.incrementAndGet()
-
-        val title = if (activeSession.title == "New chat") {
-            (userText.ifBlank { attachments.firstOrNull()?.name ?: "New chat" })
-                .replace("\n", " ")
-                .trim()
-                .take(60)
-                .ifBlank { "New chat" }
-        } else activeSession.title
-
-        val assistantPlaceholder = ChatMessage(
-            id = assistantId,
-            text = "",
-            role = ChatMessage.Role.ASSISTANT
-        )
-
-        val requestMessages = activeSession.messages + userMessage
-        replaceSession(
-            activeSession.copy(
-                title = title,
-                updatedAt = System.currentTimeMillis(),
-                messages = requestMessages + assistantPlaceholder
-            ),
-            persistNow = true
-        )
+        chatVm.sendMessage(baseUrl, apiKey, selectedModel, input, pendingAttachments)
         input = ""
         pendingAttachments = emptyList()
-        busy = true
-
-        scope.launch {
-            val result = client.send(
-                context = context,
-                baseUrl = baseUrl,
-                apiKey = apiKey,
-                model = selectedModel,
-                messages = requestMessages
-            ) { delta ->
-                val current = sessions.firstOrNull { it.id == activeSession.id } ?: return@send
-                val index = current.messages.indexOfFirst { it.id == assistantId }
-                if (index >= 0) {
-                    val oldText = current.messages[index].text
-                    val updated = current.messages.toMutableList()
-                    updated[index] = current.messages[index].copy(text = oldText + delta)
-                    replaceSession(
-                        current.copy(messages = updated, updatedAt = System.currentTimeMillis()),
-                        persistNow = false
-                    )
-                }
-            }
-
-            when (result) {
-                is ChatResult.Success -> {
-                    val current = sessions.firstOrNull { it.id == activeSession.id } ?: activeSession
-                    val updated = current.messages.map { message ->
-                        if (message.id == assistantId) message.copy(text = result.text) else message
-                    }
-                    replaceSession(
-                        current.copy(messages = updated, updatedAt = System.currentTimeMillis()),
-                        persistNow = true
-                    )
-                }
-                is ChatResult.Cancelled -> {
-                    val current = sessions.firstOrNull { it.id == activeSession.id } ?: activeSession
-                    replaceSession(
-                        current.copy(updatedAt = System.currentTimeMillis()),
-                        persistNow = true
-                    )
-                    AppDiagnostics.recordEvent(context, "chat_cancelled")
-                }
-                is ChatResult.Failure -> {
-                    AppDiagnostics.recordEvent(context, "chat_failure: " + result.message)
-                    val current = sessions.firstOrNull { it.id == activeSession.id } ?: activeSession
-                    val updated = current.messages.map { message ->
-                        if (message.id == assistantId) {
-                            ChatMessage(
-                                id = message.id,
-                                text = result.message,
-                                role = ChatMessage.Role.ERROR,
-                                timestamp = message.timestamp
-                            )
-                        } else message
-                    }
-                    replaceSession(
-                        current.copy(messages = updated, updatedAt = System.currentTimeMillis()),
-                        persistNow = true
-                    )
-                }
-            }
-            busy = false
-        }
     }
 
     fun regenerate(messageId: Long) {
-        if (busy) return
-        val index = activeSession.messages.indexOfFirst { it.id == messageId }
-        if (index <= 0) return
-        val requestMessages = activeSession.messages
-            .take(index)
-            .filter { it.role != ChatMessage.Role.ERROR }
-        if (requestMessages.lastOrNull()?.role != ChatMessage.Role.USER) return
-
-        val assistantId = ids.incrementAndGet()
-        val assistantPlaceholder = ChatMessage(assistantId, "", ChatMessage.Role.ASSISTANT)
-        replaceSession(
-            activeSession.copy(
-                messages = requestMessages + assistantPlaceholder,
-                updatedAt = System.currentTimeMillis()
-            ),
-            persistNow = true
-        )
-        busy = true
-
-        scope.launch {
-            val result = client.send(
-                context = context,
-                baseUrl = baseUrl,
-                apiKey = apiKey,
-                model = selectedModel,
-                messages = requestMessages
-            ) { delta ->
-                val current = sessions.firstOrNull { it.id == activeSession.id } ?: return@send
-                val updated = current.messages.map { message ->
-                    if (message.id == assistantId) message.copy(text = message.text + delta) else message
-                }
-                replaceSession(
-                    current.copy(messages = updated, updatedAt = System.currentTimeMillis()),
-                    persistNow = false
-                )
-            }
-
-            val current = sessions.firstOrNull { it.id == activeSession.id } ?: activeSession
-            val updated = current.messages.map { message ->
-                if (message.id == assistantId) {
-                    when (result) {
-                        is ChatResult.Success -> message.copy(text = result.text)
-                        is ChatResult.Failure -> message.copy(text = result.message, role = ChatMessage.Role.ERROR)
-                        is ChatResult.Cancelled -> message
-                    }
-                } else message
-            }
-            replaceSession(
-                current.copy(messages = updated, updatedAt = System.currentTimeMillis()),
-                persistNow = true
-            )
-            busy = false
-        }
+        chatVm.regenerate(messageId, baseUrl, apiKey, selectedModel)
     }
 
     fun startGeneration(type: String) {
@@ -409,7 +230,7 @@ private fun AiApp(context: Context) {
         generationMode = null
         generationPrompt = ""
         input = ""
-        busy = true
+        mediaBusy = true
 
         scope.launch {
             val result = if (type == "image") {
@@ -458,7 +279,7 @@ private fun AiApp(context: Context) {
                     )
                 }
             }
-            busy = false
+            mediaBusy = false
         }
     }
 
@@ -508,7 +329,7 @@ private fun AiApp(context: Context) {
                 },
                 onExportChats = {
                     val file = File(context.cacheDir, "chat_backup.json")
-                    file.writeText(store.exportJson(sessions))
+                    file.writeText(chatVm.exportJson())
                     requestSaveFile(file)
                 },
                 onImportChats = { importLauncher.launch(arrayOf("application/json", "text/*")) },
@@ -548,11 +369,10 @@ private fun AiApp(context: Context) {
             onSend = ::sendMessage,
             onNewChat = ::makeNewChat,
             onSelectSession = { id ->
-                if (!busy && sessions.any { it.id == id }) currentId = id
-                store.saveCurrentId(id)
+                if (!busy) chatVm.selectSession(id)
             },
             onSettings = { showSettings = true },
-            onStop = { client.cancelActive() },
+            onStop = { chatVm.stopGeneration() },
             onAttach = { attachmentLauncher.launch(arrayOf("*/*")) },
             onGenerateImage = { startGeneration("image") },
             onGenerateVideo = { startGeneration("video") },
@@ -571,29 +391,8 @@ private fun AiApp(context: Context) {
                 if (file.exists()) requestSaveFile(file)
                 else Toast.makeText(context, "Attachment is no longer available.", Toast.LENGTH_LONG).show()
             },
-            onDeleteSessions = { idsToDelete ->
-                sessions = sessions.filterNot { it.id in idsToDelete }
-                if (sessions.isEmpty()) {
-                    val fresh = store.newSession()
-                    sessions = listOf(fresh)
-                    currentId = fresh.id
-                    persistSession(fresh)
-                } else if (currentId in idsToDelete) {
-                    currentId = sessions.first().id
-                    store.saveCurrentId(currentId!!)
-                }
-                scope.launch {
-                    runCatching { store.deleteSessions(idsToDelete) }
-                        .onFailure { AppDiagnostics.recordEvent(context, "room_delete_failure") }
-                }
-            },
-            onToggleStar = { id ->
-                sessions = sessions.map {
-                    if (it.id == id) it.copy(starred = !it.starred) else it
-                }
-                val changed = sessions.firstOrNull { it.id == id }
-                if (changed != null) persistSession(changed)
-            }
+            onDeleteSessions = { idsToDelete -> chatVm.deleteSessions(idsToDelete) },
+            onToggleStar = { id -> chatVm.toggleStar(id) }
         )
 
         settingsContent()
