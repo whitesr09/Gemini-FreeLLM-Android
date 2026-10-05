@@ -55,8 +55,8 @@ class FreeLlmApiClient {
         onDelta: (String) -> Unit
     ): ChatResult = withContext(Dispatchers.IO) {
         val cleanBase = baseUrl.trim().trimEnd('/')
-        if (cleanBase.isBlank()) return@use ChatResult.Failure("Base URL is empty.")
-        if (apiKey.isBlank()) return@use ChatResult.Failure("Unified API key is missing.")
+        if (cleanBase.isBlank()) return@withContext ChatResult.Failure("Base URL is empty.")
+        if (apiKey.isBlank()) return@withContext ChatResult.Failure("Unified API key is missing.")
 
         try {
             val jsonMessages = JSONArray()
