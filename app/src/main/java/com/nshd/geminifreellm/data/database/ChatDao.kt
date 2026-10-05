@@ -8,10 +8,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ChatDao {
-    @Query("SELECT * FROM chat_sessions WHERE archived = 0 ORDER BY starred DESC, updatedAt DESC")
+    @Query("SELECT * FROM chat_sessions ORDER BY archived ASC, starred DESC, updatedAt DESC")
     fun observeSessions(): Flow<List<ChatSessionEntity>>
 
-    @Query("SELECT * FROM chat_sessions WHERE archived = 0 ORDER BY starred DESC, updatedAt DESC")
+    @Query("SELECT * FROM chat_sessions ORDER BY archived ASC, starred DESC, updatedAt DESC")
     suspend fun getSessions(): List<ChatSessionEntity>
 
     @Query("SELECT * FROM chat_sessions WHERE id = :sessionId LIMIT 1")
