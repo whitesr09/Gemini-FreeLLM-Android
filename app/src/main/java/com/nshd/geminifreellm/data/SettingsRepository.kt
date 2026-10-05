@@ -14,7 +14,8 @@ data class AppSettings(
     val animationsEnabled: Boolean = true,
     val appLockEnabled: Boolean = false,
     val appLockTimeoutMinutes: Int = 5,
-    val systemPrompt: String = ""
+    val systemPrompt: String = "",
+    val documentIndexEnabled: Boolean = false
 )
 
 class SettingsRepository(context: Context) {
@@ -32,7 +33,8 @@ class SettingsRepository(context: Context) {
         animationsEnabled = prefs.getBoolean("animationsEnabled", true),
         appLockEnabled = prefs.getBoolean("appLockEnabled", false),
         appLockTimeoutMinutes = prefs.getInt("appLockTimeoutMinutes", 5).coerceIn(1, 60),
-        systemPrompt = prefs.getString("systemPrompt", "") ?: ""
+        systemPrompt = prefs.getString("systemPrompt", "") ?: "",
+        documentIndexEnabled = prefs.getBoolean("documentIndexEnabled", false)
     )
 
     fun save(value: AppSettings) {
@@ -49,6 +51,7 @@ class SettingsRepository(context: Context) {
             .putBoolean("appLockEnabled", value.appLockEnabled)
             .putInt("appLockTimeoutMinutes", value.appLockTimeoutMinutes.coerceIn(1, 60))
             .putString("systemPrompt", value.systemPrompt.take(20_000))
+            .putBoolean("documentIndexEnabled", value.documentIndexEnabled)
             .apply()
     }
 }
