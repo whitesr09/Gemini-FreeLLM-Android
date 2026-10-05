@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.content.pm.PackageManager
 import android.app.KeyguardManager
+import androidx.core.content.FileProvider
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -49,6 +50,7 @@ import com.nshd.geminifreellm.ui.AppTextButton
 import com.nshd.geminifreellm.ui.BasicText
 import com.nshd.geminifreellm.ui.AiTheme
 import com.nshd.geminifreellm.ui.ChatScreen
+import com.nshd.geminifreellm.ui.MediaPreviewDialog
 import com.nshd.geminifreellm.ui.SettingsDialog
 import com.nshd.geminifreellm.ui.ThemeMode
 import androidx.compose.runtime.DisposableEffect
@@ -169,6 +171,7 @@ private fun AiApp(context: Context) {
 
     var pendingSaveFile by remember { mutableStateOf<File?>(null) }
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
+    var previewAttachment by remember { mutableStateOf<Attachment?>(null) }
 
     fun replaceSession(session: ChatSession, persistNow: Boolean = true) {
         chatVm.replaceSession(session, persistNow, selectedModel)
@@ -188,6 +191,24 @@ private fun AiApp(context: Context) {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
         }, "Share response"))
+    }
+
+    fun shareAttachment(attachment: Attachment) {
+        val file = File(attachment.localPath)
+        if (!file.isFile) {
+            Toast.makeText(context, "Media file is no longer available.", Toast.LENGTH_LONG).show()
+            return
+        }
+        runCatching {
+            val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = attachment.mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }, "Share media"))
+        }.onFailure {
+            Toast.makeText(context, it.message ?: "Share failed", Toast.LENGTH_LONG).show()
+        }
     }
 
     fun copyText(text: String) {
@@ -493,6 +514,29 @@ private fun AiApp(context: Context) {
             onArchive = { id -> chatVm.archiveSession(id) },
             onUnarchive = { id -> chatVm.unarchiveSession(id) }
         )
+
+        previewAttachment?.let { attachment ->
+            MediaPreviewDialog(
+                attachment = attachment,
+                onDismiss = { previewAttachment = null },
+                onSave = { requestSaveFile(File(attachment.localPath)) },
+                onShare = { shareAttachment(attachment) },
+                onDelete = {
+                    previewAttachment = null
+                    chatVm.deleteAttachment(attachment.id)
+                },
+                onRegenerate = activeSession.messages.firstOrNull { message ->
+                    message.attachments.any { it.id == attachment.id }
+                }?.let { message ->
+                    { 
+                        previewAttachment = null
+                        val type = if (attachment.kind == Attachment.Kind.GENERATED_VIDEO || attachment.mimeType.startsWith("video/")) "video" else "image"
+                        val prompt = message.text.substringAfter(":", message.text).trim()
+                        if (prompt.isNotBlank()) runGeneration(type, prompt)
+                    }
+                }
+            )
+        }
 
         settingsContent()
 
