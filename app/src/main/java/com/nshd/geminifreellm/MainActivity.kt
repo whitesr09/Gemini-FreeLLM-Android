@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AiApp(context: Context) {
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
-    val secureCredentials = remember { SecureCredentialStore(context) }
+    val secureCredentials = remember { SecureCredentialStore(context).also { it.migrateLegacy(prefs) } }
     val store = remember { LocalChatStore(context) }
     val client = remember { FreeLlmApiClient() }
     val scope = rememberCoroutineScope()
