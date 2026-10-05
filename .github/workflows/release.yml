@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - production-ready-v5
+      - production-ready-final
     tags:
       - "v*"
   workflow_dispatch:
