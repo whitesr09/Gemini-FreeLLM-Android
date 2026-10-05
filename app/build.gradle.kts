@@ -16,7 +16,16 @@ android {
         versionName = "1.1"
     }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     buildFeatures { compose = true }
+}
+
+kotlin {
+    jvmToolchain(17)
 }
 
 dependencies {
