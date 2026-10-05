@@ -148,15 +148,41 @@ object DocumentProcessor {
 
     private fun extractOfficeXml(file: File): String {
         val parts = mutableListOf<String>()
+        var entryCount = 0
+        var totalBytes = 0L
         ZipInputStream(file.inputStream().buffered()).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
-                val path = entry.name.lowercase()
+                entryCount++
+                require(entryCount <= MAX_ZIP_ENTRIES) { "Office document contains too many ZIP entries." }
+                val rawPath = entry.name.replace('\\', '/')
+                require(
+                    !rawPath.startsWith("/") &&
+                        !rawPath.split('/').any { it == ".." } &&
+                        !rawPath.contains("\\u0000")
+                ) { "Unsafe ZIP entry path." }
+
+                val path = rawPath.lowercase()
                 val wanted = path.endsWith(".xml") &&
-                    (path.contains("word/") || path.contains("ppt/slides/") || path.contains("xl/sharedstrings") || path.contains("xl/worksheets/"))
+                    (path.startsWith("word/") ||
+                        path.startsWith("ppt/slides/") ||
+                        path == "xl/sharedstrings.xml" ||
+                        path.startsWith("xl/worksheets/"))
+
                 if (!entry.isDirectory && wanted) {
-                    val bytes = zip.readBytes()
-                    val xml = String(bytes, StandardCharsets.UTF_8)
+                    val out = ByteArrayOutputStream()
+                    val buffer = ByteArray(16 * 1024)
+                    var entryBytes = 0L
+                    while (true) {
+                        val read = zip.read(buffer)
+                        if (read < 0) break
+                        entryBytes += read
+                        totalBytes += read
+                        require(entryBytes <= MAX_ZIP_ENTRY_BYTES) { "ZIP entry is too large." }
+                        require(totalBytes <= MAX_ZIP_TOTAL_BYTES) { "Office document expands beyond the safe processing limit." }
+                        out.write(buffer, 0, read)
+                    }
+                    val xml = out.toString(StandardCharsets.UTF_8.name())
                     val text = xml
                         .replace(Regex("<w:tab[^>]*/>"), "\t")
                         .replace(Regex("<br[^>]*/?>"), "\n")
@@ -164,9 +190,15 @@ object DocumentProcessor {
                         .replace("&amp;", "&")
                         .replace("&lt;", "<")
                         .replace("&gt;", ">")
+                        .replace("&quot;", """)
+                        .replace("&apos;", "'")
                         .replace(Regex("\\s+"), " ")
                         .trim()
                     if (text.isNotBlank()) parts += text
+                } else {
+                    // Consume non-target entries without buffering them.
+                    val buffer = ByteArray(8 * 1024)
+                    while (zip.read(buffer) >= 0) Unit
                 }
                 zip.closeEntry()
             }
