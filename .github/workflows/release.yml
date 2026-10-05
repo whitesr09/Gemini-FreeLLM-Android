@@ -72,7 +72,7 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           unzip -t "$APK" >/dev/null
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump packagename "$APK" | grep -F "com.nshd.geminifreellm"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$APK" >/dev/null
 
       - name: Upload unsigned release APK
         if: ${{ steps.signing.outputs.configured != 'true' }}
