@@ -330,7 +330,11 @@ private fun AiApp(context: Context) {
                     AppDiagnostics.clearPreviousCrash(context)
                     diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
                     Toast.makeText(context, "Crash report cleared", Toast.LENGTH_SHORT).show()
-                }
+                },
+                onTestConnection = { chatVm.testConnection(baseUrl, apiKey) },
+                connectionTesting = chatState.connectionTesting,
+                connectionResult = chatState.connectionResult,
+                connectionError = chatState.connectionError
             )
         }
     }
