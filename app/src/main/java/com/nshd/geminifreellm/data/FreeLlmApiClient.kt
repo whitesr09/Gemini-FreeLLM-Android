@@ -25,7 +25,14 @@ sealed interface ChatResult {
 data class ModelInfo(
     val id: String,
     val name: String,
-    val available: Boolean
+    val available: Boolean,
+    val provider: String? = null,
+    val supportsVision: Boolean = false,
+    val supportsImageGeneration: Boolean = false,
+    val supportsVideoGeneration: Boolean = false,
+    val contextSize: Long? = null,
+    val reasoning: Boolean = false,
+    val coding: Boolean = false
 )
 
 data class GeneratedMedia(
@@ -113,10 +120,14 @@ class FreeLlmApiClient {
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
                     val message = when (response.code) {
-                        401, 403 -> "The API key was rejected. Check your Unified API key."
+                        400 -> parseServerError(errorBody) ?: "The request was invalid. Check the selected model and message."
+                        401 -> "API key rejected. Check your key in Settings."
+                        403 -> "Access forbidden. Check your API key permissions."
                         404 -> "API endpoint not found. Check the Base URL."
-                        429 -> "The provider is rate-limited. Try again in a moment."
-                        in 500..599 -> "Server error (" + response.code + "). Try again."
+                        408 -> "The server timed out. Retry the request."
+                        422 -> parseServerError(errorBody) ?: "This request is not supported by the selected route."
+                        429 -> "Rate limit reached. Retry later or switch to Auto."
+                        in 500..599 -> "Server error (" + response.code + "). The server may be waking up; retry shortly."
                         else -> parseServerError(errorBody) ?: "Request failed (" + response.code + ")."
                     }
                     return@withContext ChatResult.Failure(message)
@@ -135,11 +146,24 @@ class FreeLlmApiClient {
                     return@withContext ChatResult.Success(text)
                 }
 
+                val uiBuffer = StringBuilder()
+                var lastUiEmitAt = 0L
+                suspend fun flushUi(force: Boolean = false) {
+                    if (uiBuffer.isEmpty()) return
+                    val now = System.nanoTime() / 1_000_000L
+                    if (!force && now - lastUiEmitAt < 55L) return
+                    val chunk = uiBuffer.toString()
+                    uiBuffer.setLength(0)
+                    lastUiEmitAt = now
+                    onDeltaOnMain(onDelta, chunk)
+                }
+
                 while (!source.exhausted()) {
                     val line = source.readUtf8Line() ?: break
                     if (!line.startsWith("data:")) continue
                     val raw = line.removePrefix("data:").trim()
-                    if (raw.isBlank() || raw == "[DONE]") continue
+                    if (raw.isBlank()) continue
+                    if (raw == "[DONE]") break
                     val delta = runCatching {
                         val json = JSONObject(raw)
                         val choices = json.optJSONArray("choices") ?: JSONArray()
@@ -147,10 +171,13 @@ class FreeLlmApiClient {
                     }.getOrDefault("")
                     if (delta.isNotEmpty()) {
                         textBuilder.append(delta)
-                        onDeltaOnMain(onDelta, delta)
+                        uiBuffer.append(delta)
+                        flushUi()
                     }
                 }
+                flushUi(force = true)
 
+                if (cancelRequested.get()) return@withContext ChatResult.Cancelled
                 val finalText = textBuilder.toString().trim()
                 if (finalText.isBlank()) ChatResult.Failure("The model returned an empty response.")
                 else ChatResult.Success(finalText)
@@ -158,11 +185,16 @@ class FreeLlmApiClient {
             } finally {
                 endCall(call)
             }
+        } catch (e: java.util.concurrent.CancellationException) {
+            cancelRequested.set(true)
+            activeCall.getAndSet(null)?.cancel()
+            ChatResult.Cancelled
         } catch (_: IOException) {
             if (cancelRequested.get()) ChatResult.Cancelled
-            else ChatResult.Failure("Couldn't reach FreeLLMAPI. The server may be sleeping; try again in a moment.")
+            else ChatResult.Failure("You're offline or the server could not be reached. Check your connection and retry.")
         } catch (e: Exception) {
-            ChatResult.Failure(e.message?.takeIf { it.isNotBlank() } ?: "Something went wrong.")
+            if (cancelRequested.get()) ChatResult.Cancelled
+            else ChatResult.Failure(e.message?.takeIf { it.isNotBlank() } ?: "The server returned an unreadable response.")
         }
     }
     suspend fun fetchModels(baseUrl: String, apiKey: String): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
@@ -188,7 +220,14 @@ class FreeLlmApiClient {
                                 ModelInfo(
                                     id = id,
                                     name = item.optString("name", id),
-                                    available = item.optBoolean("available", true)
+                                    available = item.optBoolean("available", true),
+                                    provider = item.optString("provider").takeIf { it.isNotBlank() },
+                                    supportsVision = item.optBoolean("vision", item.optBoolean("supports_vision", false)),
+                                    supportsImageGeneration = item.optBoolean("image_generation", item.optBoolean("supports_image_generation", false)),
+                                    supportsVideoGeneration = item.optBoolean("video_generation", item.optBoolean("supports_video_generation", false)),
+                                    contextSize = item.optLong("context_length", 0L).takeIf { it > 0L },
+                                    reasoning = item.optBoolean("reasoning", item.optBoolean("supports_reasoning", false)),
+                                    coding = item.optBoolean("coding", item.optBoolean("supports_coding", false))
                                 )
                             )
                         }
