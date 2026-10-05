@@ -360,6 +360,8 @@ private fun AiApp(context: Context) {
             onAttach = { attachmentLauncher.launch(arrayOf("*/*")) },
             onGenerateImage = { startGeneration("image") },
             onGenerateVideo = { startGeneration("video") },
+            imageSupported = if (selectedModel == "auto") models.any { it.available && it.supportsImageGeneration } else models.any { it.id == selectedModel && it.available && it.supportsImageGeneration },
+            videoSupported = if (selectedModel == "auto") models.any { it.available && it.supportsVideoGeneration } else models.any { it.id == selectedModel && it.available && it.supportsVideoGeneration },
             onSelectModel = {
                 selectedModel = it
                 prefs.edit().putString("model", it).apply()
