@@ -1,0 +1,23 @@
+package com.nshd.geminifreellm.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.shape.*
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import com.nshd.geminifreellm.model.ChatMessage
+import kotlinx.coroutines.launch
+
+@Composable fun ChatScreen(messages:List<ChatMessage>,busy:Boolean,input:String,onInputChange:(String)->Unit,onSend:()->Unit,onSettings:()->Unit,onClear:()->Unit){val listState=rememberLazyListState();val scope=rememberCoroutineScope();LaunchedEffect(messages.size,busy){if(messages.isNotEmpty())scope.launch{listState.animateScrollToItem(messages.lastIndex)}};Scaffold(topBar={CenterAlignedTopAppBar(title={Column(horizontalAlignment=Alignment.CenterHorizontally){Text("Gemini FreeLLM",style=MaterialTheme.typography.titleMedium);Text("FreeLLMAPI",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)}},navigationIcon={IconButton(onClick=onClear,enabled=messages.isNotEmpty()&&!busy){Icon(Icons.Default.DeleteOutline,"Clear chat")}},actions={IconButton(onClick=onSettings){Icon(Icons.Default.Settings,"Settings")}})},bottomBar={MessageComposer(input,busy,onInputChange,onSend)}){padding->if(messages.isEmpty())WelcomeState(Modifier.fillMaxSize().padding(padding))else LazyColumn(state=listState,modifier=Modifier.fillMaxSize().padding(padding),contentPadding=PaddingValues(16.dp,12.dp,16.dp,20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){items(messages,key={it.id}){MessageBubble(it)};if(busy)item(key="typing"){TypingBubble()}}}}
+@Composable private fun WelcomeState(modifier:Modifier){Box(modifier,contentAlignment=Alignment.Center){Column(Modifier.padding(28.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)){Surface(Modifier.size(72.dp),CircleShape,color=MaterialTheme.colorScheme.primaryContainer){Box(contentAlignment=Alignment.Center){Icon(Icons.Default.AutoAwesome,null,tint=MaterialTheme.colorScheme.primary,modifier=Modifier.size(34.dp))}};Text("What can I help you with?",style=MaterialTheme.typography.headlineSmall,textAlign=TextAlign.Center);Text("A clean Android client for your own FreeLLMAPI + Gemini setup.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant,textAlign=TextAlign.Center)}}}
+@Composable private fun MessageBubble(message:ChatMessage){val user=message.role==ChatMessage.Role.USER;val error=message.role==ChatMessage.Role.ERROR;val color=when{error->MaterialTheme.colorScheme.errorContainer;user->MaterialTheme.colorScheme.primaryContainer;else->MaterialTheme.colorScheme.surfaceContainer};Row(Modifier.fillMaxWidth(),horizontalArrangement=if(user)Arrangement.End else Arrangement.Start){Surface(color=color,shape=RoundedCornerShape(22.dp,22.dp,if(user)6.dp else 22.dp,if(user)22.dp else 6.dp),modifier=Modifier.fillMaxWidth(if(user).86f else .94f)){Column(Modifier.padding(horizontal=16.dp,vertical=13.dp)){Text(if(error)"Connection issue"else if(user)"You"else"Gemini",style=MaterialTheme.typography.labelMedium,color=if(error)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary);Spacer(Modifier.height(5.dp));Text(message.text,style=MaterialTheme.typography.bodyLarge)}}}}
+@Composable private fun TypingBubble(){Surface(color=MaterialTheme.colorScheme.surfaceContainer,shape=RoundedCornerShape(22.dp,22.dp,22.dp,6.dp)){Row(Modifier.padding(horizontal=16.dp,vertical=13.dp),verticalAlignment=Alignment.CenterVertically){CircularProgressIndicator(Modifier.size(17.dp),strokeWidth=2.dp);Spacer(Modifier.width(10.dp));Text("Thinking…",color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
+@Composable private fun MessageComposer(input:String,busy:Boolean,onInputChange:(String)->Unit,onSend:()->Unit){Surface(tonalElevation=2.dp){Row(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(10.dp),verticalAlignment=Alignment.Bottom){OutlinedTextField(value=input,onValueChange=onInputChange,modifier=Modifier.weight(1f),placeholder={Text("Message Gemini…")},maxLines=5,shape=RoundedCornerShape(24.dp));Spacer(Modifier.width(8.dp));FilledIconButton(onClick=onSend,enabled=input.isNotBlank()&&!busy,modifier=Modifier.size(52.dp)){Icon(Icons.AutoMirrored.Filled.Send,"Send")}}}}
