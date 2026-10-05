@@ -223,7 +223,8 @@ class RoomChatRepository(context: Context) {
                                 .getOrDefault(Attachment.Kind.FILE),
                             createdAt = attachment.createdAt
                         )
-                    }
+                    },
+                    parentMessageId = message.parentMessageId
                 )
             }
         )
