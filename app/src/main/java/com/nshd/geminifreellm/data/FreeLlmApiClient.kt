@@ -71,6 +71,7 @@ class FreeLlmApiClient {
         const val MAX_BASE64_MEDIA_CHARS = 36 * 1024 * 1024
         const val MAX_TOOL_CALLS = 4
         const val MAX_TOOL_ARGUMENT_CHARS = 16_384
+        const val MAX_NON_STREAM_RESPONSE_BYTES = 512L * 1024L
     }
 
     private data class ToolCall(val id: String, val name: String, val arguments: String)
@@ -453,7 +454,7 @@ class FreeLlmApiClient {
                         JSONObject()
                             .put("name", "google_search")
                             .put("description", "Use Google Search grounding for current web information.")
-                            .put("parameters", JSONObject())
+                            .put("parameters", JSONObject().put("type", "object").put("properties", JSONObject()))
                     )
             )
         }
@@ -533,7 +534,7 @@ class FreeLlmApiClient {
                 val started = System.nanoTime()
 
                 if (!contentType.contains("text/event-stream", true)) {
-                    val body = source.readUtf8()
+                    val body = readUtf8Bounded(source, MAX_NON_STREAM_RESPONSE_BYTES)
                     val text = parseChatText(body)
                     onDeltaOnMain(onDelta, text)
                     return StreamOutcome(
@@ -790,6 +791,19 @@ class FreeLlmApiClient {
             }
         }
         return parts
+    }
+
+    private fun readUtf8Bounded(source: okio.BufferedSource, maxBytes: Long): String {
+        val buffer = okio.Buffer()
+        var total = 0L
+        while (!source.exhausted()) {
+            val remaining = maxBytes - total
+            if (remaining <= 0L) throw IOException("Server response exceeded the safe size limit.")
+            val read = source.read(buffer, minOf(16_384L, remaining))
+            if (read < 0L) break
+            total += read
+        }
+        return buffer.readUtf8()
     }
 
     private suspend fun onDeltaOnMain(onDelta: (String) -> Unit, delta: String) {
