@@ -37,6 +37,7 @@ import com.nshd.geminifreellm.data.AppSettings
 import com.nshd.geminifreellm.data.StorageManager
 import com.nshd.geminifreellm.data.BackupManager
 import com.nshd.geminifreellm.data.DocumentExporter
+import com.nshd.geminifreellm.data.DraftRepository
 import com.nshd.geminifreellm.data.DocumentProcessor
 import com.nshd.geminifreellm.data.DraftRepository
 import com.nshd.geminifreellm.data.DraftState
@@ -65,16 +66,44 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Alignment
 
 class MainActivity : ComponentActivity() {
     private var pausedAt: Long = 0L
+    private var unlockPromptShowing = false
+    private val _locked = MutableStateFlow(false)
+    val locked: StateFlow<Boolean> = _locked.asStateFlow()
+
+    fun requestUnlock() {
+        val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        if (!keyguard.isKeyguardSecure || unlockPromptShowing) return
+        unlockPromptShowing = true
+        runCatching {
+            startActivityForResult(
+                keyguard.createConfirmDeviceCredentialIntent(
+                    "Unlock FreeLLM AI",
+                    "Confirm your device credential to open the app."
+                ),
+                4101
+            )
+        }.onFailure {
+            unlockPromptShowing = false
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppDiagnostics.install(this)
         AppDiagnostics.recordEvent(this, "app_started")
+        pausedAt = System.currentTimeMillis()
         setContent { AiApp(this) }
     }
 
@@ -89,25 +118,24 @@ class MainActivity : ComponentActivity() {
         if (!prefs.getBoolean("appLockEnabled", false)) return
         val timeout = prefs.getInt("appLockTimeoutMinutes", 5).coerceIn(1, 60)
         val elapsed = if (pausedAt == 0L) Long.MAX_VALUE else System.currentTimeMillis() - pausedAt
-        if (elapsed >= timeout * 60_000L && !isFinishing) {
-            val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-            if (keyguard.isKeyguardSecure) {
-                runCatching {
-                    startActivityForResult(
-                        keyguard.createConfirmDeviceCredentialIntent(
-                            "Unlock FreeLLM AI",
-                            "Confirm your device credential to open the app."
-                        ),
-                        4101
-                    )
-                }
-            }
+        if (elapsed >= timeout * 60_000L && !isFinishing && !unlockPromptShowing) {
+            requestUnlock()
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 4101) {
+            unlockPromptShowing = false
+            if (resultCode == Activity.RESULT_OK) _locked.value = false
         }
     }
 }
 
 @Composable
-private fun AiApp(context: Context) {
+private fun AiApp(activity: MainActivity) {
+    val context: Context = activity
+    val locked by activity.locked.collectAsState()
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     val secureCredentials = remember { SecureCredentialStore(context).also { it.migrateLegacy(prefs) } }
     val chatVm: ChatViewModel = viewModel()
@@ -298,12 +326,29 @@ private fun AiApp(context: Context) {
             withContext(Dispatchers.IO) { draftRepository.save(activeSession.id, DraftState(input)) }
         }
     }
+    LaunchedEffect(activeSession.id) {
+        draftLoadedFor = null
+        val draft = withContext(Dispatchers.IO) { drafts.load(activeSession.id) }
+        input = draft.text
+        pendingAttachments = emptyList()
+        draftLoadedFor = activeSession.id
+    }
+
+    LaunchedEffect(activeSession.id, input, pendingAttachments) {
+        if (draftLoadedFor == activeSession.id) {
+            withContext(Dispatchers.IO) {
+                drafts.save(activeSession.id, com.nshd.geminifreellm.data.DraftState(input, emptyList()))
+            }
+        }
+    }
+
     LaunchedEffect(baseUrl, apiKey) {
         chatVm.refreshModels(baseUrl, apiKey)
     }
     fun sendMessage() {
         if (busy || (input.isBlank() && pendingAttachments.isEmpty())) return
         chatVm.sendMessage(baseUrl, apiKey, selectedModel, input, pendingAttachments)
+        drafts.clear(activeSession.id)
         input = ""
         pendingAttachments = emptyList()
     }
@@ -539,7 +584,9 @@ private fun AiApp(context: Context) {
             onCopy = ::copyText,
             onShare = ::shareText,
             onSpeak = ::speakText,
-            onEdit = { messageId, text -> chatVm.editAndResend(messageId, text, baseUrl, apiKey, selectedModel) },
+            onEdit = { messageId, text ->
+                editingMessage = ChatMessage(messageId, text, ChatMessage.Role.USER)
+            },
             onRegenerate = ::regenerate,
             onExport = ::requestExport,
             onExportAttachment = { attachment ->
@@ -586,6 +633,17 @@ private fun AiApp(context: Context) {
 
         settingsContent()
 
+        editingMessage?.let { message ->
+            EditMessageDialog(
+                initialText = message.text,
+                onDismiss = { editingMessage = null },
+                onResend = { editedText ->
+                    chatVm.editAndResend(message.id, editedText, baseUrl, apiKey, selectedModel)
+                    editingMessage = null
+                }
+            )
+        }
+
         if (showOnboarding) {
             AiNameOnboarding(
                 currentName = aiName,
@@ -609,6 +667,20 @@ private fun AiApp(context: Context) {
                 },
                 onGenerate = { runGeneration(generationMode!!, generationPrompt) }
             )
+        }
+
+        if (locked) {
+            Box(
+                Modifier.fillMaxSize().background(com.nshd.geminifreellm.ui.LocalAppColors.current.background),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    com.nshd.geminifreellm.ui.AiOrb(Modifier.width(92.dp).fillMaxHeight(0.12f), false)
+                    BasicText("App locked", color = com.nshd.geminifreellm.ui.LocalAppColors.current.text, fontSize = 22.sp)
+                    Spacer(Modifier.width(1.dp))
+                    AppButton("Unlock", onClick = activity::requestUnlock)
+                }
+            }
         }
 
         if (clearDialog) {
