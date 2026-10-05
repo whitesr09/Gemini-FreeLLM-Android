@@ -7,7 +7,6 @@ import android.content.Intent
 import android.app.Activity
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.net.Uri
 import android.os.Bundle
 import android.content.pm.PackageManager
@@ -17,13 +16,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,7 +34,6 @@ import com.nshd.geminifreellm.data.BackupManager
 import com.nshd.geminifreellm.data.DocumentExporter
 import com.nshd.geminifreellm.data.DraftRepository
 import com.nshd.geminifreellm.data.DocumentProcessor
-import com.nshd.geminifreellm.data.DraftRepository
 import com.nshd.geminifreellm.data.DraftState
 import com.nshd.geminifreellm.data.ExportFormat
 import com.nshd.geminifreellm.data.FreeLlmApiClient
@@ -64,7 +58,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -675,7 +668,7 @@ private fun AiApp(activity: MainActivity) {
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    com.nshd.geminifreellm.ui.AiOrb(Modifier.width(92.dp).fillMaxHeight(0.12f), false)
+                    com.nshd.geminifreellm.ui.AiOrb(Modifier.size(92.dp), false)
                     BasicText("App locked", color = com.nshd.geminifreellm.ui.LocalAppColors.current.text, fontSize = 22.sp)
                     Spacer(Modifier.width(1.dp))
                     AppButton("Unlock", onClick = activity::requestUnlock)
@@ -760,3 +753,35 @@ private fun rememberLauncherForOpenDocument(
     ActivityResultContracts.OpenDocument(),
     onResult
 )
+
+
+@Composable
+private fun EditMessageDialog(
+    initialText: String,
+    onDismiss: () -> Unit,
+    onResend: (String) -> Unit
+) {
+    var value by remember { mutableStateOf(initialText) }
+    AppDialog(
+        title = "Edit message",
+        onDismiss = onDismiss,
+        content = {
+            com.nshd.geminifreellm.ui.AppField(
+                value = value,
+                onValueChange = { value = it.take(50_000) },
+                label = "Message",
+                singleLine = false,
+                minLines = 6
+            )
+        },
+        actions = {
+            AppTextButton("Cancel", onClick = onDismiss)
+            AppButton(
+                "Resend",
+                enabled = value.trim().isNotBlank(),
+                modifier = Modifier.width(120.dp),
+                onClick = { onResend(value.trim()) }
+            )
+        }
+    )
+}
