@@ -75,7 +75,16 @@ jobs:
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$APK" >/dev/null
+          python3 - "$APK" <<'PY'
+import sys, zipfile
+path = sys.argv[1]
+with zipfile.ZipFile(path) as archive:
+    bad = archive.testzip()
+    if bad is not None:
+        raise SystemExit(f"Corrupt APK entry: {bad}")
+    if "AndroidManifest.xml" not in archive.namelist():
+        raise SystemExit("APK is missing AndroidManifest.xml")
+PY
 
       - name: Upload unsigned release APK
         if: ${{ steps.signing.outputs.configured != 'true' }}
@@ -90,7 +99,15 @@ jobs:
 
       - name: Validate unsigned release AAB
         if: ${{ steps.signing.outputs.configured != 'true' }}
-        run: unzip -t app/build/outputs/bundle/release/app-release.aab >/dev/null
+        run: |
+          python3 - <<'PY'
+import zipfile
+path = "app/build/outputs/bundle/release/app-release.aab"
+with zipfile.ZipFile(path) as archive:
+    bad = archive.testzip()
+    if bad is not None:
+        raise SystemExit(f"Corrupt AAB entry: {bad}")
+PY
 
       - name: Upload unsigned release AAB
         if: ${{ steps.signing.outputs.configured != 'true' }}
