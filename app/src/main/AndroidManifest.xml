@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:label="FreeLLM AI"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@drawable/ic_ai_orb"
@@ -12,7 +12,8 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="unspecified">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
