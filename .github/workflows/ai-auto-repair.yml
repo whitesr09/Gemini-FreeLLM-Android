@@ -1,0 +1,142 @@
+name: AI Auto Repair
+
+on:
+  workflow_run:
+    workflows: ["Build Android APK"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  repair:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check optional AI repair secrets
+        id: config
+        env:
+          FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
+        run: |
+          if [ -n "$FREE_LLM_API_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "AI auto-repair is installed but disabled until FREE_LLM_API_KEY is configured."
+          fi
+
+      - name: Stop when not configured
+        if: ${{ steps.config.outputs.configured != 'true' }}
+        run: exit 0
+
+      - name: Checkout failed branch
+        if: ${{ steps.config.outputs.configured == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 1
+
+      - name: Collect failure context
+        if: ${{ steps.config.outputs.configured == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          gh run view "$RUN_ID" --log-failed > "$RUNNER_TEMP/failed-build.log" || true
+          grep -E 'e: file:///.*|error:|FAILURE|FAILED|Exception' "$RUNNER_TEMP/failed-build.log" | tail -n 300 > "$RUNNER_TEMP/important-errors.log" || true
+          {
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Failed workflow run: $RUN_ID"
+            echo "Branch: ${{ github.event.workflow_run.head_branch }}"
+            echo
+            echo "=== IMPORTANT BUILD ERRORS ==="
+            cat "$RUNNER_TEMP/important-errors.log"
+            echo
+            echo "=== SOURCE FILES ==="
+            git ls-files 'app/src/main/**/*.kt' 'app/src/main/**/*.xml' 'app/build.gradle.kts' 'gradle/libs.versions.toml' | while read f; do
+              echo
+              echo "===== $f ====="
+              sed -n '1,700p' "$f"
+            done
+          } > "$RUNNER_TEMP/ai-context.txt"
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          p = Path(os.environ['RUNNER_TEMP']) / 'ai-context.txt'
+          text = p.read_text(errors='ignore')
+          if len(text) > 180000:
+              text = text[:180000] + '\n[context truncated]\n'
+          p.write_text(text)
+          PY
+
+      - name: Ask FreeLLM for a repair patch
+        if: ${{ steps.config.outputs.configured == 'true' }}
+        env:
+          FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
+          FREE_LLM_API_BASE_URL: ${{ secrets.FREE_LLM_API_BASE_URL }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          from pathlib import Path
+          base = (os.environ.get('FREE_LLM_API_BASE_URL') or 'https://nshd-freellm-api.onrender.com/v1').rstrip('/')
+          key = os.environ['FREE_LLM_API_KEY']
+          context = (Path(os.environ['RUNNER_TEMP']) / 'ai-context.txt').read_text(errors='ignore')
+          prompt = '''You are the senior Android build-repair agent for this repository.
+
+Analyze the CI failure and return ONLY a unified diff that can be applied with git apply.
+Rules:
+- Fix the actual compiler/build/runtime-risk issue shown by the logs.
+- Preserve existing working backend behavior.
+- Do not change app id, signing keys, credentials, or secrets.
+- Do not modify .github/workflows/*.
+- Do not add unnecessary dependencies.
+- Prefer small, deterministic fixes.
+- Do not explain the patch; output only the unified diff.
+- If no safe patch can be produced, output the single line: NO_SAFE_PATCH
+
+CI + source context follows:
+
+''' + context
+          body = {'model':'auto','messages':[{'role':'system','content':'You produce safe, minimal Android repository patches.'},{'role':'user','content':prompt}],'stream':False}
+          req = urllib.request.Request(base + '/chat/completions', data=json.dumps(body).encode(), headers={'Authorization':'Bearer ' + key,'Content-Type':'application/json'}, method='POST')
+          with urllib.request.urlopen(req, timeout=180) as resp:
+              data = json.load(resp)
+          text = data['choices'][0]['message']['content']
+          (Path(os.environ['RUNNER_TEMP']) / 'repair.patch').write_text(text)
+          PY
+
+      - name: Validate and apply AI patch
+        if: ${{ steps.config.outputs.configured == 'true' }}
+        run: |
+          PATCH="$RUNNER_TEMP/repair.patch"
+          if grep -qx 'NO_SAFE_PATCH' "$PATCH"; then exit 1; fi
+          sed -i '/^```diff$/d;/^```$/d' "$PATCH"
+          git apply --check "$PATCH"
+          git apply "$PATCH"
+          if git diff --name-only | grep -E '^\.github/|(^|/)secrets|keystore|\.jks$|\.p12$'; then
+            git reset --hard HEAD
+            exit 1
+          fi
+          git diff --check
+
+      - name: Rebuild repaired app
+        if: ${{ steps.config.outputs.configured == 'true' }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Create repair branch and PR
+        if: ${{ steps.config.outputs.configured == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          BASE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          BRANCH="ai-repair/run-${RUN_ID}"
+          git checkout -b "$BRANCH"
+          git config user.name "AI Auto Repair"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app gradle* settings.gradle.kts build.gradle.kts
+          git commit -m "fix: AI repair for failed build ${RUN_ID}"
+          git push origin "$BRANCH"
+          gh pr create --base "$BASE_BRANCH" --head "$BRANCH" --title "fix: AI repair for failed build ${RUN_ID}" --body "Automated repair generated from CI failure ${RUN_ID}. The repaired branch passed assembleDebug before this PR was opened."
