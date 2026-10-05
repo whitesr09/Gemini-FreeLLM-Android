@@ -31,14 +31,14 @@ import com.nshd.geminifreellm.model.ChatSession
 private val ChatRadius = RoundedCornerShape(16.dp)
 
 @Composable
-fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, onInputChange: (String) -> Unit, onSend: () -> Unit, onNewChat: () -> Unit, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onCopy: (String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit) {
+fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, onInputChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit, onNewChat: () -> Unit, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onCopy: (String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit) {
     var drawerOpen by remember { mutableStateOf(false) }
     var modelOpen by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(LocalAppColors.current.background)) {
         Column(Modifier.fillMaxSize()) {
             TopBar(aiName, selectedModel, busy, { drawerOpen = true }, onNewChat, onSettings) { modelOpen = !modelOpen }
             MessageList(session.messages, aiName, busy, Modifier.weight(1f), onCopy, onRegenerate, onExport, onExportAttachment)
-            Composer(input, pendingAttachments, busy, onInputChange, onSend, onAttach, onGenerateImage, onGenerateVideo, onRemovePending)
+            Composer(input, pendingAttachments, busy, onInputChange, onSend, onStop, onAttach, onGenerateImage, onGenerateVideo, onRemovePending)
         }
         if (modelOpen) Popup(alignment = Alignment.TopEnd, onDismissRequest = { modelOpen = false }) { ModelMenu(models, selectedModel) { onSelectModel(it); modelOpen = false } }
         if (drawerOpen) {
@@ -129,6 +129,7 @@ private fun Composer(
     busy: Boolean,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
+    onStop: () -> Unit,
     onAttach: () -> Unit,
     onGenerateImage: () -> Unit,
     onGenerateVideo: () -> Unit,
@@ -227,17 +228,18 @@ private fun Composer(
                     Spacer(Modifier.weight(1f))
 
                     val canSend = !busy && (input.isNotBlank() || pendingAttachments.isNotEmpty())
+                    val canStop = busy
                     Box(
                         Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(if (canSend) c.accent else c.surface)
-                            .clickable(enabled = canSend, onClick = onSend),
+                            .background(if (canStop) c.error else if (canSend) c.accent else c.surface)
+                            .clickable(enabled = canStop || canSend, onClick = if (canStop) onStop else onSend),
                         contentAlignment = Alignment.Center
                     ) {
                         BasicText(
-                            "↑",
-                            color = if (canSend) Color.White else c.muted,
+                            if (canStop) "■" else "↑",
+                            color = if (canStop || canSend) Color.White else c.muted,
                             fontSize = 22.sp
                         )
                     }
