@@ -12,12 +12,16 @@ import android.os.Bundle
 import android.content.pm.PackageManager
 import android.app.KeyguardManager
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowInsetsControllerCompat
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +63,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -67,7 +72,6 @@ import java.util.concurrent.atomic.AtomicLong
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Alignment
 
 class MainActivity : ComponentActivity() {
     private var pausedAt: Long = 0L
@@ -112,6 +116,7 @@ class MainActivity : ComponentActivity() {
         val timeout = prefs.getInt("appLockTimeoutMinutes", 5).coerceIn(1, 60)
         val elapsed = if (pausedAt == 0L) Long.MAX_VALUE else System.currentTimeMillis() - pausedAt
         if (elapsed >= timeout * 60_000L && !isFinishing && !unlockPromptShowing) {
+            _locked.value = true
             requestUnlock()
         }
     }
@@ -319,29 +324,13 @@ private fun AiApp(activity: MainActivity) {
             withContext(Dispatchers.IO) { draftRepository.save(activeSession.id, DraftState(input)) }
         }
     }
-    LaunchedEffect(activeSession.id) {
-        draftLoadedFor = null
-        val draft = withContext(Dispatchers.IO) { drafts.load(activeSession.id) }
-        input = draft.text
-        pendingAttachments = emptyList()
-        draftLoadedFor = activeSession.id
-    }
-
-    LaunchedEffect(activeSession.id, input, pendingAttachments) {
-        if (draftLoadedFor == activeSession.id) {
-            withContext(Dispatchers.IO) {
-                drafts.save(activeSession.id, com.nshd.geminifreellm.data.DraftState(input, emptyList()))
-            }
-        }
-    }
-
     LaunchedEffect(baseUrl, apiKey) {
         chatVm.refreshModels(baseUrl, apiKey)
     }
     fun sendMessage() {
         if (busy || (input.isBlank() && pendingAttachments.isEmpty())) return
         chatVm.sendMessage(baseUrl, apiKey, selectedModel, input, pendingAttachments)
-        drafts.clear(activeSession.id)
+        draftRepository.clear(activeSession.id)
         input = ""
         pendingAttachments = emptyList()
     }
