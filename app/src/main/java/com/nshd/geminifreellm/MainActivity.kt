@@ -521,9 +521,9 @@ private fun AiApp(context: Context) {
                         .onFailure { Toast.makeText(context, it.message ?: "Diagnostics export failed", Toast.LENGTH_LONG).show() }
                 },
                 onSafeRepair = {
-                    AppDiagnostics.safeRepair(context)
+                    AppDiagnostics.maintenance(context)
                     diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
-                    Toast.makeText(context, "Safe repair completed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Maintenance completed", Toast.LENGTH_SHORT).show()
                 },
                 onClearCrashReport = {
                     AppDiagnostics.clearPreviousCrash(context)
@@ -577,15 +577,15 @@ private fun AiApp(context: Context) {
                     val fresh = store.newSession()
                     sessions = listOf(fresh)
                     currentId = fresh.id
+                    persistSession(fresh)
                 } else if (currentId in idsToDelete) {
                     currentId = sessions.first().id
+                    store.saveCurrentId(currentId!!)
                 }
                 scope.launch {
-                    runCatching { store.deleteSessions(idsToDelete.toSet()) }
+                    runCatching { store.deleteSessions(idsToDelete.toList()) }
                         .onFailure { AppDiagnostics.recordEvent(context, "room_delete_failure") }
                 }
-                val selected = currentId?.let { id -> sessions.firstOrNull { it.id == id } }
-                if (selected != null) store.saveCurrentId(selected.id)
             },
             onToggleStar = { id ->
                 sessions = sessions.map {
