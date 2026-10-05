@@ -31,3 +31,6 @@ The app stores the Unified API key locally for convenience. This repository inte
 ## Build
 
 Pushes to `main` trigger GitHub Actions. The generated debug APK is uploaded as the `Gemini-FreeLLM-debug` workflow artifact.
+
+
+<!-- signing probe: 2026-10-05 -->
