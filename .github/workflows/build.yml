@@ -2,6 +2,8 @@ name: Build Android APK
 
 on:
   push:
+    branches: [main, advanced-v2-safe]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -35,14 +37,62 @@ jobs:
         with:
           gradle-version: "8.13"
 
+      - name: Detect permanent release signing configuration
+        id: signing
+        env:
+          ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$ANDROID_SIGNING_KEYSTORE_B64" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare permanent signing key when configured
+        env:
+          ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$ANDROID_SIGNING_KEYSTORE_B64" ]; then
+            echo "Permanent signing is not configured yet; using the normal debug signing key."
+            exit 0
+          fi
+          echo "$ANDROID_SIGNING_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/ai-release.jks"
+          test -s "$RUNNER_TEMP/ai-release.jks"
+
       - name: Build debug APK
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-        run: gradle assembleDebug --no-daemon --stacktrace
+          ANDROID_SIGNING_KEYSTORE_PATH: ${{ runner.temp }}/ai-release.jks
+          ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+          ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
+        run: |
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Gemini-FreeLLM-debug
+          name: AI-FreeLLM-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Build signed release APK when configured
+        if: ${{ steps.signing.outputs.configured == 'true' }}
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+          ANDROID_SIGNING_KEYSTORE_PATH: ${{ runner.temp }}/ai-release.jks
+          ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+          ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
+        run: |
+          gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Upload signed release APK when configured
+        if: ${{ steps.signing.outputs.configured == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-FreeLLM-release
+          path: app/build/outputs/apk/release/app-release.apk

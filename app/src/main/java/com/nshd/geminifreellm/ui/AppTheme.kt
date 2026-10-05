@@ -1,93 +1,75 @@
 package com.nshd.geminifreellm.ui
 
-import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Shapes
-import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.view.WindowCompat
 
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF315FA8),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFD9E5FF),
-    onPrimaryContainer = Color(0xFF001A41),
-    secondary = Color(0xFF585F71),
-    secondaryContainer = Color(0xFFDDE2F9),
-    background = Color(0xFFF9F9FF),
-    surface = Color(0xFFF9F9FF),
-    surfaceContainer = Color(0xFFEDEDF5)
+enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
+
+data class AppColors(
+    val background: Color,
+    val surface: Color,
+    val elevated: Color,
+    val text: Color,
+    val muted: Color,
+    val border: Color,
+    val accent: Color,
+    val accentSoft: Color,
+    val userBubble: Color,
+    val error: Color,
+    val scrim: Color
 )
 
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFFAFC8FF),
-    onPrimary = Color(0xFF062F68),
-    primaryContainer = Color(0xFF1D477F),
-    onPrimaryContainer = Color(0xFFD9E5FF),
-    secondary = Color(0xFFC1C6DD),
-    secondaryContainer = Color(0xFF404659),
-    background = Color(0xFF101114),
-    surface = Color(0xFF101114),
-    surfaceContainer = Color(0xFF1D1E22)
+private val DarkColors = AppColors(
+    background = Color(0xFF212121),
+    surface = Color(0xFF171717),
+    elevated = Color(0xFF2F2F2F),
+    text = Color(0xFFECECEC),
+    muted = Color(0xFFB4B4B4),
+    border = Color(0xFF454545),
+    accent = Color(0xFF10A37F),
+    accentSoft = Color(0xFF1E3B34),
+    userBubble = Color(0xFF2F2F2F),
+    error = Color(0xFFF87171),
+    scrim = Color(0x99000000)
 )
 
-enum class ThemeMode { SYSTEM, LIGHT, DARK }
+private val AmoledColors = DarkColors.copy(
+    background = Color.Black,
+    surface = Color(0xFF0B0B0B),
+    elevated = Color(0xFF191919),
+    userBubble = Color(0xFF1A1A1A)
+)
+
+private val LightColors = AppColors(
+    background = Color(0xFFFFFFFF),
+    surface = Color(0xFFF7F7F8),
+    elevated = Color(0xFFFFFFFF),
+    text = Color(0xFF202123),
+    muted = Color(0xFF6B6B6B),
+    border = Color(0xFFD9D9E0),
+    accent = Color(0xFF0D8F72),
+    accentSoft = Color(0xFFE3F4EF),
+    userBubble = Color(0xFFF1F1F1),
+    error = Color(0xFFB42318),
+    scrim = Color(0x66000000)
+)
+
+val LocalAppColors = staticCompositionLocalOf { DarkColors }
 
 @Composable
-fun GeminiTheme(
-    mode: ThemeMode,
-    content: @Composable () -> Unit
-) {
-    val systemDark = isSystemInDarkTheme()
+fun AiTheme(mode: ThemeMode, content: @Composable () -> Unit) {
     val dark = when (mode) {
-        ThemeMode.SYSTEM -> systemDark
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
+        ThemeMode.DARK, ThemeMode.AMOLED -> true
     }
-    val context = LocalContext.current
-    val dynamic = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-
-    val scheme = when {
-        dynamic && dark -> dynamicDarkColorScheme(context)
-        dynamic && !dark -> dynamicLightColorScheme(context)
+    val colors = when {
+        mode == ThemeMode.AMOLED -> AmoledColors
         dark -> DarkColors
         else -> LightColors
     }
-
-    (context as? Activity)?.let { activity ->
-        activity.window.statusBarColor = scheme.background.toArgbCompat()
-        activity.window.navigationBarColor = scheme.background.toArgbCompat()
-        val controller = WindowCompat.getInsetsController(
-            activity.window,
-            activity.window.decorView
-        )
-        controller.isAppearanceLightStatusBars = !dark
-        controller.isAppearanceLightNavigationBars = !dark
-    }
-
-    MaterialTheme(
-        colorScheme = scheme,
-        typography = Typography(),
-        shapes = Shapes(
-            small = androidx.compose.foundation.shape.RoundedCornerShape(14),
-            medium = androidx.compose.foundation.shape.RoundedCornerShape(20),
-            large = androidx.compose.foundation.shape.RoundedCornerShape(28)
-        ),
-        content = content
-    )
+    CompositionLocalProvider(LocalAppColors provides colors, content = content)
 }
-
-private fun Color.toArgbCompat(): Int = android.graphics.Color.argb(
-    (alpha * 255).toInt(),
-    (red * 255).toInt(),
-    (green * 255).toInt(),
-    (blue * 255).toInt()
-)
