@@ -52,18 +52,18 @@ object AppDiagnostics {
     }
 
     fun hasPreviousCrash(context: Context): Boolean =
-        File(context.applicationContext.filesDir, DIR, CRASH_FILE).exists()
+        File(context.applicationContext.filesDir, DIR + "/" + CRASH_FILE).exists()
 
     fun readPreviousCrash(context: Context): String? =
         runCatching {
-            File(context.applicationContext.filesDir, DIR, CRASH_FILE)
+            File(context.applicationContext.filesDir, DIR + "/" + CRASH_FILE)
                 .takeIf { it.exists() }
                 ?.readText()
                 ?.take(30_000)
         }.getOrNull()
 
     fun clearPreviousCrash(context: Context) {
-        runCatching { File(context.applicationContext.filesDir, DIR, CRASH_FILE).delete() }
+        runCatching { File(context.applicationContext.filesDir, DIR + "/" + CRASH_FILE).delete() }
     }
 
     fun selfCheck(context: Context, baseUrl: String, apiKeyPresent: Boolean): List<String> {
