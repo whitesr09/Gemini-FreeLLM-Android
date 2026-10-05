@@ -62,7 +62,7 @@ jobs:
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
-          unzip -t "$APK" >/dev/null
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 -v 4 "$APK" >/dev/null
 
       - name: Release AAB
         run: gradle bundleRelease --no-daemon --stacktrace
