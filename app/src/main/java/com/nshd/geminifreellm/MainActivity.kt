@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +37,7 @@ import com.nshd.geminifreellm.ui.AiNameOnboarding
 import com.nshd.geminifreellm.ui.AppButton
 import com.nshd.geminifreellm.ui.AppDialog
 import com.nshd.geminifreellm.ui.AppTextButton
+import com.nshd.geminifreellm.ui.BasicText
 import com.nshd.geminifreellm.ui.AiTheme
 import com.nshd.geminifreellm.ui.ChatScreen
 import com.nshd.geminifreellm.ui.SettingsDialog
@@ -590,7 +592,7 @@ private fun AiApp(context: Context) {
                 title = "Clear chat history?",
                 onDismiss = { clearDialog = false },
                 content = {
-                    androidx.compose.foundation.text.BasicText(
+                    BasicText(
                         "This removes local conversations from this device. Your server configuration stays saved.",
                         color = com.nshd.geminifreellm.ui.LocalAppColors.current.muted
                     )
