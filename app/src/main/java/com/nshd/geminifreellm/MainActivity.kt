@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -604,8 +605,8 @@ private fun GenerationDialog(
             )
         },
         actions = {
-            AppTextButton("Cancel", onDismiss)
-            AppButton("Generate", onGenerate, enabled = prompt.isNotBlank(), modifier = androidx.compose.ui.Modifier.width(110.dp))
+            AppTextButton("Cancel", onClick = onDismiss)
+            AppButton("Generate", enabled = prompt.isNotBlank(), modifier = androidx.compose.ui.Modifier.width(110.dp), onClick = onGenerate)
         }
     )
 }
