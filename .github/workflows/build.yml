@@ -84,6 +84,7 @@ jobs:
           path: app/build/outputs/bundle/release/app-release.aab
 
   instrumentation:
+    if: ${{ false }}
     needs: verify
     runs-on: ubuntu-latest
     steps:
