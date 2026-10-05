@@ -144,8 +144,70 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable private fun SearchField(query: String, onChange: (String) -> Unit) { val c = LocalAppColors.current; BasicTextField(value = query, onValueChange = onChange, modifier = Modifier.fillMaxWidth().height(44.dp).background(c.elevated, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 11.dp), singleLine = true, textStyle = TextStyle(color = c.text, fontSize = 14.sp), cursorBrush = SolidColor(c.accent), decorationBox = { inner -> Box { if (query.isBlank()) Row(verticalAlignment = Alignment.CenterVertically) { AppIcon("search", "Search chats", Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); BasicText("Search chats", color = c.muted, fontSize = 14.sp) }; inner() } }) }
 
-@Composable private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (String) -> Unit) { val c = LocalAppColors.current; Column(Modifier.widthIn(min = 230.dp, max = 320.dp).background(c.surface, RoundedCornerShape(14.dp)).border(1.dp, c.border, RoundedCornerShape(14.dp)).padding(8.dp)) { val choices = models.filter { it.available }.ifEmpty { listOf(ModelInfo("auto", "Auto", true)) }; choices.forEach { model -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).clickable { onSelect(model.id) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { BasicText(model.name, color = c.text, fontSize = 13.sp); if (model.id != model.name) BasicText(model.id, color = c.muted, fontSize = 10.sp) }; if (model.id == selected) BasicText("✓", color = c.accent, fontSize = 16.sp) } } } }
+@Composable
+private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (String) -> Unit) {
+    val c = LocalAppColors.current
+    var query by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("All") }
+    var favorites by remember { mutableStateOf(emptySet<String>()) }
+    val available = models.filter { it.available }.ifEmpty { listOf(ModelInfo("auto", "Auto", true)) }
+    val filtered = available.filter { model ->
+        val matches = (model.name + " " + model.id + " " + (model.provider ?: "")).contains(query, true)
+        val categoryMatches = when (category) {
+            "Vision" -> model.supportsVision
+            "Reasoning" -> model.reasoning
+            "Coding" -> model.coding
+            "Favorites" -> model.id in favorites
+            else -> true
+        }
+        matches && categoryMatches
+    }.sortedWith(compareByDescending<ModelInfo> { it.id == selected }.thenByDescending { it.id in favorites }.thenBy { it.name.lowercase() })
+    Column(
+        Modifier.widthIn(min = 280.dp, max = 360.dp)
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.border, RoundedCornerShape(14.dp))
+            .padding(8.dp)
+    ) {
+        SearchField(query) { query = it }
+        Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            listOf("All", "Vision", "Reasoning", "Coding", "Favorites").forEach { item ->
+                SmallPill(item, category == item) { category = item }
+            }
+        }
+        LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            items(filtered, key = { it.id }) { model ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onSelect(model.id) }.padding(10.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            BasicText(model.name, color = c.text, fontSize = 13.sp)
+                            Spacer(Modifier.width(6.dp))
+                            if (model.id == selected) BasicText("Selected", color = c.accent, fontSize = 9.sp)
+                        }
+                        if (model.id != model.name) BasicText(model.id, color = c.muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            model.provider?.let { BasicText(it, color = c.muted, fontSize = 9.sp) }
+                            model.speed?.let { BasicText(it, color = c.muted, fontSize = 9.sp) }
+                            model.contextSize?.let { BasicText(formatContextSize(it), color = c.muted, fontSize = 9.sp) }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (model.supportsVision) BasicText("Vision", color = c.muted, fontSize = 9.sp)
+                            if (model.reasoning) BasicText("Reasoning", color = c.muted, fontSize = 9.sp)
+                            if (model.coding) BasicText("Coding", color = c.muted, fontSize = 9.sp)
+                        }
+                    }
+                    AppIconButton("star", if (model.id in favorites) "Remove favorite" else "Favorite model") {
+                        favorites = if (model.id in favorites) favorites - model.id else favorites + model.id
+                    }
+                }
+            }
+        }
+    }
+}
 
+private fun formatContextSize(value: Long): String = if (value >= 1_000_000L) String.format("%.1fM ctx", value / 1_000_000.0) else String.format("%.0fk ctx", value / 1_000.0)
 @Composable private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boolean, modifier: Modifier, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit, onSuggestedPrompt: (String) -> Unit) {
     val c = LocalAppColors.current; val state = rememberLazyListState(); val scope = rememberCoroutineScope(); LaunchedEffect(messages.lastOrNull()?.id) { if (messages.isNotEmpty()) state.animateScrollToItem(messages.lastIndex) }
     if (messages.isEmpty()) { EmptyState(modifier, onSuggestedPrompt); return }
