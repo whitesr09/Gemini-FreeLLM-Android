@@ -20,7 +20,8 @@ data class ChatMessage(
     val text: String,
     val role: Role,
     val timestamp: Long = System.currentTimeMillis(),
-    val attachments: List<Attachment> = emptyList()
+    val attachments: List<Attachment> = emptyList(),
+    val parentMessageId: Long? = null
 ) {
     enum class Role { USER, ASSISTANT, ERROR }
 }
@@ -49,6 +50,7 @@ data class ChatSession(
             mo.put("text", m.text)
             mo.put("role", m.role.name)
             mo.put("timestamp", m.timestamp)
+            m.parentMessageId?.let { mo.put("parentMessageId", it) }
             val aa = JSONArray()
             m.attachments.forEach { a ->
                 val ao = JSONObject()
@@ -97,7 +99,8 @@ data class ChatSession(
                         ChatMessage.Role.valueOf(mo.optString("role", ChatMessage.Role.ASSISTANT.name))
                     }.getOrDefault(ChatMessage.Role.ASSISTANT),
                     timestamp = mo.optLong("timestamp", System.currentTimeMillis()),
-                    attachments = attachments
+                    attachments = attachments,
+                    parentMessageId = mo.optLong("parentMessageId", 0L).takeIf { it != 0L }
                 )
             }
             return ChatSession(
