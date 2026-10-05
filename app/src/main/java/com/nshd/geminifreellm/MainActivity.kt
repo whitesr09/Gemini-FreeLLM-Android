@@ -45,7 +45,9 @@ import com.nshd.geminifreellm.ui.ThemeMode
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
@@ -132,9 +134,11 @@ private fun AiApp(context: Context) {
             if (uri != null && file != null) {
                 scope.launch {
                     runCatching {
-                        context.contentResolver.openOutputStream(uri)?.use { output ->
-                            file.inputStream().use { input -> input.copyTo(output) }
-                        } ?: error("Couldn't open the destination.")
+                        withContext(Dispatchers.IO) {
+                            context.contentResolver.openOutputStream(uri)?.use { output ->
+                                file.inputStream().use { input -> input.copyTo(output) }
+                            } ?: error("Couldn't open the destination.")
+                        }
                     }.onFailure {
                         Toast.makeText(context, it.message ?: "Save failed", Toast.LENGTH_LONG).show()
                     }.onSuccess {
@@ -149,7 +153,9 @@ private fun AiApp(context: Context) {
         if (uris.isEmpty()) return@rememberLauncherForMultipleDocuments
         scope.launch {
             val added = uris.mapNotNull { uri ->
-                runCatching { DocumentProcessor.copyToAppStorage(context, uri)?.attachment }.getOrNull()
+                runCatching {
+                    withContext(Dispatchers.IO) { DocumentProcessor.copyToAppStorage(context, uri)?.attachment }
+                }.getOrNull()
             }
             if (added.isNotEmpty()) {
                 pendingAttachments = pendingAttachments + added
@@ -161,13 +167,18 @@ private fun AiApp(context: Context) {
         if (uri == null) return@rememberLauncherForOpenDocument
         scope.launch {
             runCatching {
-                val temp = File(context.cacheDir, "selected-backup.zip")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    temp.outputStream().use { output -> input.copyTo(output) }
-                } ?: error("Couldn't read the backup.")
-                val imported = BackupManager.importBackup(context, temp)
+                val imported = withContext(Dispatchers.IO) {
+                    val temp = File(context.cacheDir, "selected-backup.zip")
+                    try {
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            temp.outputStream().use { output -> input.copyTo(output) }
+                        } ?: error("Couldn't read the backup.")
+                        BackupManager.importBackup(context, temp)
+                    } finally {
+                        temp.delete()
+                    }
+                }
                 chatVm.importSessions(imported.sessions, selectedModel)
-                temp.delete()
             }.onSuccess {
                 Toast.makeText(context, "Chats imported", Toast.LENGTH_SHORT).show()
             }.onFailure {
@@ -264,7 +275,7 @@ private fun AiApp(context: Context) {
     fun requestExport(message: ChatMessage, format: ExportFormat) {
         scope.launch {
             runCatching {
-                DocumentExporter.renderText(message, format)
+                withContext(Dispatchers.IO) { DocumentExporter.renderText(message, format) }
             }.onSuccess { file ->
                 requestSaveFile(file)
             }.onFailure {
@@ -300,23 +311,33 @@ private fun AiApp(context: Context) {
                     if (apiKey.isNotBlank() && aiName.isNotBlank()) showSettings = false
                 },
                 onExportChats = {
-                    val file = BackupManager.createBackup(context, sessions)
-                    requestSaveFile(file)
+                    scope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) { BackupManager.createBackup(context, sessions) }
+                        }.onSuccess { file -> requestSaveFile(file) }
+                            .onFailure { Toast.makeText(context, it.message ?: "Backup export failed", Toast.LENGTH_LONG).show() }
+                    }
                 },
                 onImportChats = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
                 onClearChats = { clearDialog = true },
                 diagnostics = diagnostics,
                 onExportDiagnostics = {
-                    runCatching {
-                        AppDiagnostics.exportReport(context, baseUrl, apiKey.isNotBlank(), sessions.size)
-                    }.onSuccess { file -> requestSaveFile(file) }
-                        .onFailure { Toast.makeText(context, it.message ?: "Diagnostics export failed", Toast.LENGTH_LONG).show() }
+                    scope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                AppDiagnostics.exportReport(context, baseUrl, apiKey.isNotBlank(), sessions.size)
+                            }
+                        }.onSuccess { file -> requestSaveFile(file) }
+                            .onFailure { Toast.makeText(context, it.message ?: "Diagnostics export failed", Toast.LENGTH_LONG).show() }
+                    }
                 },
                 onSafeRepair = {
-                    AppDiagnostics.maintenance(context)
-                    chatVm.cleanupOrphans()
-                    diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
-                    Toast.makeText(context, "Maintenance completed", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        withContext(Dispatchers.IO) { AppDiagnostics.maintenance(context) }
+                        chatVm.cleanupOrphans()
+                        diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
+                        Toast.makeText(context, "Maintenance started", Toast.LENGTH_SHORT).show()
+                    }
                 },
                 onClearCrashReport = {
                     AppDiagnostics.clearPreviousCrash(context)
