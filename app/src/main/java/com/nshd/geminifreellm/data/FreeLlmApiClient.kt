@@ -2,6 +2,7 @@ package com.nshd.geminifreellm.data
 
 import android.content.Context
 import android.util.Base64
+import com.nshd.geminifreellm.BuildConfig
 import com.nshd.geminifreellm.model.ChatMessage
 import com.nshd.geminifreellm.model.ResponseMetadata
 import kotlinx.coroutines.CancellationException
@@ -622,8 +623,12 @@ class FreeLlmApiClient {
         require(!value.contains("\n") && !value.contains("\r") && !value.contains(" ")) {
             "Base URL contains invalid whitespace."
         }
-        val parsed = value.toHttpUrlOrNull() ?: error("Base URL is not a valid HTTPS URL.")
-        require(parsed.isHttps) { "Base URL must use HTTPS." }
+        val parsed = value.toHttpUrlOrNull() ?: error("Base URL is not a valid URL.")
+        val localHttp = !parsed.isHttps && BuildConfig.DEBUG &&
+            parsed.host in setOf("localhost", "127.0.0.1", "::1")
+        require(parsed.isHttps || localHttp) {
+            "Base URL must use HTTPS, except localhost in debug builds."
+        }
         require(parsed.username.isEmpty() && parsed.password.isEmpty()) {
             "Credentials in the Base URL are not allowed."
         }
