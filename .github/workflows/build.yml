@@ -59,6 +59,20 @@ jobs:
           echo "$ANDROID_SIGNING_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/ai-release.jks"
           test -s "$RUNNER_TEMP/ai-release.jks"
 
+      - name: Lint debug variant
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          gradle lintDebug --no-daemon --stacktrace
+
+      - name: Run unit tests
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          gradle testDebugUnitTest --no-daemon --stacktrace
+
       - name: Build debug APK
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
