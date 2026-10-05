@@ -516,7 +516,7 @@ class FreeLlmApiClient {
             .build()
 
         val call = beginCall(chatClient.newCall(request))
-        try {
+        return try {
             call.execute().use { response ->
                 val requestId = response.header("X-Request-ID") ?: response.header("x-request-id")
                 val routedVia = response.header("X-Routed-Via")
