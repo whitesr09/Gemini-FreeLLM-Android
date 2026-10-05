@@ -37,6 +37,7 @@ fun SettingsDialog(
     onMaintenance: () -> Unit,
     onClearCrashReport: () -> Unit,
     onClearCache: () -> Unit,
+    onClearDocumentIndex: () -> Unit,
     onAppLock: (Boolean) -> Unit
 ) {
     var draft by remember(settings) { mutableStateOf(settings) }
@@ -125,6 +126,9 @@ fun SettingsDialog(
                     ToggleRow("Local safe tools", draft.localToolsEnabled) {
                         draft = draft.copy(localToolsEnabled = it)
                     }
+                    ToggleRow("Local document index", draft.documentIndexEnabled) {
+                        draft = draft.copy(documentIndexEnabled = it)
+                    }
                     ToggleRow("Animations", draft.animationsEnabled) {
                         draft = draft.copy(animationsEnabled = it)
                     }
@@ -193,11 +197,13 @@ fun SettingsDialog(
                         BasicText(
                             "DB " + formatBytes(u.databaseBytes) +
                                 " · Cache " + formatBytes(u.cacheBytes) +
-                                " · Total tracked " + formatBytes(u.databaseBytes + u.attachmentBytes + u.generatedBytes + u.cacheBytes),
+                                " · Index " + formatBytes(u.documentIndexBytes) +
+                                " · Chunks " + u.documentChunkCount,
                             color = LocalAppColors.current.muted,
                             fontSize = 11.sp
                         )
                         AppTextButton("Clear cache") { onClearCache() }
+                        if (u.documentChunkCount > 0L) AppTextButton("Clear document index") { onClearDocumentIndex() }
                     }
                 }
 
