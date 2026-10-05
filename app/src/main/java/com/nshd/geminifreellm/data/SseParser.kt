@@ -1,6 +1,5 @@
 package com.nshd.geminifreellm.data
 
-import org.json.JSONArray
 import org.json.JSONObject
 
 object SseParser {
@@ -49,9 +48,9 @@ object SseParser {
             return Event.Delta(unescapeJsonString(content))
         }
 
-        val toolId = Regex("""\"id\"\s*:\s*\"([^"]+)\"""")
+        val toolId = Regex("""\"id\"\s*:\s*\"([^\"]+)\"""")
             .find(raw)?.groupValues?.getOrNull(1)
-        val toolName = Regex("""\"name\"\s*:\s*\"([^"]+)\"""")
+        val toolName = Regex("""\"name\"\s*:\s*\"([^\"]+)\"""")
             .find(raw)?.groupValues?.getOrNull(1)
         val arguments = Regex("""\"arguments\"\s*:\s*\"((?:\\.|[^"])*)\"""")
             .find(raw)?.groupValues?.getOrNull(1)
@@ -66,10 +65,9 @@ object SseParser {
     }
 
     private fun unescapeJsonString(value: String): String = value
-        .replace("\\\"", """)
+        .replace("\\\"", "\"")
         .replace("\\\\", "\\")
         .replace("\\n", "\n")
         .replace("\\r", "\r")
         .replace("\\t", "\t")
-
 }
