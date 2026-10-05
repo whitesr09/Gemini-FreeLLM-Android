@@ -81,7 +81,7 @@ fun SettingsDialog(
                     }
                 }
                 item {
-                    SectionTitle("Diagnostics & recovery")
+                    SectionTitle("Diagnostics & maintenance")
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         diagnostics.take(8).forEach { line ->
                             BasicText(line, color = if (line.startsWith("✗")) LocalAppColors.current.error else LocalAppColors.current.muted, fontSize = 11.sp)
@@ -90,7 +90,7 @@ fun SettingsDialog(
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
                         AppTextButton("Export report") { onExportDiagnostics() }
-                        AppTextButton("Safe repair") { onSafeRepair() }
+                        AppTextButton("Maintenance") { onSafeRepair() }
                         Spacer(Modifier.weight(1f))
                         AppTextButton("Clear crash") { onClearCrashReport() }
                     }
