@@ -533,6 +533,11 @@ private fun AiApp(context: Context) {
             busy = busy,
             onInputChange = { input = it },
             onSend = ::sendMessage,
+            onStop = {
+                client.cancelActive()
+                busy = false
+                AppDiagnostics.recordEvent(context, "generation_cancelled")
+            },
             onNewChat = ::makeNewChat,
             onSelectSession = { id ->
                 if (!busy && sessions.any { it.id == id }) currentId = id
