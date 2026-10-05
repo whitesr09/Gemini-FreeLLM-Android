@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nshd.geminifreellm.data.ChatResult
 import com.nshd.geminifreellm.data.ConnectionCheck
+import com.nshd.geminifreellm.data.ModelInfo
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.data.database.RoomChatRepository
 import com.nshd.geminifreellm.model.Attachment
@@ -16,6 +17,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicLong
 
 data class ChatUiState(
@@ -24,13 +27,17 @@ data class ChatUiState(
     val busy: Boolean = false,
     val connectionTesting: Boolean = false,
     val connectionResult: ConnectionCheck? = null,
-    val connectionError: String? = null
+    val connectionError: String? = null,
+    val models: List<ModelInfo> = emptyList(),
+    val modelLoading: Boolean = false,
+    val modelError: String? = null
 )
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RoomChatRepository(application.applicationContext)
     private val apiClient = FreeLlmApiClient()
     private val ids = AtomicLong(System.currentTimeMillis())
+    private val modelPrefs = application.getSharedPreferences("model_cache", Application.MODE_PRIVATE)
     private val generationIds = AtomicLong(0L)
     private var generationJob: Job? = null
     private var activeGenerationId: Long? = null
@@ -76,6 +83,82 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = ChatUiState(loaded, current, false)
             }
         }
+    }
+
+    fun refreshModels(baseUrl: String, apiKey: String) {
+        val cached = readCachedModels(baseUrl)
+        if (_uiState.value.models.isEmpty() && cached.isNotEmpty()) {
+            _uiState.update { it.copy(models = cached, modelError = null) }
+        }
+        if (baseUrl.isBlank() || apiKey.isBlank()) {
+            _uiState.update { it.copy(modelLoading = false, modelError = null) }
+            return
+        }
+        _uiState.update { it.copy(modelLoading = true, modelError = null) }
+        viewModelScope.launch {
+            apiClient.fetchModels(baseUrl, apiKey)
+                .onSuccess { models ->
+                    writeCachedModels(baseUrl, models)
+                    _uiState.update { it.copy(models = models, modelLoading = false, modelError = null) }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            models = if (it.models.isNotEmpty()) it.models else cached,
+                            modelLoading = false,
+                            modelError = error.message ?: "Couldn't load models."
+                        )
+                    }
+                }
+        }
+    }
+
+    private fun cacheKey(baseUrl: String): String =
+        "models_" + baseUrl.trim().trimEnd('/').hashCode()
+
+    private fun readCachedModels(baseUrl: String): List<ModelInfo> = runCatching {
+        val raw = modelPrefs.getString(cacheKey(baseUrl), null) ?: return@runCatching emptyList()
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val o = array.optJSONObject(i) ?: continue
+                val id = o.optString("id")
+                if (id.isNotBlank()) add(
+                    ModelInfo(
+                        id = id,
+                        name = o.optString("name", id),
+                        available = o.optBoolean("available", true),
+                        provider = o.optString("provider").takeIf { it.isNotBlank() },
+                        supportsVision = o.optBoolean("vision"),
+                        supportsImageGeneration = o.optBoolean("image"),
+                        supportsVideoGeneration = o.optBoolean("video"),
+                        contextSize = o.optLong("context", 0L).takeIf { it > 0L },
+                        reasoning = o.optBoolean("reasoning"),
+                        coding = o.optBoolean("coding")
+                    )
+                )
+            }
+        }
+    }.getOrDefault(emptyList())
+
+    private fun writeCachedModels(baseUrl: String, models: List<ModelInfo>) {
+        val array = JSONArray()
+        models.forEach { model ->
+            array.put(
+                JSONObject()
+                    .put("id", model.id)
+                    .put("name", model.name)
+                    .put("available", model.available)
+                    .put("provider", model.provider ?: "")
+                    .put("vision", model.supportsVision)
+                    .put("image", model.supportsImageGeneration)
+                    .put("video", model.supportsVideoGeneration)
+                    .put("context", model.contextSize ?: 0L)
+                    .put("reasoning", model.reasoning)
+                    .put("coding", model.coding)
+            )
+        }
+        modelPrefs.edit().putString(cacheKey(baseUrl), array.toString()).apply()
     }
 
     fun cleanupOrphans() {
