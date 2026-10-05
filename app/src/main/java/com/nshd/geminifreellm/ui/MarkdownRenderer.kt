@@ -184,6 +184,18 @@ private fun inlineAnnotated(source: String, colors: AppColors): AnnotatedString 
             }
         }
 
+        if (source.startsWith("~~", i)) {
+            val endStrike = source.indexOf("~~", i + 2)
+            if (endStrike > i + 2) {
+                appendStyled(
+                    SpanStyle(textDecoration = TextDecoration.LineThrough),
+                    source.substring(i + 2, endStrike)
+                )
+                i = endStrike + 2
+                continue
+            }
+        }
+
         if (source.startsWith("**", i) || source.startsWith("__", i)) {
             val token = source.substring(i, i + 2)
             val endStrong = source.indexOf(token, i + 2)
