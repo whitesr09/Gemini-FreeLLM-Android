@@ -255,6 +255,7 @@ private fun formatContextSize(value: Long): String = if (value >= 1_000_000L) St
                         }
                     }
                 }
+                if (showDetails) MetadataDetailsDialog(message, onDismiss = { showDetails = false })
             }
         }
     }
@@ -318,7 +319,6 @@ private fun MetadataDetailsDialog(message: ChatMessage, onDismiss: () -> Unit) {
         },
         actions = { AppTextButton("Close", onClick = onDismiss) }
     )
-                if (showDetails) MetadataDetailsDialog(message, onDismiss = { showDetails = false })
 }
 
 @Composable private fun AttachmentList(attachments:List<Attachment>,onExport:(Attachment)->Unit,onOpen:(Attachment)->Unit,onDelete:(Attachment)->Unit,onShare:(Attachment)->Unit,onRegenerate:(Attachment)->Unit){
