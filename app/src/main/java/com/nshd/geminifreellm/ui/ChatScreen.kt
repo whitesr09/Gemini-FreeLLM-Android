@@ -47,7 +47,7 @@ private fun iconLabel(symbol: String): String = when (symbol) {
 }
 
 @Composable
-fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, webSearchEnabled: Boolean = false, localToolsEnabled: Boolean = true, contextLabel: String = "", onInputChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit = onNewChat, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onVoice: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, imageSupported: Boolean, videoSupported: Boolean, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onToggleWebSearch: () -> Unit = {}, onToggleLocalTools: () -> Unit = {}, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit = {}, onUnarchive: (String) -> Unit = {}, onOpenAttachment: (Attachment) -> Unit = {}, onDeleteAttachment: (Attachment) -> Unit = {}, onShareAttachment: (Attachment) -> Unit = {}, onRegenerateMedia: (ChatMessage, Attachment) -> Unit = { _, _ -> }, onSuggestedPrompt: (String) -> Unit = {}) {
+fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, webSearchEnabled: Boolean = false, localToolsEnabled: Boolean = true, contextLabel: String = "", onInputChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit = onNewChat, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onVoice: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, imageSupported: Boolean, videoSupported: Boolean, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onToggleWebSearch: () -> Unit = {}, onToggleLocalTools: () -> Unit = {}, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit = {}, onUnarchive: (String) -> Unit = {}, onRename: (String) -> Unit = {}, onOpenAttachment: (Attachment) -> Unit = {}, onDeleteAttachment: (Attachment) -> Unit = {}, onShareAttachment: (Attachment) -> Unit = {}, onRegenerateMedia: (ChatMessage, Attachment) -> Unit = { _, _ -> }, onSuggestedPrompt: (String) -> Unit = {}) {
     var drawerOpen by remember { mutableStateOf(false) }
     var modelOpen by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(LocalAppColors.current.background)) {
@@ -59,7 +59,7 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
         if (modelOpen) Popup(alignment = Alignment.TopEnd, onDismissRequest = { modelOpen = false }) { ModelMenu(models, selectedModel) { onSelectModel(it); modelOpen = false } }
         if (drawerOpen) {
             Box(Modifier.fillMaxSize().background(LocalAppColors.current.scrim).pointerInput(Unit) { detectTapGestures { drawerOpen = false } })
-            HistoryDrawer(aiName, sessions, session.id, { drawerOpen = false; onNewChat() }, { drawerOpen = false; onNewTemporaryChat() }, { drawerOpen = false; onSelectSession(it) }, { drawerOpen = false; onSettings() }, onDeleteSessions, onToggleStar, onArchive, onUnarchive)
+            HistoryDrawer(aiName, sessions, session.id, { drawerOpen = false; onNewChat() }, { drawerOpen = false; onNewTemporaryChat() }, { drawerOpen = false; onSelectSession(it) }, { drawerOpen = false; onSettings() }, onDeleteSessions, onToggleStar, onArchive, onUnarchive, onRename)
         }
     }
 }
@@ -74,7 +74,7 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
 }
 @Composable private fun HeaderButton(symbol: String, onClick: () -> Unit) { AppIconButton(symbol, iconLabel(symbol), onClick) }
 
-@Composable private fun HistoryDrawer(aiName: String, sessions: List<ChatSession>, currentId: String, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit, onSelect: (String) -> Unit, onSettings: () -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit, onUnarchive: (String) -> Unit) {
+@Composable private fun HistoryDrawer(aiName: String, sessions: List<ChatSession>, currentId: String, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit, onSelect: (String) -> Unit, onSettings: () -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit, onUnarchive: (String) -> Unit, onRename: (String) -> Unit) {
     val c = LocalAppColors.current
     var query by remember { mutableStateOf("") }; var selecting by remember { mutableStateOf(false) }; var selected by remember { mutableStateOf(emptySet<String>()) }; var filter by remember { mutableStateOf("All") }
     val filtered = remember(sessions, query, filter) {
@@ -112,6 +112,7 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
                         if (!selecting) {
                             AppIconButton(if (item.starred) "star" else "starBorder", if (item.starred) "Unstar conversation" else "Star conversation", onClick = { onToggleStar(item.id) })
                             AppIconButton(if (item.archived) "unarchive" else "archive", if (item.archived) "Unarchive conversation" else "Archive conversation", onClick = { if (item.archived) onUnarchive(item.id) else onArchive(item.id) })
+                            AppIconButton("edit", "Rename conversation", onClick = { onRename(item.id) })
                         }
                     }
                 }
@@ -144,10 +145,20 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (String) -> Unit) { val c = LocalAppColors.current; Column(Modifier.widthIn(min = 230.dp, max = 320.dp).background(c.surface, RoundedCornerShape(14.dp)).border(1.dp, c.border, RoundedCornerShape(14.dp)).padding(8.dp)) { val choices = models.filter { it.available }.ifEmpty { listOf(ModelInfo("auto", "Auto", true)) }; choices.forEach { model -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).clickable { onSelect(model.id) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { BasicText(model.name, color = c.text, fontSize = 13.sp); if (model.id != model.name) BasicText(model.id, color = c.muted, fontSize = 10.sp) }; if (model.id == selected) BasicText("✓", color = c.accent, fontSize = 16.sp) } } } }
 
 @Composable private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boolean, modifier: Modifier, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit, onSuggestedPrompt: (String) -> Unit) {
-    val c = LocalAppColors.current; val state = rememberLazyListState(); LaunchedEffect(messages.lastOrNull()?.id) { if (messages.isNotEmpty()) state.animateScrollToItem(messages.lastIndex) }
+    val c = LocalAppColors.current; val state = rememberLazyListState(); val scope = rememberCoroutineScope(); LaunchedEffect(messages.lastOrNull()?.id) { if (messages.isNotEmpty()) state.animateScrollToItem(messages.lastIndex) }
     if (messages.isEmpty()) { EmptyState(modifier, onSuggestedPrompt); return }
     LazyColumn(state = state, modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        items(messages, key = { it.id }) { message -> MessageBlock(message, aiName, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, onRegenerateMedia) }
+        itemsIndexed(messages, key = { _, it -> it.id }) { index, message ->
+            val siblings = if (message.role == ChatMessage.Role.ASSISTANT && message.parentMessageId != null) {
+                messages.filter { it.role == ChatMessage.Role.ASSISTANT && it.parentMessageId == message.parentMessageId }
+            } else emptyList()
+            val branchIndex = siblings.indexOfFirst { it.id == message.id }
+            MessageBlock(message, aiName, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, onRegenerateMedia, branchIndex, siblings.size) { delta ->
+                val target = siblings.getOrNull(branchIndex + delta) ?: return@MessageBlock
+                val targetIndex = messages.indexOfFirst { it.id == target.id }
+                if (targetIndex >= 0) scope.launch { state.animateScrollToItem(targetIndex) }
+            }
+        }
         if (busy) item { Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) { AiOrb(Modifier.size(25.dp), true); Spacer(Modifier.width(8.dp)); BasicText("Thinking", color = c.muted, fontSize = 12.sp) } }
     }
 }
@@ -160,7 +171,7 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
  }}
 }
 
-@Composable private fun MessageBlock(message: ChatMessage, aiName: String, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit) {
+@Composable private fun MessageBlock(message: ChatMessage, aiName: String, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit, branchIndex: Int, branchCount: Int, onBranchNavigate: (Int) -> Unit) {
     val c = LocalAppColors.current; val user = message.role == ChatMessage.Role.USER; val error = message.role == ChatMessage.Role.ERROR
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.widthIn(max = 760.dp)) {
@@ -169,11 +180,34 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
                 BasicText(if (user) "You" else if (error) "Error" else aiName, color = if (error) c.error else c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.height(5.dp))
                 if (user) Box(Modifier.background(c.userBubble, ChatRadius).padding(horizontal = 15.dp, vertical = 11.dp)) { MessageText(message.text, error, onCopy) } else MessageText(message.text, error, onCopy)
                 if (message.attachments.isNotEmpty()) { Spacer(Modifier.height(8.dp)); AttachmentList(message.attachments, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, { attachment -> onRegenerateMedia(message, attachment) }) }
-                if (message.text.isNotBlank() && !error) MessageActions(message, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport)
+                if (message.text.isNotBlank() && !error) {
+                    MessageActions(message, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport)
+                    if (branchCount > 1) {
+                        Row(Modifier.height(48.dp).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            BranchButton("‹", "Previous response", branchIndex > 0) { onBranchNavigate(-1) }
+                            BasicText((branchIndex + 1).coerceAtLeast(1).toString() + "/" + branchCount, color = c.muted, fontSize = 10.sp)
+                            BranchButton("›", "Next response", branchIndex in 0 until branchCount - 1) { onBranchNavigate(1) }
+                        }
+                    }
+                }
             }
         }
     }
 }
+
+@Composable
+private fun BranchButton(symbol: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+    BasicText(
+        symbol,
+        color = if (enabled) LocalAppColors.current.text else LocalAppColors.current.muted.copy(alpha = 0.35f),
+        fontSize = 22.sp,
+        modifier = Modifier.size(44.dp).clickable(enabled = enabled, onClick = onClick).semantics {
+            role = Role.Button
+            contentDescription = description
+        }.padding(horizontal = 12.dp, vertical = 6.dp)
+    )
+}
+
 @Composable private fun MessageText(text:String,error:Boolean,onCopyCode:(String)->Unit){if(text.isNotBlank())MarkdownMessage(text,error,onCopyCode)}
 @Composable private fun MessageActions(message: ChatMessage, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit) { Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) { ActionText("Copy") { onCopy(message.text) }; ActionText("Share") { onShare(message.text) }; ActionText("Read") { onSpeak(message.text) }; if (message.role == ChatMessage.Role.USER) ActionText("Edit") { onEdit(message.id, message.text) }; ActionText("Retry") { onRegenerate(message.id) }; ActionText("Export") { onExport(message, ExportFormat.MARKDOWN) }; ActionText("TXT") { onExport(message, ExportFormat.TEXT) }; ActionText("JSON") { onExport(message, ExportFormat.JSON) }; ActionText("HTML") { onExport(message, ExportFormat.HTML) } } }
 @Composable private fun ActionText(label:String,onClick:()->Unit){val icon=when(label){"Copy"->"copy";"Share"->"share";"Read"->"read";"Edit"->"edit";"Retry"->"retry";"Export"->"save";else->null};if(icon!=null)AppIconButton(icon,label,onClick)else Box(Modifier.height(48.dp).clickable(onClick=onClick).semantics{role=Role.Button;contentDescription=label}.padding(horizontal=8.dp),contentAlignment=Alignment.Center){BasicText(label,color=LocalAppColors.current.muted,fontSize=10.sp)}}
