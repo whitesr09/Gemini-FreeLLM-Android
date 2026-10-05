@@ -14,7 +14,9 @@ enum class ExportFormat(val extension: String, val mime: String) {
     TEXT("txt", "text/plain"),
     MARKDOWN("md", "text/markdown"),
     PDF("pdf", "application/pdf"),
-    DOCX("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    DOCX("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    JSON("json", "application/json"),
+    HTML("html", "text/html")
 }
 
 object DocumentExporter {
@@ -24,6 +26,8 @@ object DocumentExporter {
             ExportFormat.TEXT, ExportFormat.MARKDOWN -> file.writeText(message.text, StandardCharsets.UTF_8)
             ExportFormat.PDF -> writePdf(file, message.text)
             ExportFormat.DOCX -> writeDocx(file, message.text)
+            ExportFormat.JSON -> file.writeText(org.json.JSONObject().put("id", message.id).put("role", message.role.name).put("timestamp", message.timestamp).put("text", message.text).put("parentMessageId", message.parentMessageId).toString(2), StandardCharsets.UTF_8)
+            ExportFormat.HTML -> file.writeText("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FreeLLM AI export</title></head><body><article><pre>" + escapeHtml(message.text) + "</pre></article></body></html>", StandardCharsets.UTF_8)
         }
         return file
     }
@@ -103,6 +107,12 @@ object DocumentExporter {
             zip.closeEntry()
         }
     }
+
+    private fun escapeHtml(value: String): String = value
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\\\"", "&quot;")
 
     private fun escapeXml(value: String): String = value
         .replace("&", "&amp;")
