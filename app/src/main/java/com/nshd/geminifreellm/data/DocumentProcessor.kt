@@ -2,6 +2,8 @@ package com.nshd.geminifreellm.data
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import androidx.exifinterface.media.ExifInterface
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -122,7 +124,10 @@ object DocumentProcessor {
         while (maxOf(options.outWidth / sample, options.outHeight / sample) > IMAGE_MAX_SIDE) sample *= 2
         val bitmap = BitmapFactory.decodeFile(
             file.absolutePath,
-            BitmapFactory.Options().apply { inSampleSize = sample }
+            BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
         )
         if (bitmap == null) {
             require(file.length() <= MAX_INPUT_FILE_BYTES) { "Image is too large or unsupported." }
@@ -140,10 +145,41 @@ object DocumentProcessor {
                 out.toByteArray()
             }
         }
+        val oriented = applyExifOrientation(file, bitmap)
+        if (oriented !== bitmap) bitmap.recycle()
         val out = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, IMAGE_QUALITY, out)
-        bitmap.recycle()
-        return out.toByteArray()
+        oriented.compress(Bitmap.CompressFormat.JPEG, IMAGE_QUALITY, out)
+        oriented.recycle()
+        return out
+    }
+
+    private fun applyExifOrientation(file: File, bitmap: Bitmap): Bitmap {
+        val orientation = runCatching {
+            ExifInterface(file.absolutePath).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.setRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.setRotate(-90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return bitmap
+        }
+        return runCatching {
+            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        }.getOrElse { bitmap }
     }
 
     private fun extractOfficeXml(file: File): String {
