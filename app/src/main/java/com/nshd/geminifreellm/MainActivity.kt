@@ -360,16 +360,7 @@ private fun AiApp(context: Context) {
             SettingsDialog(
                 settings = chatState.settings,
                 apiKey = apiKey,
-                storageUsage = chatState.storage?.let { snapshot ->
-                    com.nshd.geminifreellm.data.StorageUsage(
-                        attachments = snapshot.attachmentBytes,
-                        generatedImages = 0L,
-                        generatedVideos = 0L,
-                        cache = snapshot.cacheBytes,
-                        temp = 0L,
-                        total = snapshot.attachmentBytes + snapshot.generatedBytes + snapshot.cacheBytes
-                    )
-                },
+                storageUsage = chatState.storage,
                 diagnostics = diagnostics,
                 connectionTesting = chatState.connectionTesting,
                 connectionResult = chatState.connectionResult,
