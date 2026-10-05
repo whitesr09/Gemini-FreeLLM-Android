@@ -11,6 +11,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.net.Uri
 import android.os.Bundle
 import android.content.pm.PackageManager
+import android.app.KeyguardManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -28,6 +29,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.nshd.geminifreellm.data.AppDiagnostics
+import com.nshd.geminifreellm.data.AppSettings
+import com.nshd.geminifreellm.data.StorageManager
 import com.nshd.geminifreellm.data.BackupManager
 import com.nshd.geminifreellm.data.DocumentExporter
 import com.nshd.geminifreellm.data.DocumentProcessor
@@ -58,11 +61,40 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
 class MainActivity : ComponentActivity() {
+    private var pausedAt: Long = 0L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppDiagnostics.install(this)
         AppDiagnostics.recordEvent(this, "app_started")
         setContent { AiApp(this) }
+    }
+
+    override fun onPause() {
+        pausedAt = System.currentTimeMillis()
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val prefs = getSharedPreferences("settings", MODE_PRIVATE)
+        if (!prefs.getBoolean("appLockEnabled", false)) return
+        val timeout = prefs.getInt("appLockTimeoutMinutes", 5).coerceIn(1, 60)
+        val elapsed = if (pausedAt == 0L) Long.MAX_VALUE else System.currentTimeMillis() - pausedAt
+        if (elapsed >= timeout * 60_000L && !isFinishing) {
+            val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+            if (keyguard.isKeyguardSecure) {
+                runCatching {
+                    startActivityForResult(
+                        keyguard.createConfirmDeviceCredentialIntent(
+                            "Unlock FreeLLM AI",
+                            "Confirm your device credential to open the app."
+                        ),
+                        4101
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -326,21 +358,35 @@ private fun AiApp(context: Context) {
     val settingsContent: @Composable () -> Unit = {
         if (showSettings) {
             SettingsDialog(
-                baseUrl = baseUrl,
+                settings = chatState.settings.copy(
+                    baseUrl = baseUrl,
+                    aiName = aiName,
+                    selectedModel = selectedModel,
+                    theme = themeMode.name
+                ),
                 apiKey = apiKey,
-                aiName = aiName,
-                themeMode = themeMode,
-                onSave = { url, key, name, theme ->
-                    baseUrl = url
+                storageUsage = StorageManager.usage(context),
+                diagnostics = diagnostics,
+                connectionTesting = chatState.connectionTesting,
+                connectionResult = chatState.connectionResult,
+                connectionError = chatState.connectionError,
+                onTestConnection = { url, key -> chatVm.testConnection(url.trim(), key.trim()) },
+                onSave = { settings, key ->
+                    baseUrl = settings.baseUrl
                     apiKey = key
-                    aiName = name
-                    themeMode = theme
+                    aiName = settings.aiName
+                    selectedModel = settings.selectedModel
+                    themeMode = runCatching { ThemeMode.valueOf(settings.theme) }.getOrDefault(ThemeMode.SYSTEM)
                     secureCredentials.setApiKey(apiKey)
                     prefs.edit()
                         .putString("baseUrl", baseUrl)
                         .putString("aiName", aiName)
-                        .putString("theme", theme.name)
+                        .putString("theme", themeMode.name)
+                        .putString("model", selectedModel)
+                        .putBoolean("appLockEnabled", settings.appLockEnabled)
+                        .putInt("appLockTimeoutMinutes", settings.appLockTimeoutMinutes)
                         .apply()
+                    chatVm.applySettings(settings.copy(baseUrl = baseUrl, aiName = aiName, selectedModel = selectedModel, theme = themeMode.name))
                     diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
                     AppDiagnostics.recordEvent(context, "settings_saved")
                     showSettings = false
@@ -370,7 +416,7 @@ private fun AiApp(context: Context) {
                             .onFailure { Toast.makeText(context, it.message ?: "Diagnostics export failed", Toast.LENGTH_LONG).show() }
                     }
                 },
-                onSafeRepair = {
+                onMaintenance = {
                     scope.launch {
                         withContext(Dispatchers.IO) { AppDiagnostics.maintenance(context) }
                         chatVm.cleanupOrphans()
@@ -383,10 +429,14 @@ private fun AiApp(context: Context) {
                     diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
                     Toast.makeText(context, "Crash report cleared", Toast.LENGTH_SHORT).show()
                 },
+                onClearCache = {
+                    StorageManager.clearCache(context)
+                    Toast.makeText(context, "Cache cleared", Toast.LENGTH_SHORT).show()
+                },
+                onAppLock = { enabled ->
+                    prefs.edit().putBoolean("appLockEnabled", enabled).apply()
+                },
                 onTestConnection = { chatVm.testConnection(baseUrl, apiKey) },
-                connectionTesting = chatState.connectionTesting,
-                connectionResult = chatState.connectionResult,
-                connectionError = chatState.connectionError
             )
         }
     }
