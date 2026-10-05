@@ -327,6 +327,7 @@ private fun AiApp(context: Context) {
                 },
                 onSafeRepair = {
                     AppDiagnostics.maintenance(context)
+                    chatVm.cleanupOrphans()
                     diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
                     Toast.makeText(context, "Maintenance completed", Toast.LENGTH_SHORT).show()
                 },
