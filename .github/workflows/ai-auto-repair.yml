@@ -16,10 +16,72 @@ jobs:
   proposal:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Read-only safety notice
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Collect failed run metadata and safe logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
         run: |
-          echo "AI repair is proposal-only."
-          echo "Requested failed run: ${{ inputs.run_id }}"
-          echo "This workflow has no contents:write or pull-requests:write permission."
-          echo "No autonomous patch, push, PR, or merge is performed."
+          set -euo pipefail
+          mkdir -p repair-report
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > repair-report/run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" > repair-report/jobs.json
+
+          python3 - <<'PY'
+          import json, re, subprocess, os
+          run = json.load(open("repair-report/run.json"))
+          jobs = json.load(open("repair-report/jobs.json")).get("jobs", [])
+          out = []
+          out.append("# AI repair proposal")
+          out.append("")
+          out.append(f"- Run: {run.get('id')}")
+          out.append(f"- Branch: {run.get('head_branch')}")
+          out.append(f"- Commit: {run.get('head_sha')}")
+          out.append(f"- Conclusion: {run.get('conclusion')}")
+          out.append("")
+          out.append("## Failed steps")
+          failures = []
+          for job in jobs:
+              for step in job.get("steps", []):
+                  if step.get("conclusion") == "failure":
+                      failures.append((job.get("name"), step.get("name")))
+          if not failures:
+              out.append("- No failed step metadata was reported.")
+          else:
+              for job_name, step_name in failures:
+                  out.append(f"- {job_name}: {step_name}")
+          out.append("")
+          out.append("## Safe diagnostic guidance")
+          text = json.dumps(jobs)
+          rules = [
+              ("compile", "Inspect Kotlin/Java compile errors first; do not suppress or comment out broken UI code."),
+              ("lint", "Inspect the lint finding and fix the source issue; avoid broad suppressions."),
+              ("test", "Reproduce the failing unit test with the smallest deterministic fixture."),
+              ("assemble", "Check dependency, manifest, resource, and signing configuration before changing application logic."),
+          ]
+          lowered = text.lower()
+          matched = False
+          for needle, advice in rules:
+              if needle in lowered:
+                  out.append(f"- {advice}")
+                  matched = True
+          if not matched:
+              out.append("- Start with the first failing step and preserve the smallest safe change.")
+          out.append("")
+          out.append("## Security boundary")
+          out.append("- Proposal-only workflow: no repository writes, no branch creation, no pull requests, no merges.")
+          out.append("- Secrets, authorization headers, and private content must not be sent to an AI endpoint.")
+          out.append("- Any generated patch requires human review and normal CI before it can enter main.")
+
+          with open("repair-report/repair-report.md", "w") as f:
+              f.write("\n".join(out) + "\n")
+          PY
+
+      - name: Upload repair report
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-repair-proposal
+          path: repair-report/repair-report.md
+
