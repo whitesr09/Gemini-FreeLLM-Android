@@ -34,6 +34,7 @@ import com.nshd.geminifreellm.data.ModelInfo
 import com.nshd.geminifreellm.model.Attachment
 import com.nshd.geminifreellm.model.ChatMessage
 import com.nshd.geminifreellm.model.ChatSession
+import com.nshd.geminifreellm.security.SecureCredentialStore
 import com.nshd.geminifreellm.ui.AiNameOnboarding
 import com.nshd.geminifreellm.ui.AppButton
 import com.nshd.geminifreellm.ui.AppDialog
@@ -60,6 +61,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AiApp(context: Context) {
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
+    val secureCredentials = remember { SecureCredentialStore(context) }
     val store = remember { LocalChatStore(context) }
     val client = remember { FreeLlmApiClient() }
     val scope = rememberCoroutineScope()
@@ -71,7 +73,7 @@ private fun AiApp(context: Context) {
                 ?: "https://nshd-freellm-api.onrender.com/v1"
         )
     }
-    var apiKey by remember { mutableStateOf(prefs.getString("apiKey", "") ?: "") }
+    var apiKey by remember { mutableStateOf(secureCredentials.getApiKey()) }
     var aiName by remember { mutableStateOf(prefs.getString("aiName", "") ?: "") }
     var themeMode by remember {
         mutableStateOf(
@@ -464,9 +466,9 @@ private fun AiApp(context: Context) {
                     apiKey = key
                     aiName = name
                     themeMode = theme
+                    secureCredentials.setApiKey(apiKey)
                     prefs.edit()
                         .putString("baseUrl", baseUrl)
-                        .putString("apiKey", apiKey)
                         .putString("aiName", aiName)
                         .putString("theme", theme.name)
                         .apply()
