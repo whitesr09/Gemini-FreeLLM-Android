@@ -512,7 +512,15 @@ private fun AiApp(context: Context) {
             onDeleteSessions = { idsToDelete -> chatVm.deleteSessions(idsToDelete) },
             onToggleStar = { id -> chatVm.toggleStar(id) },
             onArchive = { id -> chatVm.archiveSession(id) },
-            onUnarchive = { id -> chatVm.unarchiveSession(id) }
+            onUnarchive = { id -> chatVm.unarchiveSession(id) },
+            onOpenAttachment = { attachment -> previewAttachment = attachment },
+            onDeleteAttachment = { attachment -> chatVm.deleteAttachment(attachment.id) },
+            onShareAttachment = ::shareAttachment,
+            onRegenerateMedia = { message, attachment ->
+                val type = if (attachment.kind == Attachment.Kind.GENERATED_VIDEO || attachment.mimeType.startsWith("video/")) "video" else "image"
+                val prompt = message.text.substringAfter(":", message.text).trim()
+                if (prompt.isNotBlank() && !mediaBusy) runGeneration(type, prompt)
+            }
         )
 
         previewAttachment?.let { attachment ->
