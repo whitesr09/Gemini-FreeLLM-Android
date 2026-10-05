@@ -183,6 +183,8 @@ private fun AiApp(activity: MainActivity, onUnlock: () -> Unit) {
 
     var input by rememberSaveable { mutableStateOf("") }
     var pendingAttachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
+    var attachmentProcessing by remember { mutableStateOf(false) }
+    var attachmentError by remember { mutableStateOf<String?>(null) }
     var mediaBusy by remember { mutableStateOf(false) }
     val busy = chatState.busy || mediaBusy
     var showSettings by remember { mutableStateOf(apiKey.isBlank() && aiName.isNotBlank()) }
@@ -289,10 +291,18 @@ private fun AiApp(activity: MainActivity, onUnlock: () -> Unit) {
     val attachmentLauncher = rememberLauncherForMultipleDocuments { uris ->
         if (uris.isEmpty()) return@rememberLauncherForMultipleDocuments
         scope.launch {
-            val prepared = uris.mapNotNull { uri ->
+            attachmentProcessing = true
+            attachmentError = null
+            val prepared = mutableListOf<com.nshd.geminifreellm.data.PreparedAttachment>()
+            val failures = mutableListOf<String>()
+            uris.forEach { uri ->
                 runCatching {
                     withContext(Dispatchers.IO) { DocumentProcessor.copyToAppStorage(context, uri) }
-                }.getOrNull()
+                }.onSuccess { item ->
+                    if (item != null) prepared += item
+                }.onFailure { error ->
+                    failures += (error.message ?: "Attachment processing failed.")
+                }
             }
             val added = prepared.map { it.attachment }
             if (added.isNotEmpty()) {
@@ -303,6 +313,8 @@ private fun AiApp(activity: MainActivity, onUnlock: () -> Unit) {
                     }
                 }
             }
+            attachmentError = failures.take(3).joinToString(" ")
+            attachmentProcessing = false
         }
     }
 
@@ -559,6 +571,11 @@ private fun AiApp(activity: MainActivity, onUnlock: () -> Unit) {
             webSearchEnabled = chatState.webSearchEnabled,
             localToolsEnabled = chatState.localToolsEnabled,
             statusLabel = if (online) "Online" else "Offline",
+            attachmentStatus = when {
+                attachmentProcessing -> "Processing files…"
+                !attachmentError.isNullOrBlank() -> attachmentError!!
+                else -> ""
+            },
             contextLabel = if (chatState.contextUsedChars > 0) com.nshd.geminifreellm.data.ContextManager.contextLabel(chatState.contextUsedChars, chatState.contextLimit) else "",
             onInputChange = { input = it },
             onSuggestedPrompt = { input = it },
