@@ -22,6 +22,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.nshd.geminifreellm.data.AppDiagnostics
+import com.nshd.geminifreellm.data.BackupManager
 import com.nshd.geminifreellm.data.DocumentExporter
 import com.nshd.geminifreellm.data.DocumentProcessor
 import com.nshd.geminifreellm.data.ExportFormat
@@ -161,9 +162,13 @@ private fun AiApp(context: Context) {
         if (uri == null) return@rememberLauncherForOpenDocument
         scope.launch {
             runCatching {
-                val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
-                    ?: error("Couldn't read the backup.")
-                chatVm.importJson(raw, selectedModel)
+                val temp = File(context.cacheDir, "selected-backup.zip")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    temp.outputStream().use { output -> input.copyTo(output) }
+                } ?: error("Couldn't read the backup.")
+                val imported = BackupManager.importBackup(context, temp)
+                chatVm.importSessions(imported.sessions, selectedModel)
+                temp.delete()
             }.onSuccess {
                 Toast.makeText(context, "Chats imported", Toast.LENGTH_SHORT).show()
             }.onFailure {
@@ -308,11 +313,10 @@ private fun AiApp(context: Context) {
                     if (apiKey.isNotBlank() && aiName.isNotBlank()) showSettings = false
                 },
                 onExportChats = {
-                    val file = File(context.cacheDir, "chat_backup.json")
-                    file.writeText(chatVm.exportJson())
+                    val file = BackupManager.createBackup(context, sessions)
                     requestSaveFile(file)
                 },
-                onImportChats = { importLauncher.launch(arrayOf("application/json", "text/*")) },
+                onImportChats = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
                 onClearChats = { clearDialog = true },
                 diagnostics = diagnostics,
                 onExportDiagnostics = {
