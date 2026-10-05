@@ -16,7 +16,7 @@ import java.util.zip.ZipOutputStream
 data class BackupImportResult(val sessions: List<ChatSession>, val restoredFiles: Int)
 
 object BackupManager {
-    private const val BACKUP_VERSION = 1
+    private const val BACKUP_VERSION = 2
     private const val MAX_BACKUP_BYTES = 100L * 1024L * 1024L
     private const val MAX_ENTRY_BYTES = 25L * 1024L * 1024L
     private const val MAX_ENTRIES = 2048
@@ -27,19 +27,20 @@ object BackupManager {
         val app = context.applicationContext
         val file = File(app.cacheDir, "freellm-backup-" + System.currentTimeMillis() + ".zip")
         ZipOutputStream(FileOutputStream(file)).use { zip ->
+            val exportedSessions = sessions.filterNot { it.temporary }
             val manifest = JSONObject()
                 .put("format", "Gemini-FreeLLM-Android")
                 .put("version", BACKUP_VERSION)
                 .put("createdAt", System.currentTimeMillis())
-                .put("sessionCount", sessions.size)
+                .put("sessionCount", exportedSessions.size)
             putText(zip, MANIFEST, manifest.toString(2))
             putText(zip, CHATS, JSONObject()
                 .put("version", 3)
                 .put("exportedAt", System.currentTimeMillis())
-                .put("sessions", org.json.JSONArray().apply { sessions.forEach { put(it.toJson()) } })
+                .put("sessions", org.json.JSONArray().apply { exportedSessions.forEach { put(it.toJson()) } })
                 .toString(2))
 
-            sessions.asSequence()
+            exportedSessions.asSequence()
                 .flatMap { it.messages.asSequence() }
                 .flatMap { it.attachments.asSequence() }
                 .distinctBy { it.id }
@@ -48,7 +49,7 @@ object BackupManager {
                     if (!source.isFile) return@forEach
                     require(source.length() <= MAX_ENTRY_BYTES) { "Attachment exceeds the backup file limit." }
                     val prefix = if (attachment.kind == Attachment.Kind.GENERATED_IMAGE || attachment.kind == Attachment.Kind.GENERATED_VIDEO) "generated/" else "attachments/"
-                    val entry = ZipEntry(prefix + attachment.id + "-" + sanitizeName(attachment.name))
+                    val entry = ZipEntry(prefix + attachment.id + "|" + sanitizeName(attachment.name))
                     zip.putNextEntry(entry)
                     FileInputStream(source).use { input ->
                         val buffer = ByteArray(32 * 1024)
@@ -62,6 +63,7 @@ object BackupManager {
                         }
                     }
                     zip.closeEntry()
+                    require(file.length() <= MAX_BACKUP_BYTES) { "Backup exceeds the maximum supported size." }
                 }
         }
         require(file.length() <= MAX_BACKUP_BYTES) { "Backup exceeds the maximum supported size." }
@@ -92,6 +94,9 @@ object BackupManager {
                         zip.closeEntry()
                         continue
                     }
+                    require(name == MANIFEST || name == CHATS || name.startsWith("attachments/") || name.startsWith("generated/")) {
+                        "Backup contains an unsupported entry."
+                    }
                     val out = File(staged, name)
                     out.parentFile?.mkdirs()
                     var entryBytes = 0L
@@ -111,11 +116,16 @@ object BackupManager {
                             val manifest = JSONObject(out.readText(StandardCharsets.UTF_8).take(64_000))
                             require(manifest.optString("format") == "Gemini-FreeLLM-Android") { "Unsupported backup format." }
                             require(manifest.optInt("version", -1) == BACKUP_VERSION) { "Unsupported backup version." }
+                            require(manifest.optInt("sessionCount", -1) >= 0) { "Backup manifest is invalid." }
                             manifestSeen = true
                         }
                         name == CHATS -> chatsJson = out.readText(StandardCharsets.UTF_8).take(12_000_000)
-                        name.startsWith("attachments/") || name.startsWith("generated/") ->
-                            extracted[name.substringAfter('/').take(36)] = out
+                        name.startsWith("attachments/") || name.startsWith("generated/") -> {
+                            require(extracted[name] == null) { "Backup contains a duplicate entry." }
+                            val key = name.substringAfter('/').substringBeforeLast("|", name.substringAfter('/'))
+                            require(key.isNotBlank()) { "Backup attachment entry is malformed." }
+                            extracted[key] = out
+                        }
                     }
                     zip.closeEntry()
                 }
