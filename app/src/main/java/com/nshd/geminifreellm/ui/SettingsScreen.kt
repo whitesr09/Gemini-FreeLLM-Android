@@ -130,7 +130,7 @@ private fun TextBlock(text: String) {
 }
 
 @Composable
-private fun ThemePill(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun RowScope.ThemePill(label: String, selected: Boolean, onClick: () -> Unit) {
     val c = LocalAppColors.current
     Box(
         Modifier.weight(1f).height(40.dp).background(if (selected) c.accentSoft else c.background, RoundedCornerShape(10.dp))
