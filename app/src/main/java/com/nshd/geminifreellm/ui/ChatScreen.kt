@@ -52,14 +52,14 @@ private fun iconLabel(symbol: String): String = when (symbol) {
 }
 
 @Composable
-fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, statusLabel: String = "", webSearchEnabled: Boolean = false, localToolsEnabled: Boolean = true, contextLabel: String = "", onInputChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit = onNewChat, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onVoice: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, imageSupported: Boolean, videoSupported: Boolean, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onToggleWebSearch: () -> Unit = {}, onToggleLocalTools: () -> Unit = {}, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit = {}, onUnarchive: (String) -> Unit = {}, onRename: (String) -> Unit = {}, onOpenAttachment: (Attachment) -> Unit = {}, onDeleteAttachment: (Attachment) -> Unit = {}, onShareAttachment: (Attachment) -> Unit = {}, onRegenerateMedia: (ChatMessage, Attachment) -> Unit = { _, _ -> }, onSuggestedPrompt: (String) -> Unit = {}) {
+fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, statusLabel: String = "", attachmentStatus: String = "", webSearchEnabled: Boolean = false, localToolsEnabled: Boolean = true, contextLabel: String = "", onInputChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit = onNewChat, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onVoice: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, imageSupported: Boolean, videoSupported: Boolean, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onToggleWebSearch: () -> Unit = {}, onToggleLocalTools: () -> Unit = {}, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit = {}, onUnarchive: (String) -> Unit = {}, onRename: (String) -> Unit = {}, onOpenAttachment: (Attachment) -> Unit = {}, onDeleteAttachment: (Attachment) -> Unit = {}, onShareAttachment: (Attachment) -> Unit = {}, onRegenerateMedia: (ChatMessage, Attachment) -> Unit = { _, _ -> }, onSuggestedPrompt: (String) -> Unit = {}) {
     var drawerOpen by remember { mutableStateOf(false) }
     var modelOpen by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(LocalAppColors.current.background)) {
         Column(Modifier.fillMaxSize()) {
             TopBar(aiName, selectedModel, busy, statusLabel, { drawerOpen = true }, onNewChat, onSettings) { modelOpen = !modelOpen }
             MessageList(session.messages, aiName, busy, Modifier.weight(1f), onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, onRegenerateMedia, onSuggestedPrompt)
-            Composer(input, pendingAttachments, busy, webSearchEnabled, localToolsEnabled, contextLabel, onInputChange, onSend, onStop, onAttach, onVoice, onGenerateImage, onGenerateVideo, imageSupported, videoSupported, onRemovePending, onToggleWebSearch, onToggleLocalTools)
+            Composer(input, pendingAttachments, busy, webSearchEnabled, localToolsEnabled, contextLabel, attachmentStatus, onInputChange, onSend, onStop, onAttach, onVoice, onGenerateImage, onGenerateVideo, imageSupported, videoSupported, onRemovePending, onToggleWebSearch, onToggleLocalTools)
         }
         if (modelOpen) Popup(alignment = Alignment.TopEnd, onDismissRequest = { modelOpen = false }) { ModelMenu(models, selectedModel) { onSelectModel(it); modelOpen = false } }
         if (drawerOpen) {
@@ -365,6 +365,7 @@ private fun Composer(
     webSearchEnabled: Boolean,
     localToolsEnabled: Boolean,
     contextLabel: String,
+    attachmentStatus: String,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -472,6 +473,7 @@ private fun Composer(
                     }
 
                     Spacer(Modifier.weight(1f))
+                    if (attachmentStatus.isNotBlank()) BasicText(attachmentStatus, color = if (attachmentStatus.startsWith("Processing")) c.muted else c.error, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 5.dp).weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (contextLabel.isNotBlank()) BasicText(contextLabel, color = c.muted, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 5.dp))
 
                     val canSend = !busy && (input.isNotBlank() || pendingAttachments.isNotEmpty())
