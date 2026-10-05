@@ -9,6 +9,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -60,6 +61,11 @@ sealed interface MediaResult {
 }
 
 class FreeLlmApiClient {
+    private companion object {
+        const val MAX_MEDIA_BYTES = 25L * 1024L * 1024L
+        const val MAX_BASE64_MEDIA_CHARS = 36 * 1024 * 1024
+    }
+
     private val activeCall = java.util.concurrent.atomic.AtomicReference<okhttp3.Call?>(null)
     private val cancelRequested = AtomicBoolean(false)
 
@@ -458,7 +464,7 @@ class FreeLlmApiClient {
     }
 
     private fun downloadToFile(url: String, target: File, maxBytes: Long) {
-        val parsed = okhttp3.HttpUrl.parse(url) ?: error("Generated media URL is invalid.")
+        val parsed = url.toHttpUrlOrNull() ?: error("Generated media URL is invalid.")
         require(parsed.isHttps) { "Generated media URL must use HTTPS." }
         val request = Request.Builder().url(parsed).get().build()
         client.newCall(request).execute().use { response ->
