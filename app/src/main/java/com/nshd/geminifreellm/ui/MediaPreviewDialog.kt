@@ -1,7 +1,6 @@
 package com.nshd.geminifreellm.ui
 
 import android.graphics.BitmapFactory
-import android.media.MediaPlayer
 import android.view.ViewGroup
 import android.widget.MediaController
 import android.widget.VideoView
@@ -13,8 +12,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.*
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -35,9 +32,6 @@ fun MediaPreviewDialog(
 ) {
     val file = remember(attachment.localPath) { File(attachment.localPath) }
     val isVideo = attachment.mimeType.startsWith("video/") || attachment.kind == Attachment.Kind.GENERATED_VIDEO
-    var fullscreen by rememberSaveable { mutableStateOf(false) }
-    var muted by rememberSaveable { mutableStateOf(false) }
-    var player by remember { mutableStateOf<MediaPlayer?>(null) }
     AppDialog(
         title = attachment.name,
         onDismiss = onDismiss,
@@ -56,7 +50,7 @@ fun MediaPreviewDialog(
                                 setVideoPath(file.absolutePath)
                             }
                         },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = if(fullscreen) 680.dp else 420.dp)
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 420.dp)
                     )
                 } else {
                     val bitmap = remember(file.absolutePath) {
@@ -86,7 +80,6 @@ fun MediaPreviewDialog(
                             modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 420.dp)
                                 .background(LocalAppColors.current.background, RoundedCornerShape(12.dp))
                                 .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY)
-                                .pointerInput(Unit){detectTapGestures(onDoubleTap={scale=if(scale>1.1f)1f else 2f})}
                                 .transformable(transformState),
                             contentScale = ContentScale.Fit
                         )
