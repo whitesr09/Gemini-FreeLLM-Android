@@ -3,8 +3,14 @@ package com.nshd.geminifreellm
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.app.Activity
+import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.net.Uri
 import android.os.Bundle
+import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -110,6 +116,25 @@ private fun AiApp(context: Context) {
     var generationPrompt by remember { mutableStateOf("") }
     var clearDialog by remember { mutableStateOf(false) }
 
+    val speechLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val text = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!text.isNullOrBlank()) input = if (input.isBlank()) text else input.trimEnd() + " " + text
+        }
+    }
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) speechLauncher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to FreeLLM AI")
+        })
+    }
+    val tts = remember { TextToSpeech(context) {} }
+    DisposableEffect(tts) { onDispose { tts.stop(); tts.shutdown() } }
+
     var pendingSaveFile by remember { mutableStateOf<File?>(null) }
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
 
@@ -118,6 +143,20 @@ private fun AiApp(context: Context) {
     }
 
     fun makeNewChat() = chatVm.newChat()
+
+    fun speakText(text: String) {
+        if (text.isBlank()) return
+        tts.setSpeechRate(1.0f)
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "freellm-read-aloud")
+    }
+
+    fun shareText(text: String) {
+        if (text.isBlank()) return
+        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }, "Share response"))
+    }
 
     fun copyText(text: String) {
         val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -371,6 +410,14 @@ private fun AiApp(context: Context) {
             onSettings = { showSettings = true },
             onStop = { chatVm.stopGeneration() },
             onAttach = { attachmentLauncher.launch(arrayOf("*/*")) },
+            onVoice = {
+                if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    speechLauncher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to FreeLLM AI")
+                    })
+                } else permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            },
             onGenerateImage = { startGeneration("image") },
             onGenerateVideo = { startGeneration("video") },
             imageSupported = if (selectedModel == "auto") chatState.models.any { it.available && it.supportsImageGeneration } else chatState.models.any { it.id == selectedModel && it.available && it.supportsImageGeneration },
@@ -383,6 +430,9 @@ private fun AiApp(context: Context) {
                 pendingAttachments = pendingAttachments.filterNot { it.id == id }
             },
             onCopy = ::copyText,
+            onShare = ::shareText,
+            onSpeak = ::speakText,
+            onEdit = { input = it },
             onRegenerate = ::regenerate,
             onExport = ::requestExport,
             onExportAttachment = { attachment ->
