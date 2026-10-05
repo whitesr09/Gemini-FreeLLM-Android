@@ -93,7 +93,7 @@ class FreeLlmApiClient {
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            return client.newCall(request).execute().use { response ->
+            client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
                     return@withContext ChatResult.Failure(
@@ -353,7 +353,7 @@ class FreeLlmApiClient {
             .header("Accept", "image/*")
             .get()
             .build()
-        client.newCall(request).execute().use { response ->
+        return         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Couldn't download generated image (" + response.code + ").")
             val body = response.body ?: error("Generated image response was empty.")
             val maxBytes = 20L * 1024L * 1024L
