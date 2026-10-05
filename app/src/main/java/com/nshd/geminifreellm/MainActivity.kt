@@ -561,22 +561,23 @@ private fun AiApp(context: Context) {
         }
 
         if (clearDialog) {
-            AlertDialog(
-                onDismissRequest = { clearDialog = false },
-                title = { Text("Clear chat history?") },
-                text = { Text("This removes local conversations from this device. Your server configuration stays saved.") },
-                confirmButton = {
-                    Button(onClick = {
+            AppDialog(
+                title = "Clear chat history?",
+                onDismiss = { clearDialog = false },
+                content = {
+                    androidx.compose.foundation.text.BasicText(
+                        "This removes local conversations from this device. Your server configuration stays saved.",
+                        color = com.nshd.geminifreellm.ui.LocalAppColors.current.muted
+                    )
+                },
+                actions = {
+                    AppTextButton("Cancel") { clearDialog = false }
+                    AppButton("Clear", onClick = {
                         sessions = listOf(store.newSession())
                         currentId = sessions.first().id
                         persist()
                         clearDialog = false
-                    }) {
-                        Text("Clear")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { clearDialog = false }) { Text("Cancel") }
+                    }, modifier = androidx.compose.ui.Modifier.width(110.dp))
                 }
             )
         }
@@ -591,29 +592,22 @@ private fun GenerationDialog(
     onDismiss: () -> Unit,
     onGenerate: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (type == "image") "Generate image" else "Generate video") },
-        text = {
-            androidx.compose.material3.OutlinedTextField(
+    AppDialog(
+        title = if (type == "image") "Generate image" else "Generate video",
+        onDismiss = onDismiss,
+        content = {
+            com.nshd.geminifreellm.ui.AppField(
                 value = prompt,
                 onValueChange = onPromptChange,
-                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                minLines = 4,
-                maxLines = 8,
-                label = { Text("Prompt") },
-                placeholder = { Text("Describe what you want to create…") }
+                label = "Prompt",
+                singleLine = false,
+                minLines = 5
             )
         },
-        confirmButton = {
-            Button(
-                onClick = onGenerate,
-                enabled = prompt.isNotBlank()
-            ) {
-                Text("Generate")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        actions = {
+            AppTextButton("Cancel", onDismiss)
+            AppButton("Generate", onGenerate, enabled = prompt.isNotBlank(), modifier = androidx.compose.ui.Modifier.width(110.dp))
+        }
     )
 }
 
