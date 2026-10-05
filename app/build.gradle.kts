@@ -44,6 +44,11 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            if (signingConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         getByName("release") {
             if (signingConfigured) {
                 signingConfig = signingConfigs.getByName("release")
