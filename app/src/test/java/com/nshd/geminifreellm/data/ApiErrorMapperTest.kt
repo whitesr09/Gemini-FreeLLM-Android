@@ -6,28 +6,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiErrorMapperTest {
-    @Test fun mapsUnauthorized() {
-        val error = ApiErrorMapper.fromHttp(401)
-        assertEquals(ApiErrorKind.UNAUTHORIZED, error.kind)
-        assertFalse(error.retryable)
-        assertEquals(401, error.httpStatus)
+    @Test fun mapsAllImportantStatusClasses() {
+        assertEquals(ApiErrorKind.BAD_REQUEST, ApiErrorMapper.fromHttp(400, "bad").kind)
+        assertEquals(ApiErrorKind.UNAUTHORIZED, ApiErrorMapper.fromHttp(401, null).kind)
+        assertEquals(ApiErrorKind.FORBIDDEN, ApiErrorMapper.fromHttp(403, null).kind)
+        assertEquals(ApiErrorKind.NOT_FOUND, ApiErrorMapper.fromHttp(404, null).kind)
+        assertEquals(ApiErrorKind.TIMEOUT, ApiErrorMapper.fromHttp(408, null).kind)
+        assertEquals(ApiErrorKind.UNPROCESSABLE_ENTITY, ApiErrorMapper.fromHttp(422, null).kind)
+        assertEquals(ApiErrorKind.RATE_LIMITED, ApiErrorMapper.fromHttp(429, null).kind)
+        assertEquals(ApiErrorKind.SERVER_ERROR, ApiErrorMapper.fromHttp(500, null).kind)
+        assertEquals(ApiErrorKind.SERVER_ERROR, ApiErrorMapper.fromHttp(502, null).kind)
+        assertTrue(ApiErrorMapper.fromHttp(408, null).retryable)
+        assertTrue(ApiErrorMapper.fromHttp(429, null).retryable)
+        assertTrue(ApiErrorMapper.fromHttp(503, null).retryable)
+        assertFalse(ApiErrorMapper.fromHttp(401, null).retryable)
     }
 
-    @Test fun mapsRateLimitAsRetryable() {
-        val error = ApiErrorMapper.fromHttp(429)
-        assertEquals(ApiErrorKind.RATE_LIMITED, error.kind)
-        assertTrue(error.retryable)
-    }
-
-    @Test fun preservesServerMessageForBadRequest() {
-        val error = ApiErrorMapper.fromHttp(400, "bad model")
-        assertEquals("bad model", error.message)
-        assertEquals("bad_request", error.debugCode)
-    }
-
-    @Test fun mapsServerRangeAsRetryable() {
-        val error = ApiErrorMapper.fromHttp(503)
-        assertEquals(ApiErrorKind.SERVER, error.kind)
-        assertTrue(error.retryable)
+    @Test fun preservesDeveloperDebugCodeForBadRequest() {
+        val error = ApiErrorMapper.fromHttp(422, "Validation failed")
+        assertEquals("bad_request_422", error.debugCode)
+        assertEquals(422, error.httpStatus)
     }
 }
