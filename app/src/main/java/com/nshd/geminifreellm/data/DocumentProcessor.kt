@@ -66,10 +66,10 @@ object DocumentProcessor {
         }
     }
 
-    fun renderPdfPages(file: File): List<File> {
+    fun renderPdfPages(context: Context, file: File): List<File> {
         if (!file.exists()) return emptyList()
         val result = mutableListOf<File>()
-        val dir = File(file.parentFile, "rendered_pages").apply { mkdirs() }
+        val dir = File(context.cacheDir, "rendered_pages").apply { mkdirs() }
         ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
             PdfRenderer(pfd).use { renderer ->
                 val count = minOf(renderer.pageCount, MAX_PDF_PAGES)
