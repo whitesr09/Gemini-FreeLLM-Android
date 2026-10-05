@@ -177,21 +177,8 @@ private fun AiApp(context: Context) {
     }
 
     LaunchedEffect(baseUrl, apiKey) {
-        if (baseUrl.isBlank() || apiKey.isBlank()) {
-            models = ModelCache.load(context)?.models.orEmpty()
-        } else {
-            val result = client.fetchModels(baseUrl, apiKey)
-            result.onSuccess { list ->
-                models = list
-                ModelCache.save(context, list)
-                if (selectedModel != "auto" && list.none { it.id == selectedModel && it.available }) {
-                    selectedModel = "auto"
-                    prefs.edit().putString("model", "auto").apply()
-                }
-            }
-        }
+        chatVm.refreshModels(baseUrl, apiKey)
     }
-
     fun sendMessage() {
         if (busy || (input.isBlank() && pendingAttachments.isEmpty())) return
         chatVm.sendMessage(baseUrl, apiKey, selectedModel, input, pendingAttachments)
@@ -350,7 +337,7 @@ private fun AiApp(context: Context) {
             session = activeSession,
             sessions = sessions,
             selectedModel = selectedModel,
-            models = models,
+            models = chatState.models,
             input = input,
             pendingAttachments = pendingAttachments,
             busy = busy,
@@ -365,8 +352,8 @@ private fun AiApp(context: Context) {
             onAttach = { attachmentLauncher.launch(arrayOf("*/*")) },
             onGenerateImage = { startGeneration("image") },
             onGenerateVideo = { startGeneration("video") },
-            imageSupported = if (selectedModel == "auto") models.any { it.available && it.supportsImageGeneration } else models.any { it.id == selectedModel && it.available && it.supportsImageGeneration },
-            videoSupported = if (selectedModel == "auto") models.any { it.available && it.supportsVideoGeneration } else models.any { it.id == selectedModel && it.available && it.supportsVideoGeneration },
+            imageSupported = if (selectedModel == "auto") chatState.models.any { it.available && it.supportsImageGeneration } else chatState.models.any { it.id == selectedModel && it.available && it.supportsImageGeneration },
+            videoSupported = if (selectedModel == "auto") chatState.models.any { it.available && it.supportsVideoGeneration } else chatState.models.any { it.id == selectedModel && it.available && it.supportsVideoGeneration },
             onSelectModel = {
                 selectedModel = it
                 prefs.edit().putString("model", it).apply()
