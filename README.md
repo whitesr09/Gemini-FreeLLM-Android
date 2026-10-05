@@ -1,37 +1,68 @@
-# AI — FreeLLM Android
+# FreeLLM AI for Android
 
-A modern, lightweight Android chat client for a self-hosted [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) server.
+A lightweight Android client for a self-hosted [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) gateway.
 
-**Android app → FreeLLMAPI → configured provider (for example Google AI Studio or another configured provider)**
+**Android app → FreeLLMAPI → configured provider**
 
-## Features
+## Current build
 
-- Clean Material 3 interface with light, dark, and system themes
-- Dynamic Android 12+ colors when available
-- Responsive chat layout with keyboard/navigation-bar handling
-- Safe, non-blocking network requests
-- Useful connection and HTTP error messages
-- Reuses a single OkHttp client with sensible timeouts/retry behavior
-- API key and server URL are stored locally on the device
-- No API keys are committed to the repository
-- GitHub Actions builds a debug APK automatically
+- Application ID: `com.nshd.geminifreellm`
+- Version: `2.0` (`versionCode 3`)
+- Min Android: API 26
+- Target/compile: API 35
+- Kotlin + Jetpack Compose + Room + OkHttp
+- Light, dark, AMOLED and system themes
+- Android Keystore-backed API-key storage
+- Streaming and non-streaming OpenAI-compatible chat
+- Local chat persistence
+- Image/PDF/document attachment processing with bounded file handling
+- Image/video generation when the configured FreeLLMAPI server advertises/supports those capabilities
+- Connection diagnostics and capability test
+- Debug and unsigned release artifacts in CI; signed release artifacts when repository signing secrets are configured
 
-## Local FreeLLMAPI setup
+## Server configuration
 
-Default Base URL:
+The app currently defaults to the project’s HTTPS-hosted FreeLLMAPI endpoint:
 
-`http://127.0.0.1:3001/v1`
+`https://nshd-freellm-api.onrender.com/v1`
 
-Enter the **FreeLLMAPI Unified API Key** in Settings. Do not put your Google AI Studio key into this app; keep provider keys inside FreeLLMAPI.
+You can replace it with your own FreeLLMAPI base URL in Settings.
 
-## Security note
+For local development, HTTP may be used explicitly (for example `http://127.0.0.1:3001/v1`), but production credentials should not be sent over cleartext HTTP.
 
-The app stores the Unified API key locally for convenience. This repository intentionally contains no real API keys. For a public production release, use a secure Android credential store and preferably put the API behind HTTPS/authentication rather than exposing an unsecured local HTTP endpoint.
+The app sends prompts and supported attachment-derived content to the configured FreeLLMAPI server. **“Free” does not mean private**: the server operator controls the upstream provider configuration and can determine how requests are processed. Do not enter credentials or sensitive material unless you trust the configured server.
+
+Provider keys remain server-side; the Android app uses the FreeLLMAPI unified key.
 
 ## Build
 
-Pushes to `main` trigger GitHub Actions. The generated debug APK is uploaded as the `AI-FreeLLM-debug` workflow artifact.
+The GitHub Actions workflow runs:
 
+1. lint
+2. unit tests
+3. debug APK build
+4. release APK build
+5. release AAB build
+6. artifact validation/upload
 
-## UI architecture
-The 2.0 redesign uses a lightweight custom Compose design system inspired by modern ChatGPT conversation patterns. Material 3 widgets are intentionally not used. Chat history, settings, attachments, and composer state remain local-first.
+Signed release artifacts are built only when all four signing secrets are present:
+
+- `ANDROID_SIGNING_KEYSTORE_B64`
+- `ANDROID_SIGNING_STORE_PASSWORD`
+- `ANDROID_SIGNING_KEY_ALIAS`
+- `ANDROID_SIGNING_KEY_PASSWORD`
+
+Never commit a keystore or signing credentials.
+
+## AI repair workflow
+
+`.github/workflows/ai-auto-repair.yml` is intentionally proposal-only and read-only. It can collect failed workflow metadata and produce a diagnostic report, but it cannot write repository files, expose secrets, merge code, or publish a release.
+
+That boundary is deliberate: repository contents and CI logs are untrusted input and should never be allowed to redefine automation permissions.
+
+## Backend contract
+
+FreeLLMAPI exposes OpenAI-compatible `/v1/chat/completions`, `/v1/models`, `/v1/images/generations`, and `/v1/videos/generations` surfaces. Video generation is server-side/provider-dependent and can take up to five minutes; the client therefore treats unsupported media capabilities as runtime server conditions rather than pretending every model supports them.
+
+See the upstream API documentation:
+https://github.com/tashfeenahmed/freellmapi/blob/main/docs/en/api/01-rest-api.md
