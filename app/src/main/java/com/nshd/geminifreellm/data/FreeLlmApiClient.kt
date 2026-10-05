@@ -93,7 +93,7 @@ class FreeLlmApiClient {
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            return client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
                     return@withContext ChatResult.Failure(
