@@ -10,7 +10,7 @@ import com.nshd.geminifreellm.data.ContextManager
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.data.ModelInfo
 import com.nshd.geminifreellm.data.SettingsRepository
-import com.nshd.geminifreellm.data.StorageUsage
+import com.nshd.geminifreellm.data.database.StorageSnapshot
 import com.nshd.geminifreellm.data.database.RoomChatRepository
 import com.nshd.geminifreellm.model.Attachment
 import com.nshd.geminifreellm.model.ChatMessage
@@ -42,7 +42,7 @@ data class ChatUiState(
     val webSearchEnabled: Boolean = false,
     val localToolsEnabled: Boolean = true,
     val settings: AppSettings = AppSettings(),
-    val storage: StorageUsage? = null
+    val storage: StorageSnapshot? = null
 )
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -98,7 +98,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun storageSnapshot() {
         viewModelScope.launch {
-            _uiState.update { it.copy(storage = runCatching { repository.storageSnapshot().let { s -> StorageUsage(s.attachmentBytes, s.generatedBytes, 0L, s.cacheBytes, 0L, s.attachmentBytes + s.generatedBytes + s.cacheBytes) } }.getOrNull()) }
+            _uiState.update { it.copy(storage = runCatching { repository.storageSnapshot() }.getOrNull()) }
         }
     }
 
