@@ -73,7 +73,8 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
-          APK="app/build/outputs/apk/release/app-release.apk"
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
           test -s "$APK"
           unzip -t "$APK" >/dev/null
           unzip -l "$APK" | grep -F "AndroidManifest.xml" >/dev/null
@@ -83,7 +84,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: FreeLLM-AI-release-unsigned
-          path: app/build/outputs/apk/release/app-release.apk
+          path: app/build/outputs/apk/release/*.apk
 
       - name: Build unsigned release AAB
         if: ${{ steps.signing.outputs.configured != 'true' }}
