@@ -41,6 +41,15 @@ data class GeneratedMedia(
     val displayName: String
 )
 
+data class ConnectionCheck(
+    val serverReachable: Boolean,
+    val authenticationAccepted: Boolean,
+    val modelsAvailable: Int,
+    val visionAvailable: Boolean,
+    val imageGenerationAvailable: Boolean,
+    val videoGenerationAvailable: Boolean
+)
+
 sealed interface MediaResult {
     data class Success(val media: GeneratedMedia) : MediaResult
     data class Failure(val message: String) : MediaResult
@@ -233,6 +242,41 @@ class FreeLlmApiClient {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    suspend fun testConnection(baseUrl: String, apiKey: String): Result<ConnectionCheck> = withContext(Dispatchers.IO) {
+        runCatching {
+            val cleanBase = baseUrl.trim().trimEnd('/')
+            require(cleanBase.startsWith("https://") || cleanBase.startsWith("http://")) { "Enter a valid server URL first." }
+            require(apiKey.isNotBlank()) { "API key is missing. Add it in Settings." }
+            val request = Request.Builder()
+                .url(cleanBase + "/models")
+                .header("Authorization", "Bearer " + apiKey)
+                .header("Accept", "application/json")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    error(ApiErrorMapper.fromHttp(response.code, parseServerError(body)).message)
+                }
+                val data = JSONObject(body).optJSONArray("data") ?: JSONArray()
+                val models = buildList {
+                    for (i in 0 until data.length()) {
+                        val item = data.optJSONObject(i) ?: continue
+                        if (item.optString("id").isNotBlank()) add(item)
+                    }
+                }
+                ConnectionCheck(
+                    serverReachable = true,
+                    authenticationAccepted = true,
+                    modelsAvailable = models.size,
+                    visionAvailable = models.any { it.optBoolean("vision") || it.optBoolean("supports_vision") },
+                    imageGenerationAvailable = models.any { it.optBoolean("image_generation") || it.optBoolean("supports_image_generation") },
+                    videoGenerationAvailable = models.any { it.optBoolean("video_generation") || it.optBoolean("supports_video_generation") }
+                )
             }
         }
     }
