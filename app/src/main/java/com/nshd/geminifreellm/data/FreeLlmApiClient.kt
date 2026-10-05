@@ -481,7 +481,7 @@ class FreeLlmApiClient {
         val parsed = url.toHttpUrlOrNull() ?: error("Generated media URL is invalid.")
         require(parsed.isHttps) { "Generated media URL must use HTTPS." }
         val request = Request.Builder().url(parsed).get().build()
-        client.newCall(request).execute().use { response ->
+        mediaClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Generated media download failed (" + response.code + ").")
             val body = response.body ?: error("Generated media response is empty.")
             val length = body.contentLength()
