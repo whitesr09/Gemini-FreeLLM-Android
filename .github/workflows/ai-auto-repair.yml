@@ -1,0 +1,25 @@
+name: AI Repair Proposal
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Failed workflow run ID to diagnose"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  proposal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only safety notice
+        run: |
+          echo "AI repair is proposal-only."
+          echo "Requested failed run: ${{ inputs.run_id }}"
+          echo "This workflow has no contents:write or pull-requests:write permission."
+          echo "No autonomous patch, push, PR, or merge is performed."
