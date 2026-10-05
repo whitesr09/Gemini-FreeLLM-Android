@@ -76,15 +76,15 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           python3 - "$APK" <<'PY'
-import sys, zipfile
-path = sys.argv[1]
-with zipfile.ZipFile(path) as archive:
-    bad = archive.testzip()
-    if bad is not None:
-        raise SystemExit(f"Corrupt APK entry: {bad}")
-    if "AndroidManifest.xml" not in archive.namelist():
-        raise SystemExit("APK is missing AndroidManifest.xml")
-PY
+          import sys, zipfile
+          path = sys.argv[1]
+          with zipfile.ZipFile(path) as archive:
+              bad = archive.testzip()
+              if bad is not None:
+                  raise SystemExit(f"Corrupt APK entry: {bad}")
+              if "AndroidManifest.xml" not in archive.namelist():
+                  raise SystemExit("APK is missing AndroidManifest.xml")
+          PY
 
       - name: Upload unsigned release APK
         if: ${{ steps.signing.outputs.configured != 'true' }}
@@ -101,13 +101,13 @@ PY
         if: ${{ steps.signing.outputs.configured != 'true' }}
         run: |
           python3 - <<'PY'
-import zipfile
-path = "app/build/outputs/bundle/release/app-release.aab"
-with zipfile.ZipFile(path) as archive:
-    bad = archive.testzip()
-    if bad is not None:
-        raise SystemExit(f"Corrupt AAB entry: {bad}")
-PY
+          import zipfile
+          path = "app/build/outputs/bundle/release/app-release.aab"
+          with zipfile.ZipFile(path) as archive:
+              bad = archive.testzip()
+              if bad is not None:
+                  raise SystemExit(f"Corrupt AAB entry: {bad}")
+          PY
 
       - name: Upload unsigned release AAB
         if: ${{ steps.signing.outputs.configured != 'true' }}
