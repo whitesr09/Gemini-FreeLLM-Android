@@ -758,15 +758,24 @@ class FreeLlmApiClient {
                     )
                 }
                 attachment.mimeType == "application/pdf" || attachment.name.endsWith(".pdf", true) -> {
-                    DocumentProcessor.renderPdfPages(context, file).take(8).forEach { page ->
-                        val bytes = DocumentProcessor.compressImage(page)
-                        val data = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    val extracted = DocumentProcessor.extractText(context, file, attachment.mimeType, attachment.name)
+                    if (!extracted.isNullOrBlank()) {
                         parts.put(
                             JSONObject()
-                                .put("type", "image_url")
-                                .put("image_url", JSONObject().put("url", data))
+                                .put("type", "text")
+                                .put("text", "[Attached PDF: " + attachment.name + "]\\n" + extracted.take(120_000))
                         )
-                        page.delete()
+                    } else {
+                        DocumentProcessor.renderPdfPages(context, file).take(8).forEach { page ->
+                            val bytes = DocumentProcessor.compressImage(page)
+                            val data = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                            parts.put(
+                                JSONObject()
+                                    .put("type", "image_url")
+                                    .put("image_url", JSONObject().put("url", data))
+                            )
+                            page.delete()
+                        }
                     }
                 }
                 else -> {
