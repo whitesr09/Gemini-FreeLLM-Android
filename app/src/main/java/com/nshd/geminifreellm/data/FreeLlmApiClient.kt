@@ -5,6 +5,7 @@ import android.util.Base64
 import com.nshd.geminifreellm.model.ChatMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -86,10 +87,15 @@ class FreeLlmApiClient {
 
     private fun normalizeBaseUrl(raw: String): String {
         val value = raw.trim().trimEnd('/')
-        require(value.startsWith("https://")) { "Base URL must use HTTPS." }
-        require(!value.contains("\n") && !value.contains("\r") && !value.contains(" ")) { "Base URL contains invalid whitespace." }
-        val normalized = value.removeSuffix("/chat/completions").removeSuffix("/models")
-        return normalized.trimEnd('/')
+        require(!value.contains("\n") && !value.contains("\r") && !value.contains(" ")) {
+            "Base URL contains invalid whitespace."
+        }
+        val parsed = value.toHttpUrlOrNull() ?: error("Base URL is not a valid HTTPS URL.")
+        require(parsed.isHttps) { "Base URL must use HTTPS." }
+        require(parsed.username.isEmpty() && parsed.password.isEmpty()) { "Credentials in the Base URL are not allowed." }
+        require(parsed.query == null && parsed.fragment == null) { "Base URL cannot contain a query or fragment." }
+        val normalized = parsed.newBuilder().encodedPath(parsed.encodedPath.removeSuffix("/chat/completions").removeSuffix("/models")).build()
+        return normalized.toString().trimEnd('/')
     }
 
     private val chatClient = OkHttpClient.Builder()
@@ -113,6 +119,27 @@ class FreeLlmApiClient {
         .readTimeout(120, TimeUnit.SECONDS)
         .callTimeout(330, TimeUnit.SECONDS)
         .build()
+
+    private suspend fun executeGetWithRetry(request: Request): okhttp3.Response {
+        var attempt = 0
+        while (true) {
+            try {
+                val response = shortClient.newCall(request).execute()
+                val retryable = response.code == 429 || response.code == 502 ||
+                    response.code == 503 || response.code == 504
+                if (!retryable || attempt >= 2) return response
+                val retryAfterMs = response.header("Retry-After")?.toLongOrNull()
+                    ?.coerceIn(0L, 5L)?.times(1000L)
+                response.close()
+                delay(retryAfterMs ?: (250L shl attempt))
+                attempt++
+            } catch (error: IOException) {
+                if (attempt >= 2) throw error
+                delay(250L shl attempt)
+                attempt++
+            }
+        }
+    }
 
     suspend fun send(
         context: Context,
@@ -170,7 +197,7 @@ class FreeLlmApiClient {
                 val contentType = response.header("Content-Type").orEmpty()
                 val textBuilder = StringBuilder()
                 if (!contentType.contains("text/event-stream", ignoreCase = true)) {
-                    val body = source.buffer().readUtf8()
+                    val body = source.readUtf8()
                     val text = parseChatText(body)
                     if (text.isBlank()) return@withContext ChatResult.Failure("The server returned an unreadable response.")
                     onDeltaOnMain(onDelta, text)
@@ -239,7 +266,7 @@ class FreeLlmApiClient {
                 .build()
 
             val started = System.nanoTime()
-            shortClient.newCall(request).execute().use { response ->
+            executeGetWithRetry(request).use { response ->
                 val latencyMs = (System.nanoTime() - started) / 1_000_000L
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) error(parseServerError(body) ?: "Couldn't load models (" + response.code + ").")
