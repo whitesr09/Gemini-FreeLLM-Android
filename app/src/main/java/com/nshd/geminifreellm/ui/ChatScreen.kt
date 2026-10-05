@@ -54,12 +54,14 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -97,7 +99,7 @@ import com.nshd.geminifreellm.model.ChatMessage
 import com.nshd.geminifreellm.model.ChatSession
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     aiName: String,
@@ -201,7 +203,8 @@ fun ChatScreen(
                     modifier = Modifier.weight(1f),
                     onCopy = onCopy,
                     onRegenerate = onRegenerate,
-                    onExport = onExport
+                    onExport = onExport,
+                    onExportAttachment = onExportAttachment
                 )
                 Composer(
                     input = input,
@@ -555,7 +558,7 @@ private fun MessageCard(
                         Icon(Icons.Filled.ContentCopy, contentDescription = "Copy")
                     }
                     IconButton(onClick = onRegenerate) {
-                        Icon(androidx.compose.material.icons.Icons.Filled.Refresh, contentDescription = "Regenerate")
+                        Icon(Icons.Filled.Refresh, contentDescription = "Regenerate")
                     }
                     var exportExpanded by remember { mutableStateOf(false) }
                     Box {
