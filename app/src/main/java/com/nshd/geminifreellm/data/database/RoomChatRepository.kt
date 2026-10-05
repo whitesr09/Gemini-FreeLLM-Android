@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import java.io.File
+
+data class CleanupResult(val deletedFiles: Int, val reclaimedBytes: Long)
 
 class RoomChatRepository(context: Context) {
     private val appContext = context.applicationContext
@@ -85,6 +88,31 @@ class RoomChatRepository(context: Context) {
 
     suspend fun clearAll() {
         dao.clearAll()
+    }
+
+    suspend fun cleanupOrphans(): CleanupResult {
+        val referenced = dao.getAllAttachmentPaths().map { File(it).canonicalPath }.toHashSet()
+        val roots = listOf(
+            File(appContext.filesDir, "attachments"),
+            File(appContext.filesDir, "generated")
+        )
+        var deleted = 0
+        var bytes = 0L
+        roots.forEach { root ->
+            root.listFiles()?.forEach { file ->
+                if (file.isFile) {
+                    val canonical = runCatching { file.canonicalPath }.getOrNull()
+                    if (canonical != null && canonical !in referenced) {
+                        val size = file.length()
+                        if (file.delete()) {
+                            deleted++
+                            bytes += size
+                        }
+                    }
+                }
+            }
+        }
+        return CleanupResult(deleted, bytes)
     }
 
     fun currentId(): String? = metaPrefs.getString("current_id", null)
