@@ -104,7 +104,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val changed = uiState.value.sessions.firstOrNull { it.id == id }?.copy(
             starred = !(uiState.value.sessions.firstOrNull { it.id == id }?.starred ?: false)
         ) ?: return
-        updateSession(changed, persist = true, model = changed.model)
+        updateSession(changed, persist = true, model = "auto")
     }
 
     fun persistSession(session: ChatSession, model: String) {
