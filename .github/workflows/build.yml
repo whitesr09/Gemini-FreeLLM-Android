@@ -3,6 +3,8 @@ name: Build Android APK
 on:
   push:
     branches: [main, advanced-v2-safe]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
