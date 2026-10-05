@@ -48,3 +48,29 @@ jobs:
         with:
           name: FreeLLM-AI-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Release APK
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Verify release APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.nshd.geminifreellm'"
+
+      - name: Release AAB
+        run: gradle bundleRelease --no-daemon --stacktrace
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeLLM-AI-release-unsigned
+          path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeLLM-AI-release-unsigned-aab
+          path: app/build/outputs/bundle/release/app-release.aab
