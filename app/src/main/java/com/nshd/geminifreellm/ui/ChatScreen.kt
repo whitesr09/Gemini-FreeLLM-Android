@@ -1,5 +1,8 @@
 package com.nshd.geminifreellm.ui
 
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+
 import kotlinx.coroutines.launch
 
 import android.graphics.Bitmap
@@ -149,7 +152,9 @@ private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (Stri
     val c = LocalAppColors.current
     var query by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("All") }
-    var favorites by remember { mutableStateOf(emptySet<String>()) }
+    val context = LocalContext.current
+    val favoritesPrefs = remember(context) { context.getSharedPreferences("model_favorites", Context.MODE_PRIVATE) }
+    var favorites by remember { mutableStateOf(favoritesPrefs.getStringSet("ids", emptySet()).orEmpty().toSet()) }
     val available = models.filter { it.available }.ifEmpty { listOf(ModelInfo("auto", "Auto", true)) }
     val filtered = available.filter { model ->
         val matches = (model.name + " " + model.id + " " + (model.provider ?: "")).contains(query, true)
@@ -201,7 +206,10 @@ private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (Stri
                     AppIconButton(
                         key = "star",
                         contentDescription = if (model.id in favorites) "Remove favorite" else "Favorite model",
-                        onClick = { favorites = if (model.id in favorites) favorites - model.id else favorites + model.id }
+                        onClick = {
+                            favorites = if (model.id in favorites) favorites - model.id else favorites + model.id
+                            favoritesPrefs.edit().putStringSet("ids", favorites).apply()
+                        }
                     )
                 }
             }
