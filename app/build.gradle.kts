@@ -79,6 +79,8 @@ dependencies {
     ksp("androidx.room:room-compiler:2.8.3")
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
     implementation("androidx.exifinterface:exifinterface:1.4.0")
+    implementation("org.commonmark:commonmark:0.30.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.30.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")

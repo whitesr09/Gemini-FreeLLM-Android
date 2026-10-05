@@ -7,6 +7,7 @@ import com.nshd.geminifreellm.data.AppSettings
 import com.nshd.geminifreellm.data.ChatResult
 import com.nshd.geminifreellm.data.ConnectionCheck
 import com.nshd.geminifreellm.data.ContextManager
+import com.nshd.geminifreellm.data.DocumentIndexRepository
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.data.ModelInfo
 import com.nshd.geminifreellm.data.SettingsRepository
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
@@ -47,6 +49,7 @@ data class ChatUiState(
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RoomChatRepository(application.applicationContext)
+    private val documentIndexRepository = DocumentIndexRepository(application.applicationContext)
     private val apiClient = FreeLlmApiClient()
     private val settingsRepository = SettingsRepository(application.applicationContext)
     private val ids = AtomicLong(System.currentTimeMillis())
@@ -497,6 +500,48 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         generationJob = viewModelScope.launch {
+            val latestUser = requestMessages.lastOrNull { it.role == ChatMessage.Role.USER }
+            var ragContext = ""
+            latestUser?.attachments.orEmpty()
+                .filter { !it.mimeType.startsWith("image/") && File(it.localPath).isFile }
+                .take(4)
+                .forEach { attachment ->
+                    runCatching {
+                        documentIndexRepository.indexFile(
+                            File(attachment.localPath),
+                            apiClient,
+                            baseUrl,
+                            apiKey,
+                            embeddingModel = ""
+                        )
+                    }
+                }
+            if (!latestUser?.text.isNullOrBlank()) {
+                ragContext = runCatching {
+                    documentIndexRepository.retrieve(
+                        latestUser!!.text,
+                        apiClient,
+                        baseUrl,
+                        apiKey,
+                        embeddingModel = "",
+                        limit = 6
+                    ).getOrDefault(emptyList())
+                        .joinToString("\n\n") { chunk ->
+                            "[" + File(chunk.sourcePath).name + "]\n" + chunk.content
+                        }
+                        .take(24_000)
+                }.getOrDefault("")
+            }
+            val effectiveSystemPrompt = buildString {
+                val base = prepared.systemPrompt ?: currentSettings.systemPrompt
+                if (base.isNotBlank()) append(base.trim())
+                if (ragContext.isNotBlank()) {
+                    if (isNotEmpty()) append("\n\n")
+                    append("[Local document context]\n")
+                    append(ragContext)
+                    append("\n[/Local document context]")
+                }
+            }
             val result = apiClient.send(
                 context = getApplication(),
                 baseUrl = baseUrl,
@@ -516,7 +561,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 },
-                systemPrompt = prepared.systemPrompt ?: currentSettings.systemPrompt,
+                systemPrompt = effectiveSystemPrompt,
                 contextLimit = currentSettings.contextLimit,
                 webSearch = uiState.value.webSearchEnabled,
                 localTools = uiState.value.localToolsEnabled

@@ -11,6 +11,8 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -53,17 +55,23 @@ fun MediaPreviewDialog(
                         modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 420.dp)
                     )
                 } else {
-                    val bitmap = remember(file.absolutePath) {
-                        BitmapFactory.Options().run {
-                            inJustDecodeBounds = true
-                            BitmapFactory.decodeFile(file.absolutePath, this)
-                            val side = maxOf(outWidth, outHeight).coerceAtLeast(1)
-                            var sample = 1
-                            while (side / sample > 2048 && sample < 64) sample *= 2
-                            inSampleSize = sample
-                            inJustDecodeBounds = false
-                            BitmapFactory.decodeFile(file.absolutePath, this)
+                    val bitmap by produceState<android.graphics.Bitmap?>(null, file.absolutePath) {
+                        value = withContext(Dispatchers.IO) {
+                            BitmapFactory.Options().run {
+                                inJustDecodeBounds = true
+                                BitmapFactory.decodeFile(file.absolutePath, this)
+                                if (outWidth <= 0 || outHeight <= 0) return@run null
+                                val side = maxOf(outWidth, outHeight)
+                                var sample = 1
+                                while (side / sample > 2048 && sample < 64) sample *= 2
+                                inSampleSize = sample
+                                inJustDecodeBounds = false
+                                BitmapFactory.decodeFile(file.absolutePath, this)
+                            }
                         }
+                    }
+                    DisposableEffect(bitmap) {
+                        onDispose { bitmap?.let { if (!it.isRecycled) it.recycle() } }
                     }
                     if (bitmap != null) {
                         var scale by remember { mutableFloatStateOf(1f) }

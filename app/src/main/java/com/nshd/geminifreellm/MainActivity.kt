@@ -17,10 +17,13 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -64,12 +67,19 @@ import java.util.concurrent.atomic.AtomicLong
 
 class MainActivity : ComponentActivity() {
     private var pausedAt: Long = 0L
+    private val appLocked = androidx.compose.runtime.mutableStateOf(false)
+
+    private val unlockLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) appLocked.value = false
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppDiagnostics.install(this)
         AppDiagnostics.recordEvent(this, "app_started")
-        setContent { AiApp(this) }
+        setContent { AiApp(this, locked = appLocked.value) }
     }
 
     override fun onPause() {
@@ -101,7 +111,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AiApp(context: Context) {
+private fun AiApp(context: Context, locked: Boolean = false) {
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     val secureCredentials = remember { SecureCredentialStore(context).also { it.migrateLegacy(prefs) } }
     val chatVm: ChatViewModel = viewModel()
@@ -172,6 +182,30 @@ private fun AiApp(context: Context) {
     var pendingSaveFile by remember { mutableStateOf<File?>(null) }
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
     var previewAttachment by remember { mutableStateOf<Attachment?>(null) }
+    val draftRepository = remember { com.nshd.geminifreellm.data.DraftRepository(context) }
+    var draftReadyFor by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(activeSession.id) {
+        val id = activeSession.id
+        if (activeSession.temporary) {
+            input = ""
+            pendingAttachments = emptyList()
+        } else {
+            val draft = withContext(Dispatchers.IO) { draftRepository.load(id) }
+            input = draft.text
+            pendingAttachments = draft.attachments.filter { File(it.localPath).isFile }
+        }
+        draftReadyFor = id
+    }
+
+    LaunchedEffect(draftReadyFor, input, pendingAttachments) {
+        val id = draftReadyFor ?: return@LaunchedEffect
+        if (sessions.firstOrNull { it.id == id }?.temporary == true) return@LaunchedEffect
+        kotlinx.coroutines.delay(300)
+        withContext(Dispatchers.IO) {
+            draftRepository.save(id, com.nshd.geminifreellm.data.DraftState(input, pendingAttachments))
+        }
+    }
 
     fun replaceSession(session: ChatSession, persistNow: Boolean = true) {
         chatVm.replaceSession(session, persistNow, selectedModel)
@@ -285,6 +319,7 @@ private fun AiApp(context: Context) {
     fun sendMessage() {
         if (busy || (input.isBlank() && pendingAttachments.isEmpty())) return
         chatVm.sendMessage(baseUrl, apiKey, selectedModel, input, pendingAttachments)
+        draftRepository.clear(activeSession.id)
         input = ""
         pendingAttachments = emptyList()
     }
@@ -589,12 +624,27 @@ private fun AiApp(context: Context) {
                         "Clear",
                         modifier = Modifier.width(110.dp),
                         onClick = {
+                            draftRepository.clearAll()
                             chatVm.clearAll(selectedModel)
                             clearDialog = false
                         }
                     )
                 }
             )
+        }
+        if (locked) {
+            Box(
+                Modifier.fillMaxSize().background(com.nshd.geminifreellm.ui.LocalAppColors.current.background),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                    com.nshd.geminifreellm.ui.AiOrb(Modifier.size(72.dp), active = true)
+                    Spacer(Modifier.height(20.dp))
+                    BasicText("FreeLLM AI is locked", color = com.nshd.geminifreellm.ui.LocalAppColors.current.text, fontSize = 22.sp)
+                    Spacer(Modifier.height(8.dp))
+                    BasicText("Confirm your device credential to continue.", color = com.nshd.geminifreellm.ui.LocalAppColors.current.muted, fontSize = 13.sp)
+                }
+            }
         }
     }
 }

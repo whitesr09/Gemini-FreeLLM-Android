@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
@@ -140,39 +141,128 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable private fun SearchField(query: String, onChange: (String) -> Unit) { val c = LocalAppColors.current; BasicTextField(value = query, onValueChange = onChange, modifier = Modifier.fillMaxWidth().height(44.dp).background(c.elevated, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 11.dp), singleLine = true, textStyle = TextStyle(color = c.text, fontSize = 14.sp), cursorBrush = SolidColor(c.accent), decorationBox = { inner -> Box { if (query.isBlank()) BasicText("⌕  Search chats", color = c.muted, fontSize = 14.sp); inner() } }) }
 
-@Composable private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (String) -> Unit) { val c = LocalAppColors.current; Column(Modifier.widthIn(min = 230.dp, max = 320.dp).background(c.surface, RoundedCornerShape(14.dp)).border(1.dp, c.border, RoundedCornerShape(14.dp)).padding(8.dp)) { val choices = models.filter { it.available }.ifEmpty { listOf(ModelInfo("auto", "Auto", true)) }; choices.forEach { model -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).clickable { onSelect(model.id) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { BasicText(model.name, color = c.text, fontSize = 13.sp); if (model.id != model.name) BasicText(model.id, color = c.muted, fontSize = 10.sp) }; if (model.id == selected) BasicText("✓", color = c.accent, fontSize = 16.sp) } } } }
-
-@Composable private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boolean, modifier: Modifier, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit) {
-    val c = LocalAppColors.current; val state = rememberLazyListState(); LaunchedEffect(messages.lastOrNull()?.id) { if (messages.isNotEmpty()) state.animateScrollToItem(messages.lastIndex) }
-    if (messages.isEmpty()) { EmptyState(modifier); return }
+@Composable
+private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (String) -> Unit) {
+    val c = LocalAppColors.current
+    var query by remember { mutableStateOf("") }
+    val choices = models.filter { it.available }
+        .filter { query.isBlank() || it.name.contains(query, true) || it.id.contains(query, true) || it.provider.orEmpty().contains(query, true) }
+    Column(Modifier.widthIn(min = 250.dp, max = 340.dp).background(c.surface, RoundedCornerShape(14.dp)).border(1.dp, c.border, RoundedCornerShape(14.dp)).padding(8.dp)) {
+        BasicTextField(
+            value = query,
+            onValueChange = { query = it.take(80) },
+            modifier = Modifier.fillMaxWidth().height(40.dp).background(c.elevated, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
+            singleLine = true,
+            textStyle = TextStyle(color = c.text, fontSize = 13.sp),
+            cursorBrush = SolidColor(c.accent),
+            decorationBox = { inner -> Box { if (query.isBlank()) BasicText("Search models…", color = c.muted, fontSize = 13.sp); inner() } }
+        )
+        Spacer(Modifier.height(6.dp))
+        if (choices.isEmpty()) BasicText("No matching models", color = c.muted, fontSize = 12.sp, modifier = Modifier.padding(10.dp))
+        choices.take(20).forEach { model ->
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).clickable { onSelect(model.id) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    BasicText(model.name, color = c.text, fontSize = 13.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        model.provider?.takeIf { it.isNotBlank() }?.let { BasicText(it, color = c.muted, fontSize = 9.sp) }
+                        model.contextSize?.let { BasicText((it / 1000).coerceAtLeast(1).toString() + "k ctx", color = c.muted, fontSize = 9.sp) }
+                        if (model.supportsVision) BasicText("Vision", color = c.muted, fontSize = 9.sp)
+                        if (model.reasoning) BasicText("Reasoning", color = c.muted, fontSize = 9.sp)
+                        if (model.coding) BasicText("Code", color = c.muted, fontSize = 9.sp)
+                    }
+                }
+                if (model.id == selected) BasicText("✓", color = c.accent, fontSize = 16.sp)
+            }
+        }
+    }
+}
+@Composable
+private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boolean, modifier: Modifier, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit) {
+    val c = LocalAppColors.current
+    val state = rememberLazyListState()
+    var branchSelection by remember(messages) { mutableStateOf(emptyMap<Long, Int>()) }
+    val branchGroups = remember(messages) {
+        messages.filter { it.role == ChatMessage.Role.ASSISTANT && it.parentMessageId != null }
+            .groupBy { it.parentMessageId!! }
+            .filterValues { it.size > 1 }
+    }
+    val displayMessages = remember(messages, branchSelection) {
+        messages.filter { message ->
+            val siblings = message.parentMessageId?.let { branchGroups[it] }
+            if (siblings.isNullOrEmpty()) true
+            else message.id == siblings[(branchSelection[message.parentMessageId] ?: siblings.lastIndex).coerceIn(0, siblings.lastIndex)].id
+        }
+    }
+    LaunchedEffect(displayMessages.lastOrNull()?.id) { if (displayMessages.isNotEmpty()) state.animateScrollToItem(displayMessages.lastIndex) }
+    if (displayMessages.isEmpty()) { EmptyState(modifier); return }
     LazyColumn(state = state, modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        items(messages, key = { it.id }) { message -> MessageBlock(message, aiName, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, onRegenerateMedia) }
+        items(displayMessages, key = { it.id }) { message ->
+            val siblings = message.parentMessageId?.let { branchGroups[it] }
+            if (siblings.isNullOrEmpty()) {
+                MessageBlock(message, aiName, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment)
+            } else {
+                val index = siblings.indexOfFirst { it.id == message.id }.coerceAtLeast(0)
+                MessageBlock(message, aiName, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, index, siblings.size) { next ->
+                    branchSelection = branchSelection + (message.parentMessageId!! to next.coerceIn(0, siblings.lastIndex))
+                }
+            }
+        }
         if (busy) item { Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) { AiOrb(Modifier.size(25.dp), true); Spacer(Modifier.width(8.dp)); BasicText("Thinking", color = c.muted, fontSize = 12.sp) } }
     }
 }
 @Composable private fun EmptyState(modifier: Modifier) { val c = LocalAppColors.current; Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) { AiOrb(Modifier.size(72.dp), true); Spacer(Modifier.height(20.dp)); BasicText("How can I help?", color = c.text, fontSize = 25.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.height(8.dp)); BasicText("Start a new conversation.", color = c.muted, fontSize = 14.sp) } } }
 
-@Composable private fun MessageBlock(message: ChatMessage, aiName: String, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit) {
-    val c = LocalAppColors.current; val user = message.role == ChatMessage.Role.USER; val error = message.role == ChatMessage.Role.ERROR
+@Composable private fun MessageBlock(message: ChatMessage, aiName: String, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, branchIndex: Int = -1, branchCount: Int = 0, onBranchChange: ((Int) -> Unit)? = null) {
+    val c = LocalAppColors.current
+    val user = message.role == ChatMessage.Role.USER
+    val error = message.role == ChatMessage.Role.ERROR
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.widthIn(max = 760.dp)) {
             if (!user) AiOrb(Modifier.size(28.dp), false)
             Column(horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
-                BasicText(if (user) "You" else if (error) "Error" else aiName, color = if (error) c.error else c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.height(5.dp))
+                BasicText(if (user) "You" else if (error) "Error" else aiName, color = if (error) c.error else c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(5.dp))
                 if (user) Box(Modifier.background(c.userBubble, ChatRadius).padding(horizontal = 15.dp, vertical = 11.dp)) { MessageText(message.text, error) } else MessageText(message.text, error)
-                if (message.attachments.isNotEmpty()) { Spacer(Modifier.height(8.dp)); AttachmentList(message.attachments, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, { attachment -> onRegenerateMedia(message, attachment) }) }
-                if (message.text.isNotBlank() && !error) MessageActions(message, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport)
+                if (message.attachments.isNotEmpty()) { Spacer(Modifier.height(8.dp)); AttachmentList(message.attachments, onExportAttachment) }
+                if (message.text.isNotBlank() && !error) MessageActions(message, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, branchIndex, branchCount, onBranchChange)
             }
         }
     }
 }
-@Composable private fun MessageText(text: String, error: Boolean) { val c = LocalAppColors.current; if (text.isBlank()) return; val chunks = remember(text) { text.split("```") }; Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { chunks.forEachIndexed { index, chunk -> if (index % 2 == 1) Box(Modifier.fillMaxWidth().background(c.surface, RoundedCornerShape(10.dp)).border(1.dp, c.border, RoundedCornerShape(10.dp)).horizontalScroll(rememberScrollState()).padding(12.dp)) { BasicText(chunk.trim(), color = c.text, fontSize = 12.sp, fontFamily = FontFamily.Monospace, lineHeight = 18.sp) } else if (chunk.isNotBlank()) BasicText(chunk.trim(), color = if (error) c.error else c.text, fontSize = 15.sp, lineHeight = 23.sp) } } }
-@Composable private fun MessageActions(message: ChatMessage, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit) { Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) { ActionText("Copy") { onCopy(message.text) }; ActionText("Share") { onShare(message.text) }; ActionText("Read") { onSpeak(message.text) }; if (message.role == ChatMessage.Role.USER) ActionText("Edit") { onEdit(message.id, message.text) }; ActionText("Retry") { onRegenerate(message.id) }; ActionText("Export") { onExport(message, ExportFormat.MARKDOWN) }; ActionText("TXT") { onExport(message, ExportFormat.TEXT) }; ActionText("JSON") { onExport(message, ExportFormat.JSON) }; ActionText("HTML") { onExport(message, ExportFormat.HTML) } } }
-@Composable private fun ActionText(label: String, onClick: () -> Unit) { BasicText(label, color = LocalAppColors.current.muted, fontSize = 10.sp, modifier = Modifier.clickable(onClick = onClick).semantics {
-            role = Role.Button
-            contentDescription = label
-        }.padding(horizontal = 7.dp, vertical = 5.dp)) }
-
+@Composable private fun MessageText(text: String, error: Boolean) {
+    val c = LocalAppColors.current
+    if (text.isBlank()) return
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { context -> android.widget.TextView(context).apply {
+            setTextIsSelectable(true)
+            linksClickable = true
+            movementMethod = android.text.method.LinkMovementMethod.getInstance()
+            setPadding(0, 0, 0, 0)
+        } },
+        update = { view ->
+            view.setTextColor(if (error) c.error.toArgb() else c.text.toArgb())
+            view.textSize = 15f
+            view.setLineSpacing(0f, 1.35f)
+            view.text = android.text.Html.fromHtml(MarkdownRenderer.toSafeHtml(text), android.text.Html.FROM_HTML_MODE_LEGACY)
+        },
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+@Composable private fun MessageActions(message: ChatMessage, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, branchIndex: Int = -1, branchCount: Int = 0, onBranchChange: ((Int) -> Unit)? = null) {
+    Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        ActionText("Copy") { onCopy(message.text) }
+        ActionText("Share") { onShare(message.text) }
+        ActionText("Read") { onSpeak(message.text) }
+        if (message.role == ChatMessage.Role.USER) ActionText("Edit") { onEdit(message.id, message.text) }
+        ActionText("Retry") { onRegenerate(message.id) }
+        if (branchCount > 1 && onBranchChange != null) {
+            ActionText("‹ " + (branchIndex + 1) + "/" + branchCount) { onBranchChange((branchIndex - 1 + branchCount) % branchCount) }
+            ActionText((branchIndex + 1).toString() + "/" + branchCount + " ›") { onBranchChange((branchIndex + 1) % branchCount) }
+        }
+        ActionText("Export") { onExport(message, ExportFormat.MARKDOWN) }
+        ActionText("TXT") { onExport(message, ExportFormat.TEXT) }
+    }
+}
 @Composable private fun AttachmentList(attachments: List<Attachment>, onExport: (Attachment) -> Unit, onOpen: (Attachment) -> Unit, onDelete: (Attachment) -> Unit, onShare: (Attachment) -> Unit, onRegenerate: (Attachment) -> Unit) { val c = LocalAppColors.current; LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(attachments, key = { it.id }) { attachment -> Column(Modifier.widthIn(max = 190.dp).background(c.elevated, RoundedCornerShape(10.dp)).clickable { if (attachment.mimeType.startsWith("image/") || attachment.mimeType.startsWith("video/") || attachment.kind == Attachment.Kind.GENERATED_IMAGE || attachment.kind == Attachment.Kind.GENERATED_VIDEO) onOpen(attachment) else onExport(attachment) }.padding(9.dp)) { if (attachment.kind == Attachment.Kind.IMAGE || attachment.kind == Attachment.Kind.GENERATED_IMAGE) { val bitmap = remember(attachment.localPath) { runCatching { BitmapFactory.decodeFile(attachment.localPath) }.getOrNull() }; if (bitmap != null) { androidx.compose.foundation.Image(bitmap.asImageBitmap(), null, Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop); Spacer(Modifier.height(6.dp)) } }; BasicText(attachment.name, color = c.text, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); BasicText(if (attachment.mimeType.startsWith("image/") || attachment.mimeType.startsWith("video/") || attachment.kind == Attachment.Kind.GENERATED_IMAGE || attachment.kind == Attachment.Kind.GENERATED_VIDEO) "Tap to view" else "Tap to save", color = c.muted, fontSize = 9.sp) } } } }
 
 @Composable

@@ -33,7 +33,7 @@ class DocumentIndexRepository(context: Context) {
 
             val chunks = chunk(text)
             val entities = chunks.mapIndexed { index, chunk ->
-                val vector = apiClient.createEmbedding(baseUrl, apiKey, embeddingModel, chunk).getOrThrow()
+                val vector = if (embeddingModel.isBlank()) emptyList() else apiClient.createEmbedding(baseUrl, apiKey, embeddingModel, chunk).getOrElse { emptyList() }
                 DocumentChunkEntity(
                     id = UUID.randomUUID().toString(),
                     sourcePath = file.absolutePath,
@@ -53,15 +53,30 @@ class DocumentIndexRepository(context: Context) {
         }
     }
 
-    suspend fun search(queryVector: List<Float>, limit: Int = 6): List<RetrievedChunk> {
+    suspend fun retrieve(query: String, apiClient: FreeLlmApiClient, baseUrl: String, apiKey: String, embeddingModel: String = "", limit: Int = 6): Result<List<RetrievedChunk>> = runCatching {
         val rows = dao.getAllDocumentChunks()
-        return VectorMath.topK(
-            queryVector,
-            rows.map { it.id to parseVector(it.embedding) },
-            limit
-        ).mapNotNull { (id, score) ->
-            rows.firstOrNull { it.id == id }?.let { RetrievedChunk(it.sourcePath, it.content, score) }
+        if (rows.isEmpty() || query.isBlank()) return@runCatching emptyList()
+        if (embeddingModel.isNotBlank() && rows.any { it.embedding.isNotBlank() }) {
+            val vector = apiClient.createEmbedding(baseUrl, apiKey, embeddingModel, query).getOrNull()
+            if (!vector.isNullOrEmpty()) {
+                return@runCatching VectorMath.topK(
+                    vector,
+                    rows.filter { it.embedding.isNotBlank() }.map { it.id to parseVector(it.embedding) },
+                    limit
+                ).mapNotNull { (id, score) ->
+                    rows.firstOrNull { it.id == id }?.let { RetrievedChunk(it.sourcePath, it.content, score) }
+                }
+            }
         }
+        DocumentSearch.lexicalScores(query, rows.map { it.content }, limit)
+            .map { (index, score) -> rows[index] to score }
+            .map { (row, score) -> RetrievedChunk(row.sourcePath, row.content, score) }
+    }
+
+    suspend fun search(queryVector: List<Float>, limit: Int = 6): List<RetrievedChunk> {
+        val rows = dao.getAllDocumentChunks().filter { it.embedding.isNotBlank() }
+        return VectorMath.topK(queryVector, rows.map { it.id to parseVector(it.embedding) }, limit)
+            .mapNotNull { (id, score) -> rows.firstOrNull { it.id == id }?.let { RetrievedChunk(it.sourcePath, it.content, score) } }
     }
 
     suspend fun clear() = dao.clearDocumentChunks()
