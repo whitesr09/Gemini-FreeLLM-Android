@@ -48,37 +48,56 @@ object LocalToolRegistry {
     }
 
     private fun eval(input: String): Double {
-        val chars = input.replace(" ", "").toCharArray()
-        var pos = 0
-        fun expr(): Double {
-            var value = term()
-            while (pos < chars.size && (chars[pos] == '+' || chars[pos] == '-')) value = if (chars[pos++] == '+') value + term() else value - term()
-            return value
-        }
-        fun term(): Double {
-            var value = factor()
-            while (pos < chars.size && (chars[pos] == '*' || chars[pos] == '/')) value = if (chars[pos++] == '*') value * factor() else value / factor()
-            return value
-        }
-        fun factor(): Double {
-            require(pos < chars.size) { "Missing number" }
-            if (chars[pos] == '+') { pos++; return factor() }
-            if (chars[pos] == '-') { pos++; return -factor() }
-            if (chars[pos] == '(') {
-                pos++
-                val value = expr()
-                require(pos < chars.size && chars[pos] == ')') { "Unbalanced parentheses" }
-                pos++
+        class Parser(private val source: String) {
+            private val chars = source.replace(" ", "").toCharArray()
+            private var pos = 0
+
+            fun parse(): Double {
+                val value = expression()
+                require(pos == chars.size) { "Unexpected token" }
                 return value
             }
-            val start = pos
-            while (pos < chars.size && (chars[pos].isDigit() || chars[pos] == '.')) pos++
-            require(pos > start) { "Missing number" }
-            return input.replace(" ", "").substring(start, pos).toDouble()
+
+            private fun expression(): Double {
+                var value = term()
+                while (pos < chars.size && (chars[pos] == '+' || chars[pos] == '-')) {
+                    value = if (chars[pos++] == '+') value + term() else value - term()
+                }
+                return value
+            }
+
+            private fun term(): Double {
+                var value = factor()
+                while (pos < chars.size && (chars[pos] == '*' || chars[pos] == '/')) {
+                    value = if (chars[pos++] == '*') value * factor() else value / factor()
+                }
+                return value
+            }
+
+            private fun factor(): Double {
+                require(pos < chars.size) { "Missing number" }
+                if (chars[pos] == '+') {
+                    pos++
+                    return factor()
+                }
+                if (chars[pos] == '-') {
+                    pos++
+                    return -factor()
+                }
+                if (chars[pos] == '(') {
+                    pos++
+                    val value = expression()
+                    require(pos < chars.size && chars[pos] == ')') { "Unbalanced parentheses" }
+                    pos++
+                    return value
+                }
+                val start = pos
+                while (pos < chars.size && (chars[pos].isDigit() || chars[pos] == '.')) pos++
+                require(pos > start) { "Missing number" }
+                return String(chars, start, pos - start).toDouble()
+            }
         }
-        val value = expr()
-        require(pos == chars.size) { "Unexpected token" }
-        return value
+        return Parser(input).parse()
     }
 
     private fun convertUnit(value: Double, fromRaw: String, toRaw: String): String {
