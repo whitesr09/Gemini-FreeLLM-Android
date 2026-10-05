@@ -134,7 +134,10 @@ fun AiNameOnboarding(
 
     AlertDialog(
         onDismissRequest = {},
-        icon = { AiOrb(Modifier, active = true) },
+        // Keep the animated orb inside the dialog's icon slot at a fixed size.
+        // Passing an empty Modifier here lets the orb's fillMaxSize child expand
+        // to the dialog's available constraints and push the input field off-screen.
+        icon = { AiOrb(Modifier.size(64.dp), active = true) },
         title = { Text("Name your AI") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
