@@ -31,10 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.ui.graphics.toArgb
-import androidx.core.view.WindowInsetsControllerCompat
 import com.nshd.geminifreellm.data.AppDiagnostics
 import com.nshd.geminifreellm.data.AppSettings
 import com.nshd.geminifreellm.data.StorageManager
@@ -67,7 +63,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -695,7 +690,7 @@ private fun AiApp(activity: MainActivity) {
                     com.nshd.geminifreellm.ui.AiOrb(Modifier.size(92.dp), false)
                     BasicText("App locked", color = com.nshd.geminifreellm.ui.LocalAppColors.current.text, fontSize = 22.sp)
                     Spacer(Modifier.width(1.dp))
-                    AppButton("Unlock", onClick = activity::requestUnlock)
+                    AppButton("Unlock", onClick = { activity.requestUnlock() })
                 }
             }
         }
