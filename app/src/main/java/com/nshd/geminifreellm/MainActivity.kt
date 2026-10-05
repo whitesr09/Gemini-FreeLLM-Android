@@ -298,6 +298,13 @@ private fun AiApp(context: Context) {
                         persistNow = true
                     )
                 }
+                is ChatResult.Cancelled -> {
+                    val current = sessions.firstOrNull { it.id == activeSession.id } ?: activeSession
+                    replaceSession(
+                        current.copy(updatedAt = System.currentTimeMillis()),
+                        persistNow = true
+                    )
+                }
                 is ChatResult.Failure -> {
                     AppDiagnostics.recordEvent(context, "chat_failure: " + result.message)
                     val current = sessions.firstOrNull { it.id == activeSession.id } ?: activeSession
@@ -365,6 +372,7 @@ private fun AiApp(context: Context) {
                     when (result) {
                         is ChatResult.Success -> message.copy(text = result.text)
                         is ChatResult.Failure -> message.copy(text = result.message, role = ChatMessage.Role.ERROR)
+                        is ChatResult.Cancelled -> message
                     }
                 } else message
             }
