@@ -92,12 +92,26 @@ class FreeLlmApiClient {
         return normalized.trimEnd('/')
     }
 
-    private val client = OkHttpClient.Builder()
+    private val chatClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .readTimeout(330, TimeUnit.SECONDS)
         .callTimeout(360, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
+        .retryOnConnectionFailure(false)
+        .build()
+
+    private val shortClient = chatClient.newBuilder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    private val mediaClient = chatClient.newBuilder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .callTimeout(330, TimeUnit.SECONDS)
         .build()
 
     suspend fun send(
@@ -141,7 +155,7 @@ class FreeLlmApiClient {
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            val call = beginCall(client.newCall(request))
+            val call = beginCall(chatClient.newCall(request))
             try {
             call.execute().use { response ->
                 if (!response.isSuccessful) {
@@ -225,7 +239,7 @@ class FreeLlmApiClient {
                 .build()
 
             val started = System.nanoTime()
-            client.newCall(request).execute().use { response ->
+            shortClient.newCall(request).execute().use { response ->
                 val latencyMs = (System.nanoTime() - started) / 1_000_000L
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) error(parseServerError(body) ?: "Couldn't load models (" + response.code + ").")
@@ -267,7 +281,7 @@ class FreeLlmApiClient {
                 .get()
                 .build()
             val started = System.nanoTime()
-            client.newCall(request).execute().use { response ->
+            mediaClient.newCall(request).execute().use { response ->
                 val latencyMs = (System.nanoTime() - started) / 1_000_000L
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
@@ -315,7 +329,7 @@ class FreeLlmApiClient {
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            mediaClient.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) error(parseServerError(body) ?: "Image generation failed (" + response.code + ").")
                 val item = JSONObject(body).optJSONArray("data")?.optJSONObject(0)
@@ -363,7 +377,7 @@ class FreeLlmApiClient {
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            mediaClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     val body = response.body?.string().orEmpty()
                     error(parseServerError(body) ?: "Video generation failed (" + response.code + ").")
