@@ -198,9 +198,11 @@ private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (Stri
                             if (model.coding) BasicText("Coding", color = c.muted, fontSize = 9.sp)
                         }
                     }
-                    AppIconButton("star", if (model.id in favorites) "Remove favorite" else "Favorite model") {
-                        favorites = if (model.id in favorites) favorites - model.id else favorites + model.id
-                    }
+                    AppIconButton(
+                        key = "star",
+                        contentDescription = if (model.id in favorites) "Remove favorite" else "Favorite model",
+                        onClick = { favorites = if (model.id in favorites) favorites - model.id else favorites + model.id }
+                    )
                 }
             }
         }
@@ -275,6 +277,20 @@ private fun BranchButton(symbol: String, description: String, enabled: Boolean, 
 }
 
 @Composable private fun MessageText(text:String,error:Boolean,onCopyCode:(String)->Unit){if(text.isNotBlank())MarkdownMessage(text,error,onCopyCode)}
+@Composable
+private fun ActionText(label: String, onClick: () -> Unit) {
+    BasicText(
+        label,
+        color = LocalAppColors.current.muted,
+        fontSize = 10.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .semantics { role = Role.Button; contentDescription = label }
+            .padding(horizontal = 7.dp, vertical = 6.dp)
+    )
+}
+
 @Composable
 private fun MessageActions(
     message: ChatMessage,
