@@ -32,6 +32,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.asImageBitmap
+import android.graphics.BitmapFactory
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -119,6 +121,7 @@ fun ChatScreen(
     onCopy: (String) -> Unit,
     onRegenerate: (Long) -> Unit,
     onExport: (ChatMessage, ExportFormat) -> Unit,
+    onExportAttachment: (Attachment) -> Unit,
     onDeleteSessions: (Set<String>) -> Unit,
     onToggleStar: (String) -> Unit
 ) {
@@ -411,7 +414,8 @@ private fun MessageList(
     modifier: Modifier,
     onCopy: (String) -> Unit,
     onRegenerate: (Long) -> Unit,
-    onExport: (ChatMessage, ExportFormat) -> Unit
+    onExport: (ChatMessage, ExportFormat) -> Unit,
+    onExportAttachment: (Attachment) -> Unit
 ) {
     val state = rememberLazyListState()
     LaunchedEffect(messages.size, busy) {
@@ -435,7 +439,8 @@ private fun MessageList(
                 aiName = aiName,
                 onCopy = { onCopy(message.text) },
                 onRegenerate = { onRegenerate(message.id) },
-                onExport = { onExport(message, it) }
+                onExport = { onExport(message, it) },
+                onExportAttachment = onExportAttachment
             )
         }
         if (busy) {
@@ -460,7 +465,8 @@ private fun MessageCard(
     aiName: String,
     onCopy: () -> Unit,
     onRegenerate: () -> Unit,
-    onExport: (ExportFormat) -> Unit
+    onExport: (ExportFormat) -> Unit,
+    onExportAttachment: (Attachment) -> Unit
 ) {
     val user = message.role == ChatMessage.Role.USER
     val error = message.role == ChatMessage.Role.ERROR
@@ -506,7 +512,8 @@ private fun MessageCard(
                             message.attachments.forEach { attachment ->
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                                    modifier = Modifier.clickable { onExportAttachment(attachment) }
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -518,11 +525,22 @@ private fun MessageCard(
                                                 attachment.mimeType.startsWith("video/") -> Icons.Filled.VideoLibrary
                                                 else -> Icons.Filled.Description
                                             },
-                                            contentDescription = null,
+                                            contentDescription = "Save " + attachment.name,
                                             modifier = Modifier.size(17.dp)
                                         )
                                         Spacer(Modifier.width(6.dp))
                                         Text(attachment.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        if (attachment.kind == Attachment.Kind.GENERATED_IMAGE && attachment.localPath.isNotBlank()) {
+                                            val bmp = remember(attachment.localPath) { BitmapFactory.decodeFile(attachment.localPath) }
+                                            if (bmp != null) {
+                                                Spacer(Modifier.width(7.dp))
+                                                androidx.compose.foundation.Image(
+                                                    bitmap = bmp.asImageBitmap(),
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(42.dp).clip(RoundedCornerShape(8.dp))
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
