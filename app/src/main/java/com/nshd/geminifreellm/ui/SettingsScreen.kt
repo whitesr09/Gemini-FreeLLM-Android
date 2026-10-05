@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nshd.geminifreellm.data.AppSettings
 import com.nshd.geminifreellm.data.ConnectionCheck
-import com.nshd.geminifreellm.data.StorageUsage
+import com.nshd.geminifreellm.data.database.StorageSnapshot
 
 private const val DEFAULT_API = "https://nshd-freellm-api.onrender.com/v1"
 
@@ -21,7 +21,7 @@ private const val DEFAULT_API = "https://nshd-freellm-api.onrender.com/v1"
 fun SettingsDialog(
     settings: AppSettings,
     apiKey: String,
-    storageUsage: StorageUsage?,
+    storageUsage: StorageSnapshot?,
     diagnostics: List<String>,
     connectionTesting: Boolean,
     connectionResult: ConnectionCheck?,
@@ -178,14 +178,15 @@ fun SettingsDialog(
                     } else {
                         val u = storageUsage
                         BasicText(
-                            "Attachments " + formatBytes(u.attachments) +
-                                " · Images " + formatBytes(u.generatedImages) +
-                                " · Videos " + formatBytes(u.generatedVideos),
+                            "Attachments " + formatBytes(u.attachmentBytes) +
+                                " · Generated " + formatBytes(u.generatedBytes),
                             color = LocalAppColors.current.muted,
                             fontSize = 11.sp
                         )
                         BasicText(
-                            "Cache " + formatBytes(u.cache) + " · Total app-managed " + formatBytes(u.total),
+                            "DB " + formatBytes(u.databaseBytes) +
+                                " · Cache " + formatBytes(u.cacheBytes) +
+                                " · Total tracked " + formatBytes(u.databaseBytes + u.attachmentBytes + u.generatedBytes + u.cacheBytes),
                             color = LocalAppColors.current.muted,
                             fontSize = 11.sp
                         )
