@@ -73,7 +73,8 @@ fun MediaPreviewDialog(
                     DisposableEffect(bitmap) {
                         onDispose { bitmap?.let { if (!it.isRecycled) it.recycle() } }
                     }
-                    if (bitmap != null) {
+                    val decodedBitmap = bitmap
+                    if (decodedBitmap != null) {
                         var scale by remember { mutableFloatStateOf(1f) }
                         var offsetX by remember { mutableFloatStateOf(0f) }
                         var offsetY by remember { mutableFloatStateOf(0f) }
@@ -83,7 +84,7 @@ fun MediaPreviewDialog(
                             offsetY += pan.y
                         }
                         Image(
-                            bitmap = bitmap.asImageBitmap(),
+                            bitmap = decodedBitmap.asImageBitmap(),
                             contentDescription = attachment.name,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 420.dp)
                                 .background(LocalAppColors.current.background, RoundedCornerShape(12.dp))
