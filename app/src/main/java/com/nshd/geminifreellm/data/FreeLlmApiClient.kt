@@ -281,7 +281,7 @@ class FreeLlmApiClient {
                 .get()
                 .build()
             val started = System.nanoTime()
-            mediaClient.newCall(request).execute().use { response ->
+            shortClient.newCall(request).execute().use { response ->
                 val latencyMs = (System.nanoTime() - started) / 1_000_000L
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
