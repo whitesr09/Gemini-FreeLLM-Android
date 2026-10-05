@@ -7,7 +7,7 @@ object SseParser {
     sealed interface Event {
         data class Delta(val text: String) : Event
         data object Done : Event
-        data class ToolDelta(val index: Int, val name: String?, val arguments: String) : Event
+        data class ToolDelta(val index: Int, val id: String?, val name: String?, val arguments: String) : Event
         data class Malformed(val raw: String) : Event
     }
 
@@ -28,6 +28,7 @@ object SseParser {
                 val fn = tool.optJSONObject("function")
                 Event.ToolDelta(
                     index = tool.optInt("index", 0),
+                    id = tool.optString("id").takeIf { it.isNotBlank() },
                     name = fn?.optString("name").takeIf { !it.isNullOrBlank() },
                     arguments = fn?.optString("arguments").orEmpty()
                 )
