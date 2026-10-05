@@ -140,18 +140,8 @@ class FreeLlmApiClient {
             call.execute().use { response ->
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
-                    val message = when (response.code) {
-                        400 -> parseServerError(errorBody) ?: "The request was invalid. Check the selected model and message."
-                        401 -> "API key rejected. Check your key in Settings."
-                        403 -> "Access forbidden. Check your API key permissions."
-                        404 -> "API endpoint not found. Check the Base URL."
-                        408 -> "The server timed out. Retry the request."
-                        422 -> parseServerError(errorBody) ?: "This request is not supported by the selected route."
-                        429 -> "Rate limit reached. Retry later or switch to Auto."
-                        in 500..599 -> "Server error (" + response.code + "). The server may be waking up; retry shortly."
-                        else -> parseServerError(errorBody) ?: "Request failed (" + response.code + ")."
-                    }
-                    return@withContext ChatResult.Failure(message)
+                    val apiError = ApiErrorMapper.fromHttp(response.code, parseServerError(errorBody))
+                    return@withContext ChatResult.Failure(apiError.message)
                 }
 
                 val source = response.body?.source()
