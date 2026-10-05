@@ -31,6 +31,9 @@ import com.nshd.geminifreellm.model.Attachment
 import com.nshd.geminifreellm.model.ChatMessage
 import com.nshd.geminifreellm.model.ChatSession
 import com.nshd.geminifreellm.ui.AiNameOnboarding
+import com.nshd.geminifreellm.ui.AppButton
+import com.nshd.geminifreellm.ui.AppDialog
+import com.nshd.geminifreellm.ui.AppTextButton
 import com.nshd.geminifreellm.ui.AiTheme
 import com.nshd.geminifreellm.ui.ChatScreen
 import com.nshd.geminifreellm.ui.SettingsDialog
