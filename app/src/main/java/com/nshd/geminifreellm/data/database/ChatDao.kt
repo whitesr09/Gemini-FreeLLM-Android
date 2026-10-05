@@ -55,4 +55,25 @@ interface ChatDao {
 
     @Query("DELETE FROM chat_sessions")
     suspend fun clearAll()
+
+    @Query("SELECT * FROM document_chunks")
+    suspend fun getAllDocumentChunks(): List<DocumentChunkEntity>
+
+    @Query("SELECT * FROM document_chunks WHERE sourcePath = :path")
+    suspend fun getDocumentChunksByPath(path: String): List<DocumentChunkEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDocumentChunks(chunks: List<DocumentChunkEntity>)
+
+    @Query("DELETE FROM document_chunks WHERE sourcePath = :path")
+    suspend fun deleteDocumentChunksByPath(path: String)
+
+    @Query("DELETE FROM document_chunks")
+    suspend fun clearDocumentChunks()
+
+    @Query("SELECT COUNT(*) FROM document_chunks")
+    suspend fun documentChunkCount(): Long
+
+    @Query("SELECT COALESCE(SUM(LENGTH(content) + LENGTH(embedding)),0) FROM document_chunks")
+    suspend fun documentChunksBytes(): Long
 }
