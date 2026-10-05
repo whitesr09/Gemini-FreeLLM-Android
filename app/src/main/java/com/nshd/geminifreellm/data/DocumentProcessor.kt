@@ -190,7 +190,7 @@ object DocumentProcessor {
                         .replace("&amp;", "&")
                         .replace("&lt;", "<")
                         .replace("&gt;", ">")
-                        .replace("&quot;", """)
+                        .replace("&quot;", "\"")
                         .replace("&apos;", "'")
                         .replace(Regex("\\s+"), " ")
                         .trim()
