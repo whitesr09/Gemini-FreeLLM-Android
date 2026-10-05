@@ -1,5 +1,6 @@
 package com.nshd.geminifreellm.ui
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -21,6 +22,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -32,7 +36,7 @@ import com.nshd.geminifreellm.model.Attachment
 import com.nshd.geminifreellm.model.ChatMessage
 import com.nshd.geminifreellm.model.ChatSession
 
-private val ChatRadius = RoundedCornerShape(16.dp)
+private val ChatRadius = RoundedCornerShape(18.dp)
 
 private fun iconLabel(symbol: String): String = when (symbol) {
     "☰" -> "Open chat history"
@@ -43,13 +47,13 @@ private fun iconLabel(symbol: String): String = when (symbol) {
 }
 
 @Composable
-fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, webSearchEnabled: Boolean = false, localToolsEnabled: Boolean = true, contextLabel: String = "", onInputChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit = onNewChat, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onVoice: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, imageSupported: Boolean, videoSupported: Boolean, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onToggleWebSearch: () -> Unit = {}, onToggleLocalTools: () -> Unit = {}, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit = {}, onUnarchive: (String) -> Unit = {}, onOpenAttachment: (Attachment) -> Unit = {}, onDeleteAttachment: (Attachment) -> Unit = {}, onShareAttachment: (Attachment) -> Unit = {}, onRegenerateMedia: (ChatMessage, Attachment) -> Unit = { _, _ -> }) {
+fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, webSearchEnabled: Boolean = false, localToolsEnabled: Boolean = true, contextLabel: String = "", onInputChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit = onNewChat, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onVoice: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, imageSupported: Boolean, videoSupported: Boolean, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onToggleWebSearch: () -> Unit = {}, onToggleLocalTools: () -> Unit = {}, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit = {}, onUnarchive: (String) -> Unit = {}, onOpenAttachment: (Attachment) -> Unit = {}, onDeleteAttachment: (Attachment) -> Unit = {}, onShareAttachment: (Attachment) -> Unit = {}, onRegenerateMedia: (ChatMessage, Attachment) -> Unit = { _, _ -> }, onSuggestedPrompt: (String) -> Unit = {}) {
     var drawerOpen by remember { mutableStateOf(false) }
     var modelOpen by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(LocalAppColors.current.background)) {
         Column(Modifier.fillMaxSize()) {
             TopBar(aiName, selectedModel, busy, { drawerOpen = true }, onNewChat, onSettings) { modelOpen = !modelOpen }
-            MessageList(session.messages, aiName, busy, Modifier.weight(1f), onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, onRegenerateMedia)
+            MessageList(session.messages, aiName, busy, Modifier.weight(1f), onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, onRegenerateMedia, onSuggestedPrompt)
             Composer(input, pendingAttachments, busy, webSearchEnabled, localToolsEnabled, contextLabel, onInputChange, onSend, onStop, onAttach, onVoice, onGenerateImage, onGenerateVideo, imageSupported, videoSupported, onRemovePending, onToggleWebSearch, onToggleLocalTools)
         }
         if (modelOpen) Popup(alignment = Alignment.TopEnd, onDismissRequest = { modelOpen = false }) { ModelMenu(models, selectedModel) { onSelectModel(it); modelOpen = false } }
@@ -68,7 +72,7 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
         HeaderButton("⌄", onModel); HeaderButton("+", onNewChat); HeaderButton("⚙", onSettings)
     }
 }
-@Composable private fun HeaderButton(symbol: String, onClick: () -> Unit) { val c = LocalAppColors.current; Box(Modifier.size(42.dp).clip(CircleShape).clickable(onClick = onClick).semantics {
+@Composable private fun HeaderButton(symbol: String, onClick: () -> Unit) { val c = LocalAppColors.current; Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick).semantics {
             role = Role.Button
             contentDescription = iconLabel(symbol)
         }, contentAlignment = Alignment.Center) { BasicText(symbol, color = c.muted, fontSize = 21.sp) } }
@@ -87,7 +91,7 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
     }
     Box(Modifier.fillMaxHeight().width(320.dp).background(c.surface).pointerInput(Unit) { detectTapGestures { } }) {
         Column(Modifier.fillMaxSize().padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { AiOrb(Modifier.size(38.dp), true); Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)) { BasicText(aiName, color = c.text, fontSize = 15.sp); BasicText("Chats", color = c.muted, fontSize = 12.sp) }; HeaderButton("⚙", onSettings) }
+            Row(verticalAlignment = Alignment.CenterVertically) { AiOrb(Modifier.size(38.dp), false); Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)) { BasicText(aiName, color = c.text, fontSize = 15.sp); BasicText("Chats", color = c.muted, fontSize = 12.sp) }; HeaderButton("⚙", onSettings) }
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.weight(1f).height(44.dp).background(c.elevated, RoundedCornerShape(12.dp)).clickable(onClick = onNewChat).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) { BasicText("+ New", color = c.text, fontSize = 13.sp) }
@@ -126,7 +130,7 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
     val c = LocalAppColors.current
     Box(
         Modifier
-            .height(34.dp)
+            .height(48.dp)
             .clip(RoundedCornerShape(17.dp))
             .background(if (selected) c.accentSoft else c.background)
             .border(1.dp, if (selected) c.accent else c.border, RoundedCornerShape(17.dp))
@@ -144,13 +148,20 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boolean, modifier: Modifier, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit) {
     val c = LocalAppColors.current; val state = rememberLazyListState(); LaunchedEffect(messages.lastOrNull()?.id) { if (messages.isNotEmpty()) state.animateScrollToItem(messages.lastIndex) }
-    if (messages.isEmpty()) { EmptyState(modifier); return }
+    if (messages.isEmpty()) { EmptyState(modifier, onSuggestedPrompt); return }
     LazyColumn(state = state, modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         items(messages, key = { it.id }) { message -> MessageBlock(message, aiName, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, onRegenerateMedia) }
         if (busy) item { Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) { AiOrb(Modifier.size(25.dp), true); Spacer(Modifier.width(8.dp)); BasicText("Thinking", color = c.muted, fontSize = 12.sp) } }
     }
 }
-@Composable private fun EmptyState(modifier: Modifier) { val c = LocalAppColors.current; Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) { AiOrb(Modifier.size(72.dp), true); Spacer(Modifier.height(20.dp)); BasicText("How can I help?", color = c.text, fontSize = 25.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.height(8.dp)); BasicText("Start a new conversation.", color = c.muted, fontSize = 14.sp) } } }
+@Composable private fun EmptyState(modifier: Modifier,onSuggestedPrompt:(String)->Unit){
+ val c=LocalAppColors.current; val prompts=listOf("Explain a topic simply","Help me write something","Analyze a document","Brainstorm ideas")
+ Box(modifier.fillMaxSize(),contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally,modifier=Modifier.padding(DesignSpace.xxl.dp)){
+  AiOrb(Modifier.size(72.dp),false);Spacer(Modifier.height(DesignSpace.lg.dp));BasicText("How can I help?",color=c.text,fontSize=27.sp,fontWeight=FontWeight.SemiBold)
+  Spacer(Modifier.height(DesignSpace.sm.dp));BasicText("Ask anything, attach a file, or start with a suggestion.",color=c.muted,fontSize=14.sp,lineHeight=21.sp);Spacer(Modifier.height(DesignSpace.lg.dp))
+  prompts.forEach{prompt->Box(Modifier.fillMaxWidth().padding(vertical=4.dp).heightIn(min=48.dp).clip(RoundedCornerShape(DesignRadius.card.dp)).background(c.elevated).border(1.dp,c.border,RoundedCornerShape(DesignRadius.card.dp)).clickable{onSuggestedPrompt(prompt)}.semantics{role=Role.Button;contentDescription=prompt}.padding(horizontal=DesignSpace.md.dp,vertical=DesignSpace.sm.dp),contentAlignment=Alignment.CenterStart){BasicText(prompt,color=c.text,fontSize=14.sp)}}
+ }}
+}
 
 @Composable private fun MessageBlock(message: ChatMessage, aiName: String, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit) {
     val c = LocalAppColors.current; val user = message.role == ChatMessage.Role.USER; val error = message.role == ChatMessage.Role.ERROR
@@ -173,7 +184,17 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
             contentDescription = label
         }.padding(horizontal = 7.dp, vertical = 5.dp)) }
 
-@Composable private fun AttachmentList(attachments: List<Attachment>, onExport: (Attachment) -> Unit, onOpen: (Attachment) -> Unit, onDelete: (Attachment) -> Unit, onShare: (Attachment) -> Unit, onRegenerate: (Attachment) -> Unit) { val c = LocalAppColors.current; LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(attachments, key = { it.id }) { attachment -> Column(Modifier.widthIn(max = 190.dp).background(c.elevated, RoundedCornerShape(10.dp)).clickable { if (attachment.mimeType.startsWith("image/") || attachment.mimeType.startsWith("video/") || attachment.kind == Attachment.Kind.GENERATED_IMAGE || attachment.kind == Attachment.Kind.GENERATED_VIDEO) onOpen(attachment) else onExport(attachment) }.padding(9.dp)) { if (attachment.kind == Attachment.Kind.IMAGE || attachment.kind == Attachment.Kind.GENERATED_IMAGE) { val bitmap = remember(attachment.localPath) { runCatching { BitmapFactory.decodeFile(attachment.localPath) }.getOrNull() }; if (bitmap != null) { androidx.compose.foundation.Image(bitmap.asImageBitmap(), null, Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop); Spacer(Modifier.height(6.dp)) } }; BasicText(attachment.name, color = c.text, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); BasicText(if (attachment.mimeType.startsWith("image/") || attachment.mimeType.startsWith("video/") || attachment.kind == Attachment.Kind.GENERATED_IMAGE || attachment.kind == Attachment.Kind.GENERATED_VIDEO) "Tap to view" else "Tap to save", color = c.muted, fontSize = 9.sp) } } } }
+@Composable private fun AttachmentList(attachments:List<Attachment>,onExport:(Attachment)->Unit,onOpen:(Attachment)->Unit,onDelete:(Attachment)->Unit,onShare:(Attachment)->Unit,onRegenerate:(Attachment)->Unit){
+ val c=LocalAppColors.current;LazyRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){items(attachments,key={it.id}){a->
+  val media=a.mimeType.startsWith("image/")||a.mimeType.startsWith("video/")||a.kind==Attachment.Kind.GENERATED_IMAGE||a.kind==Attachment.Kind.GENERATED_VIDEO
+  Column(Modifier.widthIn(max=190.dp).background(c.elevated,RoundedCornerShape(DesignRadius.control.dp)).clickable{if(media)onOpen(a)else onExport(a)}.padding(9.dp)){
+   if(a.kind==Attachment.Kind.IMAGE||a.kind==Attachment.Kind.GENERATED_IMAGE){val bitmap=rememberSampledBitmap(a.localPath);if(bitmap!=null){androidx.compose.foundation.Image(bitmap.asImageBitmap(),a.name,Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(8.dp)),contentScale=ContentScale.Crop);Spacer(Modifier.height(6.dp))}}
+   BasicText(a.name,color=c.text,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis);BasicText((if(media)"Tap to view"else"Tap to save")+" · "+formatBytes(a.sizeBytes),color=c.muted,fontSize=9.sp)
+  }
+ }}
+}
+@Composable private fun rememberSampledBitmap(path:String):Bitmap?{val state=produceState<Bitmap?>(initialValue=null,path){value=withContext(Dispatchers.IO){val b=BitmapFactory.Options().apply{inJustDecodeBounds=true};BitmapFactory.decodeFile(path,b);if(b.outWidth<=0||b.outHeight<=0)return@withContext null;val sample=maxOf(1,maxOf(b.outWidth/900,b.outHeight/900));BitmapFactory.decodeFile(path,BitmapFactory.Options().apply{inSampleSize=sample;inPreferredConfig=Bitmap.Config.RGB_565})}};return state.value}
+private fun formatBytes(value:Long):String=when{value>=1024L*1024L->String.format("%.1f MB",value/1024.0/1024.0);value>=1024L->String.format("%.1f KB",value/1024.0);else->"$value B"}
 
 @Composable
 private fun Composer(
@@ -251,7 +272,7 @@ private fun Composer(
                     onValueChange = onInputChange,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 42.dp, max = 130.dp)
+                        .heightIn(min = 48.dp, max = 140.dp)
                         .padding(horizontal = 7.dp, vertical = 7.dp),
                     textStyle = TextStyle(color = c.text, fontSize = 15.sp, lineHeight = 22.sp),
                     cursorBrush = SolidColor(c.accent),
@@ -296,7 +317,7 @@ private fun Composer(
                     val canStop = busy
                     Box(
                         Modifier
-                            .size(38.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .background(if (canStop) c.error else if (canSend) c.accent else c.surface)
                             .clickable(enabled = canStop || canSend, onClick = if (canStop) onStop else onSend),
@@ -339,6 +360,7 @@ private fun CircleTool(symbol: String, onClick: () -> Unit) {
 
 @Composable
 fun AiOrb(modifier: Modifier = Modifier, active: Boolean = false) {
+    val motion = LocalMotionSettings.current
     val transition = rememberInfiniteTransition(label = "orb")
     val pulse by transition.animateFloat(
         initialValue = 0.92f,
@@ -347,7 +369,7 @@ fun AiOrb(modifier: Modifier = Modifier, active: Boolean = false) {
         label = "pulse"
     )
     val c = LocalAppColors.current
-    val finalModifier = if (active) {
+    val finalModifier = if (active && motion.animationsEnabled) {
         modifier.graphicsLayer(scaleX = pulse, scaleY = pulse)
     } else {
         modifier

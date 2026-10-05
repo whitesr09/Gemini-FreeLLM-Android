@@ -16,6 +16,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
@@ -47,7 +51,7 @@ fun AppDialog(
                         color = c.muted,
                         fontSize = 26.sp,
                         modifier = Modifier
-                            .clickable(onClick = onDismiss)
+                            .clickable(onClick = onDismiss).semantics { role=Role.Button; contentDescription="Close dialog" }
                             .padding(horizontal = 6.dp)
                     )
                 }
@@ -77,9 +81,9 @@ fun AppButton(
     Box(
         modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(48.dp)
             .background(if (enabled) c.accent else c.elevated, RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick).semantics { role=Role.Button; contentDescription=text },
         contentAlignment = Alignment.Center
     ) {
         BasicText(text, color = if (enabled) Color.White else c.muted, fontSize = 14.sp)
@@ -96,8 +100,8 @@ fun AppTextButton(
     val c = LocalAppColors.current
     Box(
         modifier
-            .height(40.dp)
-            .clickable(enabled = enabled, onClick = onClick)
+            .height(48.dp)
+            .clickable(enabled = enabled, onClick = onClick).semantics { role=Role.Button; contentDescription=text }
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -130,6 +134,7 @@ fun AppField(
                 .fillMaxWidth()
                 .background(c.background, RoundedCornerShape(12.dp))
                 .border(1.dp, c.border, RoundedCornerShape(12.dp))
+                .heightIn(min=48.dp)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             singleLine = singleLine,
             minLines = minLines,

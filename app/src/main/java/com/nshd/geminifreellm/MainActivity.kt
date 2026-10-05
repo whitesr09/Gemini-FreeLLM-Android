@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -144,7 +147,7 @@ private fun AiApp(context: Context) {
     var pendingAttachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
     var mediaBusy by remember { mutableStateOf(false) }
     val busy = chatState.busy || mediaBusy
-    var showSettings by remember { mutableStateOf(apiKey.isBlank()) }
+    var showSettings by remember { mutableStateOf(apiKey.isBlank() && aiName.isNotBlank()) }
     var showOnboarding by remember { mutableStateOf(aiName.isBlank()) }
     var generationMode by remember { mutableStateOf<String?>(null) }
     var generationPrompt by remember { mutableStateOf("") }
@@ -381,6 +384,7 @@ private fun AiApp(context: Context) {
             SettingsDialog(
                 settings = chatState.settings,
                 apiKey = apiKey,
+                appVersion = BuildConfig.VERSION_NAME,
                 storageUsage = chatState.storage,
                 diagnostics = diagnostics,
                 connectionTesting = chatState.connectionTesting,
@@ -454,7 +458,24 @@ private fun AiApp(context: Context) {
             )
         }
     }
-    AiTheme(themeMode) {
+    AiTheme(themeMode, chatState.settings.animationsEnabled) {
+        val activity = context as? Activity
+        val colors = com.nshd.geminifreellm.ui.LocalAppColors.current
+        androidx.compose.runtime.SideEffect {
+            activity?.window?.statusBarColor = colors.background.toArgb()
+            activity?.window?.navigationBarColor = colors.background.toArgb()
+            activity?.window?.let { window ->
+                val controller = WindowInsetsControllerCompat(window, window.decorView)
+                val systemDark = isSystemInDarkTheme()
+                val lightBars = when (themeMode) {
+                    ThemeMode.LIGHT -> true
+                    ThemeMode.DARK, ThemeMode.AMOLED -> false
+                    ThemeMode.SYSTEM -> !systemDark
+                }
+                controller.isAppearanceLightStatusBars = lightBars
+                controller.isAppearanceLightNavigationBars = lightBars
+            }
+        }
         ChatScreen(
             aiName = aiName.ifBlank { "Assistant" },
             session = activeSession,
@@ -468,6 +489,7 @@ private fun AiApp(context: Context) {
             localToolsEnabled = chatState.localToolsEnabled,
             contextLabel = if (chatState.contextUsedChars > 0) com.nshd.geminifreellm.data.ContextManager.contextLabel(chatState.contextUsedChars, chatState.contextLimit) else "",
             onInputChange = { input = it },
+            onSuggestedPrompt = { input = it },
             onSend = ::sendMessage,
             onNewChat = ::makeNewChat,
             onNewTemporaryChat = { chatVm.newChat(true) },

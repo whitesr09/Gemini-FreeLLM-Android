@@ -20,6 +20,7 @@ private const val DEFAULT_API = "https://nshd-freellm-api.onrender.com/v1"
 @Composable
 fun SettingsDialog(
     settings: AppSettings,
+    appVersion: String = "2.0",
     apiKey: String,
     storageUsage: StorageSnapshot?,
     diagnostics: List<String>,
@@ -129,6 +130,12 @@ fun SettingsDialog(
                     }
                     Spacer(Modifier.height(4.dp))
                     AppField(
+                        draft.selectedModel,
+                        { draft = draft.copy(selectedModel = it.take(200)) },
+                        "Selected model"
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    AppField(
                         draft.contextLimit.toString(),
                         {
                             draft = draft.copy(contextLimit = it.toIntOrNull()?.coerceIn(8_000, 1_000_000) ?: draft.contextLimit)
@@ -195,6 +202,12 @@ fun SettingsDialog(
                 }
 
                 item {
+                    SectionTitle("About")
+                    BasicText("FreeLLM AI · version " + appVersion, color = LocalAppColors.current.text, fontSize = 13.sp)
+                    BasicText("A private Android client for your configured FreeLLMAPI endpoint.", color = LocalAppColors.current.muted, fontSize = 11.sp, lineHeight = 16.sp)
+                }
+
+                item {
                     SectionTitle("Diagnostics & maintenance")
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         diagnostics.take(10).forEach { line ->
@@ -227,7 +240,7 @@ fun SettingsDialog(
                     val url = draft.baseUrl.trim().removeSuffix("/")
                     when {
                         draft.aiName.trim().isBlank() -> error = "Enter a name for your AI."
-                        !url.startsWith("https://") -> error = "Use an HTTPS API base URL."
+                        !isAllowedApiUrl(url) -> error = "Use HTTPS, or local HTTP for localhost/127.0.0.1."
                         else -> onSave(draft.copy(baseUrl = url, aiName = draft.aiName.trim()), key.trim())
                     }
                 }
@@ -267,7 +280,7 @@ private fun ToggleRow(label: String, enabled: Boolean, onChange: (Boolean) -> Un
     ) {
         BasicText(label, color = c.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
         Box(
-            Modifier.width(54.dp).height(32.dp)
+            Modifier.width(54.dp).height(48.dp)
                 .background(if (enabled) c.accentSoft else c.background, RoundedCornerShape(16.dp))
                 .border(1.dp, if (enabled) c.accent else c.border, RoundedCornerShape(16.dp))
                 .clickable { onChange(!enabled) },
@@ -294,7 +307,7 @@ private fun RowScope.ThemePill(label: String, selected: Boolean, onClick: () -> 
     val c = LocalAppColors.current
     Box(
         Modifier.weight(1f)
-            .height(40.dp)
+            .height(48.dp)
             .background(if (selected) c.accentSoft else c.background, RoundedCornerShape(10.dp))
             .border(1.dp, if (selected) c.accent else c.border, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
@@ -312,3 +325,5 @@ private fun formatBytes(value: Long): String {
         else -> value.toString() + " B"
     }
 }
+
+private fun isAllowedApiUrl(url:String):Boolean{val u=url.lowercase();return u.startsWith("https://")||u.startsWith("http://localhost")||u.startsWith("http://127.0.0.1")||u.startsWith("http://[::1]")}

@@ -58,9 +58,10 @@ private val LightColors = AppColors(
 )
 
 val LocalAppColors = staticCompositionLocalOf { DarkColors }
+val LocalMotionSettings = staticCompositionLocalOf { MotionSettings() }
 
 @Composable
-fun AiTheme(mode: ThemeMode, content: @Composable () -> Unit) {
+fun AiTheme(mode: ThemeMode, animationsEnabled: Boolean = true, content: @Composable () -> Unit) {
     val dark = when (mode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
@@ -71,5 +72,5 @@ fun AiTheme(mode: ThemeMode, content: @Composable () -> Unit) {
         dark -> DarkColors
         else -> LightColors
     }
-    CompositionLocalProvider(LocalAppColors provides colors, content = content)
+    CompositionLocalProvider(LocalAppColors provides colors, LocalMotionSettings provides MotionSettings(animationsEnabled), content = content)
 }

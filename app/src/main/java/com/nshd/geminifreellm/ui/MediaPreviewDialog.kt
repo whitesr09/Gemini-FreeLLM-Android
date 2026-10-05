@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -53,18 +55,21 @@ fun MediaPreviewDialog(
                         modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 420.dp)
                     )
                 } else {
-                    val bitmap = remember(file.absolutePath) {
-                        BitmapFactory.Options().run {
-                            inJustDecodeBounds = true
-                            BitmapFactory.decodeFile(file.absolutePath, this)
-                            val side = maxOf(outWidth, outHeight).coerceAtLeast(1)
-                            var sample = 1
-                            while (side / sample > 2048 && sample < 64) sample *= 2
-                            inSampleSize = sample
-                            inJustDecodeBounds = false
-                            BitmapFactory.decodeFile(file.absolutePath, this)
+                    val bitmapState = produceState<android.graphics.Bitmap?>(initialValue = null, file.absolutePath) {
+                        value = withContext(Dispatchers.IO) {
+                            BitmapFactory.Options().run {
+                                inJustDecodeBounds = true
+                                BitmapFactory.decodeFile(file.absolutePath, this)
+                                val side = maxOf(outWidth, outHeight).coerceAtLeast(1)
+                                var sample = 1
+                                while (side / sample > 2048 && sample < 64) sample *= 2
+                                inSampleSize = sample
+                                inJustDecodeBounds = false
+                                BitmapFactory.decodeFile(file.absolutePath, this)
+                            }
                         }
                     }
+                    val bitmap = bitmapState.value
                     if (bitmap != null) {
                         var scale by remember { mutableFloatStateOf(1f) }
                         var offsetX by remember { mutableFloatStateOf(0f) }
