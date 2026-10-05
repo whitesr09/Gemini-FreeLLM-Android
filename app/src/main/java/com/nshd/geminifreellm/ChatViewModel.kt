@@ -49,6 +49,7 @@ data class ChatUiState(
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RoomChatRepository(application.applicationContext)
     private val apiClient = FreeLlmApiClient()
+    private val indexingApiClient = FreeLlmApiClient()
     private val settingsRepository = SettingsRepository(application.applicationContext)
     private val documentIndexRepository = DocumentIndexRepository(application.applicationContext)
     private val ids = AtomicLong(System.currentTimeMillis())
@@ -108,7 +109,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (!currentSettings.documentIndexEnabled || !file.isFile || apiKey.isBlank()) return
         viewModelScope.launch {
             runCatching {
-                documentIndexRepository.indexFile(file, apiClient, baseUrl, apiKey, "auto")
+                documentIndexRepository.indexFile(file, indexingApiClient, baseUrl, apiKey, "auto")
             }.onFailure { error ->
                 com.nshd.geminifreellm.data.AppDiagnostics.recordEvent(
                     getApplication(),
@@ -597,6 +598,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         apiKey: String
     ): String {
         if (!currentSettings.documentIndexEnabled || apiKey.isBlank()) return base
+        if (documentIndexRepository.chunkCount() == 0L) return base
         val query = messages.lastOrNull { it.role == ChatMessage.Role.USER }?.text?.trim().orEmpty()
         if (query.isBlank()) return base
         val vector = apiClient.createEmbedding(baseUrl, apiKey, "auto", query).getOrNull() ?: return base
@@ -661,6 +663,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         apiClient.cancelActive()
+        indexingApiClient.cancelActive()
         super.onCleared()
     }
 }
