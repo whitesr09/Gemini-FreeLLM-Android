@@ -188,6 +188,7 @@ private fun AiApp(activity: MainActivity) {
     var generationPrompt by remember { mutableStateOf("") }
     var clearDialog by remember { mutableStateOf(false) }
     var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var renamingSession by remember { mutableStateOf<ChatSession?>(null) }
     var draftReady by rememberSaveable { mutableStateOf(false) }
 
     val speechLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -596,6 +597,7 @@ private fun AiApp(activity: MainActivity) {
             onToggleStar = { id -> chatVm.toggleStar(id) },
             onArchive = { id -> chatVm.archiveSession(id) },
             onUnarchive = { id -> chatVm.unarchiveSession(id) },
+            onRename = { id -> renamingSession = sessions.firstOrNull { it.id == id } },
             onOpenAttachment = { attachment -> previewAttachment = attachment },
             onDeleteAttachment = { attachment -> chatVm.deleteAttachment(attachment.id) },
             onShareAttachment = ::shareAttachment,
@@ -630,6 +632,18 @@ private fun AiApp(activity: MainActivity) {
         }
 
         settingsContent()
+
+
+        renamingSession?.let { session ->
+            RenameChatDialog(
+                initialTitle = session.title,
+                onDismiss = { renamingSession = null },
+                onSave = { title ->
+                    chatVm.renameSession(session.id, title)
+                    renamingSession = null
+                }
+            )
+        }
 
         editingMessage?.let { message ->
             EditMessageDialog(
@@ -787,6 +801,32 @@ private fun EditMessageDialog(
                 modifier = Modifier.width(120.dp),
                 onClick = { onResend(value.trim()) }
             )
+        }
+    )
+}
+
+
+@Composable
+private fun RenameChatDialog(
+    initialTitle: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var value by remember { mutableStateOf(initialTitle) }
+    AppDialog(
+        title = "Rename chat",
+        onDismiss = onDismiss,
+        content = {
+            com.nshd.geminifreellm.ui.AppField(
+                value = value,
+                onValueChange = { value = it.take(80) },
+                label = "Chat title",
+                singleLine = true
+            )
+        },
+        actions = {
+            AppTextButton("Cancel", onClick = onDismiss)
+            AppButton("Save", enabled = value.trim().isNotBlank(), modifier = Modifier.width(100.dp), onClick = { onSave(value.trim()) })
         }
     )
 }
