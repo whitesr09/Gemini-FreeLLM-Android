@@ -575,6 +575,7 @@ class FreeLlmApiClient {
                         }
                         is SseParser.Event.ToolDelta -> {
                             val item = toolBuilders.getOrPut(event.index) { MutableTool() }
+                            if (!event.id.isNullOrBlank()) item.id = event.id
                             if (!event.name.isNullOrBlank()) item.name = event.name
                             item.arguments.append(event.arguments)
                         }
