@@ -123,16 +123,186 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
 
 @Composable private fun AttachmentList(attachments: List<Attachment>, onExport: (Attachment) -> Unit) { val c = LocalAppColors.current; LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(attachments, key = { it.id }) { attachment -> Column(Modifier.widthIn(max = 190.dp).background(c.elevated, RoundedCornerShape(10.dp)).clickable { onExport(attachment) }.padding(9.dp)) { if (attachment.kind == Attachment.Kind.IMAGE || attachment.kind == Attachment.Kind.GENERATED_IMAGE) { val bitmap = remember(attachment.localPath) { runCatching { BitmapFactory.decodeFile(attachment.localPath) }.getOrNull() }; if (bitmap != null) { androidx.compose.foundation.Image(bitmap.asImageBitmap(), null, Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop); Spacer(Modifier.height(6.dp)) } }; BasicText(attachment.name, color = c.text, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); BasicText("Tap to save", color = c.muted, fontSize = 9.sp) } } } }
 
-@Composable private fun Composer(input: String, pendingAttachments: List<Attachment>, busy: Boolean, onInputChange: (String) -> Unit, onSend: () -> Unit, onAttach: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, onRemovePending: (String) -> Unit) {
-    val c = LocalAppColors.current; var toolsOpen by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().background(c.background).padding(horizontal = 12.dp, vertical = 9.dp)) {
-        if (pendingAttachments.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 7.dp)) { items(pendingAttachments, key = { it.id }) { file -> Row(Modifier.background(c.elevated, RoundedCornerShape(9.dp)).padding(start = 9.dp, end = 5.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) { BasicText(file.name, color = c.text, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp)); BasicText("×", color = c.muted, fontSize = 17.sp, modifier = Modifier.clickable { onRemovePending(file.id) }.padding(start = 7.dp)) } } }
-        Box(Modifier.fillMaxWidth().background(c.elevated, RoundedCornerShape(18.dp)).border(1.dp, c.border, RoundedCornerShape(18.dp)).padding(8.dp)) { Column {
-            BasicTextField(value = input, onValueChange = onInputChange, modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp, max = 130.dp).padding(horizontal = 7.dp, vertical = 7.dp), textStyle = TextStyle(color = c.text, fontSize = 15.sp, lineHeight = 22.sp), cursorBrush = SolidColor(c.accent), decorationBox = { inner -> Box { if (input.isBlank()) BasicText("Message your AI…", color = c.muted, fontSize = 15.sp); inner() } })
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { CircleTool("+") { toolsOpen = !toolsOpen }; if (toolsOpen) { CircleTool("▣") { toolsOpen = false; onAttach() }; CircleTool("▧") { toolsOpen = false; onGenerateImage() }; CircleTool("▶") { toolsOpen = false; onGenerateVideo() } }; Spacer(Modifier.weight(1f)); val canSend = !busy && (input.isNotBlank() || pendingAttachments.isNotEmpty()); Box(Modifier.size(38.dp).clip(CircleShape).background(if (canSend) c.accent else c.surface).clickable(enabled = canSend, onClick = onSend), contentAlignment = Alignment.Center) { BasicText("↑", color = if (canSend) Color.White else c.muted, fontSize = 22.sp) } }
+@Composable
+private fun Composer(
+    input: String,
+    pendingAttachments: List<Attachment>,
+    busy: Boolean,
+    onInputChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onAttach: () -> Unit,
+    onGenerateImage: () -> Unit,
+    onGenerateVideo: () -> Unit,
+    onRemovePending: (String) -> Unit
+) {
+    val c = LocalAppColors.current
+    var toolsOpen by remember { mutableStateOf(false) }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.background)
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+    ) {
+        if (pendingAttachments.isNotEmpty()) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(bottom = 7.dp)
+            ) {
+                items(pendingAttachments, key = { it.id }) { file ->
+                    Row(
+                        Modifier
+                            .background(c.elevated, RoundedCornerShape(9.dp))
+                            .padding(start = 9.dp, end = 5.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BasicText(
+                            file.name,
+                            color = c.text,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 140.dp)
+                        )
+                        BasicText(
+                            "×",
+                            color = c.muted,
+                            fontSize = 17.sp,
+                            modifier = Modifier
+                                .clickable { onRemovePending(file.id) }
+                                .padding(start = 7.dp)
+                        )
+                    }
+                }
+            }
         }
-        BasicText("AI can make mistakes. Check important information.", color = c.muted, fontSize = 9.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp))
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(c.elevated, RoundedCornerShape(18.dp))
+                .border(1.dp, c.border, RoundedCornerShape(18.dp))
+                .padding(8.dp)
+        ) {
+            Column {
+                BasicTextField(
+                    value = input,
+                    onValueChange = onInputChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 42.dp, max = 130.dp)
+                        .padding(horizontal = 7.dp, vertical = 7.dp),
+                    textStyle = TextStyle(color = c.text, fontSize = 15.sp, lineHeight = 22.sp),
+                    cursorBrush = SolidColor(c.accent),
+                    decorationBox = { inner ->
+                        Box {
+                            if (input.isBlank()) {
+                                BasicText("Message your AI…", color = c.muted, fontSize = 15.sp)
+                            }
+                            inner()
+                        }
+                    }
+                )
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircleTool("+") { toolsOpen = !toolsOpen }
+
+                    if (toolsOpen) {
+                        CircleTool("▣") {
+                            toolsOpen = false
+                            onAttach()
+                        }
+                        CircleTool("▧") {
+                            toolsOpen = false
+                            onGenerateImage()
+                        }
+                        CircleTool("▶") {
+                            toolsOpen = false
+                            onGenerateVideo()
+                        }
+                    }
+
+                    Spacer(Modifier.weight(1f))
+
+                    val canSend = !busy && (input.isNotBlank() || pendingAttachments.isNotEmpty())
+                    Box(
+                        Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(if (canSend) c.accent else c.surface)
+                            .clickable(enabled = canSend, onClick = onSend),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        BasicText(
+                            "↑",
+                            color = if (canSend) Color.White else c.muted,
+                            fontSize = 22.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        BasicText(
+            "AI can make mistakes. Check important information.",
+            color = c.muted,
+            fontSize = 9.sp,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(top = 4.dp)
+        )
     }
 }
-@Composable private fun CircleTool(symbol: String, onClick: () -> Unit) { val c = LocalAppColors.current; Box(Modifier.size(36.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) { BasicText(symbol, color = c.muted, fontSize = 20.sp) } }
-@Composable fun AiOrb(modifier: Modifier = Modifier, active: Boolean = false) { val transition = rememberInfiniteTransition(label = "orb"); val pulse by transition.animateFloat(0.92f, 1.06f, infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "pulse"); val c = LocalAppColors.current; Box(modifier.then(if (active) Modifier.graphicsLayer(scaleX = pulse, scaleY = pulse) else Modifier)) { Canvas(Modifier.fillMaxSize()) { drawCircle(Brush.radialGradient(listOf(c.accent.copy(alpha = .95f), c.accent.copy(alpha = .22f), Color.Transparent)), size.minDimension / 2f); drawCircle(c.accent.copy(alpha = .12f), size.minDimension * .33f) } } }
+
+@Composable
+private fun CircleTool(symbol: String, onClick: () -> Unit) {
+    val c = LocalAppColors.current
+    Box(
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        BasicText(symbol, color = c.muted, fontSize = 20.sp)
+    }
+}
+
+@Composable
+fun AiOrb(modifier: Modifier = Modifier, active: Boolean = false) {
+    val transition = rememberInfiniteTransition(label = "orb")
+    val pulse by transition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(tween(1200), RepeatMode.Reverse),
+        label = "pulse"
+    )
+    val c = LocalAppColors.current
+    val finalModifier = if (active) {
+        modifier.graphicsLayer(scaleX = pulse, scaleY = pulse)
+    } else {
+        modifier
+    }
+
+    Box(finalModifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(
+                        c.accent.copy(alpha = 0.95f),
+                        c.accent.copy(alpha = 0.22f),
+                        Color.Transparent
+                    )
+                ),
+                radius = size.minDimension / 2f
+            )
+            drawCircle(
+                c.accent.copy(alpha = 0.12f),
+                radius = size.minDimension * 0.33f
+            )
+        }
+    }
+}
