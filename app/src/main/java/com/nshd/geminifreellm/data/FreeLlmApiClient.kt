@@ -14,10 +14,12 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 sealed interface ChatResult {
     data class Success(val text: String) : ChatResult
     data class Failure(val message: String) : ChatResult
+    data object Cancelled : ChatResult
 }
 
 data class ModelInfo(
@@ -38,6 +40,24 @@ sealed interface MediaResult {
 }
 
 class FreeLlmApiClient {
+    private val activeCall = java.util.concurrent.atomic.AtomicReference<okhttp3.Call?>(null)
+    private val cancelRequested = AtomicBoolean(false)
+
+    fun cancelActive() {
+        cancelRequested.set(true)
+        activeCall.getAndSet(null)?.cancel()
+    }
+
+    private fun beginCall(call: okhttp3.Call): okhttp3.Call {
+        cancelRequested.set(false)
+        activeCall.set(call)
+        return call
+    }
+
+    private fun endCall(call: okhttp3.Call) {
+        activeCall.compareAndSet(call, null)
+    }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
@@ -87,7 +107,9 @@ class FreeLlmApiClient {
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            val call = beginCall(client.newCall(request))
+            try {
+            call.execute().use { response ->
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
                     val message = when (response.code) {
@@ -133,8 +155,12 @@ class FreeLlmApiClient {
                 if (finalText.isBlank()) ChatResult.Failure("The model returned an empty response.")
                 else ChatResult.Success(finalText)
             }
+            } finally {
+                endCall(call)
+            }
         } catch (_: IOException) {
-            ChatResult.Failure("Couldn't reach FreeLLMAPI. The server may be sleeping; try again in a moment.")
+            if (cancelRequested.get()) ChatResult.Cancelled
+            else ChatResult.Failure("Couldn't reach FreeLLMAPI. The server may be sleeping; try again in a moment.")
         } catch (e: Exception) {
             ChatResult.Failure(e.message?.takeIf { it.isNotBlank() } ?: "Something went wrong.")
         }
