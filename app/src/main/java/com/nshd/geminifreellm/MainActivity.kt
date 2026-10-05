@@ -8,6 +8,8 @@ import android.app.Activity
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.content.pm.PackageManager
 import android.app.KeyguardManager
@@ -191,6 +193,7 @@ private fun AiApp(activity: MainActivity, onUnlock: () -> Unit) {
     var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var renamingSession by remember { mutableStateOf<ChatSession?>(null) }
     var draftReady by rememberSaveable { mutableStateOf(false) }
+    var online by remember { mutableStateOf(isNetworkAvailable(context)) }
 
     val speechLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -324,6 +327,13 @@ private fun AiApp(activity: MainActivity, onUnlock: () -> Unit) {
             }.onFailure {
                 Toast.makeText(context, it.message ?: "Import failed", Toast.LENGTH_LONG).show()
             }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            online = isNetworkAvailable(context)
+            delay(5_000L)
         }
     }
 
@@ -548,6 +558,7 @@ private fun AiApp(activity: MainActivity, onUnlock: () -> Unit) {
             busy = busy,
             webSearchEnabled = chatState.webSearchEnabled,
             localToolsEnabled = chatState.localToolsEnabled,
+            statusLabel = if (online) "Online" else "Offline",
             contextLabel = if (chatState.contextUsedChars > 0) com.nshd.geminifreellm.data.ContextManager.contextLabel(chatState.contextUsedChars, chatState.contextLimit) else "",
             onInputChange = { input = it },
             onSuggestedPrompt = { input = it },
@@ -830,4 +841,12 @@ private fun RenameChatDialog(
             AppButton("Save", enabled = value.trim().isNotBlank(), modifier = Modifier.width(100.dp), onClick = { onSave(value.trim()) })
         }
     )
+}
+
+
+private fun isNetworkAvailable(context: Context): Boolean {
+    val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+    val network = manager.activeNetwork ?: return false
+    val capabilities = manager.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
 }
