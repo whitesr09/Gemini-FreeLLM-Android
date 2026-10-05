@@ -573,7 +573,7 @@ private fun AiApp(activity: MainActivity, onUnlock: () -> Unit) {
             statusLabel = if (online) "Online" else "Offline",
             attachmentStatus = when {
                 attachmentProcessing -> "Processing files…"
-                !attachmentError.isNullOrBlank() -> attachmentError!!
+                attachmentError?.takeIf { it.isNotBlank() }.orEmpty()
                 else -> ""
             },
             contextLabel = if (chatState.contextUsedChars > 0) com.nshd.geminifreellm.data.ContextManager.contextLabel(chatState.contextUsedChars, chatState.contextLimit) else "",
