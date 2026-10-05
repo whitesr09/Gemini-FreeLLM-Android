@@ -21,6 +21,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.Popup
 import com.nshd.geminifreellm.data.ExportFormat
 import com.nshd.geminifreellm.data.ModelInfo
@@ -29,6 +33,14 @@ import com.nshd.geminifreellm.model.ChatMessage
 import com.nshd.geminifreellm.model.ChatSession
 
 private val ChatRadius = RoundedCornerShape(16.dp)
+
+private fun iconLabel(symbol: String): String = when (symbol) {
+    "☰" -> "Open chat history"
+    "⌄" -> "Choose model"
+    "+" -> "New chat"
+    "⚙" -> "Settings"
+    else -> "Button"
+}
 
 @Composable
 fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, onInputChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit, onNewChat: () -> Unit, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onCopy: (String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit) {
@@ -56,7 +68,10 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
         HeaderButton("⌄", onModel); HeaderButton("+", onNewChat); HeaderButton("⚙", onSettings)
     }
 }
-@Composable private fun HeaderButton(symbol: String, onClick: () -> Unit) { val c = LocalAppColors.current; Box(Modifier.size(42.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) { BasicText(symbol, color = c.muted, fontSize = 21.sp) } }
+@Composable private fun HeaderButton(symbol: String, onClick: () -> Unit) { val c = LocalAppColors.current; Box(Modifier.size(42.dp).clip(CircleShape).clickable(onClick = onClick).semantics {
+            role = Role.Button
+            contentDescription = iconLabel(symbol)
+        }, contentAlignment = Alignment.Center) { BasicText(symbol, color = c.muted, fontSize = 21.sp) } }
 
 @Composable private fun HistoryDrawer(aiName: String, sessions: List<ChatSession>, currentId: String, onNewChat: () -> Unit, onSelect: (String) -> Unit, onSettings: () -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit) {
     val c = LocalAppColors.current
@@ -118,7 +133,10 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
 }
 @Composable private fun MessageText(text: String, error: Boolean) { val c = LocalAppColors.current; if (text.isBlank()) return; val chunks = remember(text) { text.split("```") }; Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { chunks.forEachIndexed { index, chunk -> if (index % 2 == 1) Box(Modifier.fillMaxWidth().background(c.surface, RoundedCornerShape(10.dp)).border(1.dp, c.border, RoundedCornerShape(10.dp)).horizontalScroll(rememberScrollState()).padding(12.dp)) { BasicText(chunk.trim(), color = c.text, fontSize = 12.sp, fontFamily = FontFamily.Monospace, lineHeight = 18.sp) } else if (chunk.isNotBlank()) BasicText(chunk.trim(), color = if (error) c.error else c.text, fontSize = 15.sp, lineHeight = 23.sp) } } }
 @Composable private fun MessageActions(message: ChatMessage, onCopy: (String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit) { Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) { ActionText("Copy") { onCopy(message.text) }; ActionText("Retry") { onRegenerate(message.id) }; ActionText("Export") { onExport(message, ExportFormat.MARKDOWN) }; ActionText("TXT") { onExport(message, ExportFormat.TEXT) } } }
-@Composable private fun ActionText(label: String, onClick: () -> Unit) { BasicText(label, color = LocalAppColors.current.muted, fontSize = 10.sp, modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 7.dp, vertical = 5.dp)) }
+@Composable private fun ActionText(label: String, onClick: () -> Unit) { BasicText(label, color = LocalAppColors.current.muted, fontSize = 10.sp, modifier = Modifier.clickable(onClick = onClick).semantics {
+            role = Role.Button
+            contentDescription = label
+        }.padding(horizontal = 7.dp, vertical = 5.dp)) }
 
 @Composable private fun AttachmentList(attachments: List<Attachment>, onExport: (Attachment) -> Unit) { val c = LocalAppColors.current; LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(attachments, key = { it.id }) { attachment -> Column(Modifier.widthIn(max = 190.dp).background(c.elevated, RoundedCornerShape(10.dp)).clickable { onExport(attachment) }.padding(9.dp)) { if (attachment.kind == Attachment.Kind.IMAGE || attachment.kind == Attachment.Kind.GENERATED_IMAGE) { val bitmap = remember(attachment.localPath) { runCatching { BitmapFactory.decodeFile(attachment.localPath) }.getOrNull() }; if (bitmap != null) { androidx.compose.foundation.Image(bitmap.asImageBitmap(), null, Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop); Spacer(Modifier.height(6.dp)) } }; BasicText(attachment.name, color = c.text, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); BasicText("Tap to save", color = c.muted, fontSize = 9.sp) } } } }
 
