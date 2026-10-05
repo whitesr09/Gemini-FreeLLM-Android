@@ -39,11 +39,11 @@ import com.nshd.geminifreellm.model.ChatSession
 private val ChatRadius = RoundedCornerShape(18.dp)
 
 private fun iconLabel(symbol: String): String = when (symbol) {
-    "☰" -> "Open chat history"
-    "⌄" -> "Choose model"
-    "+" -> "New chat"
-    "⚙" -> "Settings"
-    else -> "Button"
+    "menu" -> "Open chat history"
+    "model" -> "Choose model"
+    "add" -> "New chat"
+    "settings" -> "Settings"
+    else -> symbol.replaceFirstChar { it.uppercase() }
 }
 
 @Composable
