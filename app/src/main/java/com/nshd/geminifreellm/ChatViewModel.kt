@@ -3,22 +3,27 @@ package com.nshd.geminifreellm
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nshd.geminifreellm.data.AppSettings
 import com.nshd.geminifreellm.data.ChatResult
 import com.nshd.geminifreellm.data.ConnectionCheck
-import com.nshd.geminifreellm.data.ModelInfo
+import com.nshd.geminifreellm.data.ContextManager
 import com.nshd.geminifreellm.data.FreeLlmApiClient
+import com.nshd.geminifreellm.data.ModelInfo
+import com.nshd.geminifreellm.data.SettingsRepository
+import com.nshd.geminifreellm.data.StorageSnapshot
 import com.nshd.geminifreellm.data.database.RoomChatRepository
 import com.nshd.geminifreellm.model.Attachment
 import com.nshd.geminifreellm.model.ChatMessage
 import com.nshd.geminifreellm.model.ChatSession
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
 data class ChatUiState(
@@ -30,29 +35,76 @@ data class ChatUiState(
     val connectionError: String? = null,
     val models: List<ModelInfo> = emptyList(),
     val modelLoading: Boolean = false,
-    val modelError: String? = null
+    val modelError: String? = null,
+    val contextUsedChars: Int = 0,
+    val contextLimit: Int = ContextManager.DEFAULT_MAX_CHARS,
+    val contextTruncated: Boolean = false,
+    val webSearchEnabled: Boolean = false,
+    val localToolsEnabled: Boolean = true,
+    val settings: AppSettings = AppSettings(),
+    val storage: StorageSnapshot? = null
 )
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RoomChatRepository(application.applicationContext)
     private val apiClient = FreeLlmApiClient()
+    private val settingsRepository = SettingsRepository(application.applicationContext)
     private val ids = AtomicLong(System.currentTimeMillis())
     private val modelPrefs = application.getSharedPreferences("model_cache", Application.MODE_PRIVATE)
     private val generationIds = AtomicLong(0L)
     private var generationJob: Job? = null
     private var activeGenerationId: Long? = null
     private var activeGenerationModel: String = "auto"
+    private var currentSettings = settingsRepository.load()
 
-    private val _uiState = MutableStateFlow(ChatUiState())
+    private val _uiState = MutableStateFlow(
+        ChatUiState(
+            contextLimit = currentSettings.contextLimit,
+            webSearchEnabled = currentSettings.webSearchDefault,
+            localToolsEnabled = currentSettings.localToolsEnabled,
+            settings = currentSettings
+        )
+    )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     init {
         load()
     }
 
-    fun replaceSession(session: ChatSession, persist: Boolean = true, model: String = "auto") = updateSession(session, persist, model)
+    fun replaceSession(session: ChatSession, persist: Boolean = true, model: String = selectedModel()) {
+        updateSession(session, persist, model)
+    }
 
-    private fun updateSession(session: ChatSession, persist: Boolean, model: String = "auto") {
+    fun applySettings(settings: AppSettings) {
+        currentSettings = settings
+        settingsRepository.save(settings)
+        _uiState.update {
+            it.copy(
+                settings = settings,
+                contextLimit = settings.contextLimit,
+                webSearchEnabled = settings.webSearchDefault,
+                localToolsEnabled = settings.localToolsEnabled
+            )
+        }
+    }
+
+    fun setWebSearch(enabled: Boolean) {
+        _uiState.update { it.copy(webSearchEnabled = enabled) }
+    }
+
+    fun setLocalTools(enabled: Boolean) {
+        _uiState.update { it.copy(localToolsEnabled = enabled) }
+    }
+
+    fun storageSnapshot() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(storage = runCatching { repository.storageSnapshot() }.getOrNull()) }
+        }
+    }
+
+    private fun selectedModel(): String = currentSettings.selectedModel.ifBlank { "auto" }
+
+    private fun updateSession(session: ChatSession, persist: Boolean, model: String) {
         _uiState.update { state ->
             val exists = state.sessions.any { it.id == session.id }
             val sessions = if (exists) {
@@ -62,10 +114,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             state.copy(sessions = sessions, currentId = session.id)
         }
-        if (persist) {
-            viewModelScope.launch {
-                runCatching { repository.saveSession(session, model) }
-            }
+        if (persist && !session.temporary) {
+            viewModelScope.launch { runCatching { repository.saveSession(session, model) } }
+        }
+    }
+
+    private fun replaceSessionsInState(session: ChatSession) {
+        _uiState.update { state ->
+            state.copy(
+                sessions = state.sessions.map { if (it.id == session.id) session else it },
+                currentId = session.id
+            )
         }
     }
 
@@ -76,12 +135,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 ?: loaded.firstOrNull()?.id
             if (loaded.isEmpty()) {
                 val fresh = repository.newSession()
-                _uiState.value = ChatUiState(listOf(fresh), fresh.id, false)
-                repository.saveSession(fresh)
+                _uiState.value = _uiState.value.copy(
+                    sessions = listOf(fresh),
+                    currentId = fresh.id,
+                    busy = false
+                )
+                runCatching { repository.saveSession(fresh, selectedModel()) }
                 repository.saveCurrentId(fresh.id)
             } else {
-                _uiState.value = ChatUiState(loaded, current, false)
+                _uiState.update { it.copy(sessions = loaded, currentId = current, busy = false) }
             }
+            storageSnapshot()
         }
     }
 
@@ -123,20 +187,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             for (i in 0 until array.length()) {
                 val o = array.optJSONObject(i) ?: continue
                 val id = o.optString("id")
-                if (id.isNotBlank()) add(
-                    ModelInfo(
-                        id = id,
-                        name = o.optString("name", id),
-                        available = o.optBoolean("available", true),
-                        provider = o.optString("provider").takeIf { it.isNotBlank() },
-                        supportsVision = o.optBoolean("vision"),
-                        supportsImageGeneration = o.optBoolean("image"),
-                        supportsVideoGeneration = o.optBoolean("video"),
-                        contextSize = o.optLong("context", 0L).takeIf { it > 0L },
-                        reasoning = o.optBoolean("reasoning"),
-                        coding = o.optBoolean("coding")
+                if (id.isNotBlank()) {
+                    add(
+                        ModelInfo(
+                            id = id,
+                            name = o.optString("name", id),
+                            available = o.optBoolean("available", true),
+                            provider = o.optString("provider").takeIf { it.isNotBlank() },
+                            supportsVision = o.optBoolean("vision"),
+                            supportsImageGeneration = o.optBoolean("image"),
+                            supportsVideoGeneration = o.optBoolean("video"),
+                            contextSize = o.optLong("context", 0L).takeIf { it > 0L },
+                            reasoning = o.optBoolean("reasoning"),
+                            coding = o.optBoolean("coding"),
+                            speed = o.optString("speed").takeIf { it.isNotBlank() }
+                        )
                     )
-                )
+                }
             }
         }
     }.getOrDefault(emptyList())
@@ -156,34 +223,47 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     .put("context", model.contextSize ?: 0L)
                     .put("reasoning", model.reasoning)
                     .put("coding", model.coding)
+                    .put("speed", model.speed ?: "")
             )
         }
         modelPrefs.edit().putString(cacheKey(baseUrl), array.toString()).apply()
     }
 
     fun cleanupOrphans() {
-        viewModelScope.launch { runCatching { repository.cleanupOrphans() } }
+        viewModelScope.launch {
+            runCatching { repository.cleanupOrphans() }
+            storageSnapshot()
+        }
     }
 
     fun testConnection(baseUrl: String, apiKey: String) {
         _uiState.update { it.copy(connectionTesting = true, connectionError = null) }
         viewModelScope.launch {
-            val result = apiClient.testConnection(baseUrl, apiKey)
-            result.onSuccess { check ->
-                _uiState.update { it.copy(connectionTesting = false, connectionResult = check, connectionError = null) }
-            }.onFailure { error ->
-                _uiState.update { it.copy(connectionTesting = false, connectionResult = null, connectionError = error.message ?: "Connection test failed.") }
-            }
+            apiClient.testConnection(baseUrl, apiKey)
+                .onSuccess { check ->
+                    _uiState.update { it.copy(connectionTesting = false, connectionResult = check, connectionError = null) }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            connectionTesting = false,
+                            connectionResult = null,
+                            connectionError = error.message ?: "Connection test failed."
+                        )
+                    }
+                }
         }
     }
 
-    fun newChat() {
+    fun newChat(temporary: Boolean = currentSettings.temporaryDefault) {
         cancelGeneration()
-        val session = repository.newSession()
+        val session = repository.newSession(temporary)
         _uiState.update { it.copy(sessions = listOf(session) + it.sessions, currentId = session.id) }
-        viewModelScope.launch {
-            runCatching { repository.saveSession(session) }
-            repository.saveCurrentId(session.id)
+        if (!temporary) {
+            viewModelScope.launch {
+                runCatching { repository.saveSession(session, selectedModel()) }
+                repository.saveCurrentId(session.id)
+            }
         }
     }
 
@@ -191,31 +271,43 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (uiState.value.sessions.any { it.id == id }) {
             if (activeGenerationId != null && uiState.value.currentId != id) cancelGeneration()
             _uiState.update { it.copy(currentId = id) }
-            viewModelScope.launch { repository.saveCurrentId(id) }
+            val selected = uiState.value.sessions.firstOrNull { it.id == id }
+            if (selected?.temporary != true) viewModelScope.launch { repository.saveCurrentId(id) }
         }
     }
 
-    fun deleteSessions(ids: Set<String>) {
-        if (ids.isEmpty()) return
-        if (activeGenerationId != null && uiState.value.currentId in ids) cancelGeneration()
-        val remaining = uiState.value.sessions.filterNot { it.id in ids }
+    fun deleteSessions(idsToDelete: Set<String>) {
+        if (idsToDelete.isEmpty()) return
+        if (activeGenerationId != null && uiState.value.currentId in idsToDelete) cancelGeneration()
+        val remaining = uiState.value.sessions.filterNot { it.id in idsToDelete }
         val fresh = if (remaining.isEmpty()) repository.newSession() else null
         val finalSessions = fresh?.let { listOf(it) } ?: remaining
         val current = uiState.value.currentId
-        val nextId = if (current !in ids && current in finalSessions.map { it.id }) current else finalSessions.firstOrNull()?.id
-        _uiState.value = uiState.value.copy(sessions = finalSessions, currentId = nextId)
+        val nextId = if (current !in idsToDelete && finalSessions.any { it.id == current }) current
+        else finalSessions.firstOrNull()?.id
+        _uiState.value = _uiState.value.copy(sessions = finalSessions, currentId = nextId)
         viewModelScope.launch {
-            runCatching { repository.deleteSessions(ids) }
-            fresh?.let { runCatching { repository.saveSession(it) } }
-            nextId?.let(repository::saveCurrentId)
+            runCatching { repository.deleteSessions(idsToDelete) }
+            fresh?.let { runCatching { repository.saveSession(it, selectedModel()) } }
+            val selected = finalSessions.firstOrNull { it.id == nextId }
+            if (selected?.temporary != true) nextId?.let(repository::saveCurrentId)
+            storageSnapshot()
         }
     }
 
     fun toggleStar(id: String) {
-        val changed = uiState.value.sessions.firstOrNull { it.id == id }?.copy(
-            starred = !(uiState.value.sessions.firstOrNull { it.id == id }?.starred ?: false)
-        ) ?: return
-        updateSession(changed, persist = true, model = "auto")
+        val session = uiState.value.sessions.firstOrNull { it.id == id } ?: return
+        updateSession(session.copy(starred = !session.starred), true, selectedModel())
+    }
+
+    fun archiveSession(id: String) {
+        val session = uiState.value.sessions.firstOrNull { it.id == id } ?: return
+        updateSession(session.copy(archived = true), true, selectedModel())
+    }
+
+    fun unarchiveSession(id: String) {
+        val session = uiState.value.sessions.firstOrNull { it.id == id } ?: return
+        updateSession(session.copy(archived = false), true, selectedModel())
     }
 
     fun persistSession(session: ChatSession, model: String) {
@@ -227,17 +319,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { repository.clearAll() }
             val fresh = repository.newSession()
-            _uiState.value = ChatUiState(listOf(fresh), fresh.id, false)
+            _uiState.value = _uiState.value.copy(
+                sessions = listOf(fresh),
+                currentId = fresh.id,
+                busy = false
+            )
             runCatching { repository.saveSession(fresh, model) }
             repository.saveCurrentId(fresh.id)
-        }
-    }
-
-    fun persistAll(model: String) {
-        val sessions = uiState.value.sessions
-        viewModelScope.launch {
-            sessions.forEach { session -> runCatching { repository.saveSession(session, model) } }
-            uiState.value.currentId?.let(repository::saveCurrentId)
+            storageSnapshot()
         }
     }
 
@@ -245,12 +334,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun importSessions(sessions: List<ChatSession>, model: String) {
         viewModelScope.launch {
-            repository.importSessions(sessions, model)
-            val merged = (uiState.value.sessions + sessions).distinctBy { it.id }
-                .sortedByDescending { it.updatedAt }
-            val current = merged.firstOrNull()?.id
-            _uiState.value = uiState.value.copy(sessions = merged, currentId = current)
-            current?.let(repository::saveCurrentId)
+            val remapped = remapImportedSessions(sessions)
+            repository.importSessions(remapped, model)
+            val merged = (uiState.value.sessions + remapped)
+                .distinctBy { it.id }
+                .sortedWith(compareByDescending<ChatSession> { it.starred }.thenByDescending { it.updatedAt })
+            val current = remapped.firstOrNull()?.id ?: merged.firstOrNull()?.id
+            _uiState.value = _uiState.value.copy(sessions = merged, currentId = current)
+            if (current != null) repository.saveCurrentId(current)
         }
     }
 
@@ -258,13 +349,37 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val imported = runCatching { repository.importJson(raw) }.getOrElse { emptyList() }
             if (imported.isEmpty()) return@launch
-            imported.forEach { session -> runCatching { repository.saveSession(session, model) } }
-            val merged = (uiState.value.sessions + imported).distinctBy { it.id }
-                .sortedByDescending { it.updatedAt }
-            val current = merged.firstOrNull()?.id
-            _uiState.value = uiState.value.copy(sessions = merged, currentId = current)
-            current?.let(repository::saveCurrentId)
+            importSessions(imported, model)
         }
+    }
+
+    fun editAndResend(
+        messageId: Long,
+        text: String,
+        baseUrl: String,
+        apiKey: String,
+        model: String
+    ) {
+        val clean = text.trim()
+        if (clean.isBlank() || uiState.value.busy) return
+        val session = uiState.value.sessions.firstOrNull { it.id == uiState.value.currentId } ?: return
+        val index = session.messages.indexOfFirst { it.id == messageId }
+        if (index < 0 || session.messages[index].role != ChatMessage.Role.USER) return
+        val edited = session.messages[index].copy(text = clean, timestamp = System.currentTimeMillis())
+        val before = session.messages.take(index)
+        val requestMessages = branchForRequest(before + edited)
+        val placeholder = ChatMessage(
+            id = ids.incrementAndGet(),
+            text = "",
+            role = ChatMessage.Role.ASSISTANT,
+            parentMessageId = edited.id
+        )
+        val prepared = session.copy(
+            title = if (session.title == "New chat") clean.take(60) else session.title,
+            updatedAt = System.currentTimeMillis(),
+            messages = before + edited + placeholder
+        )
+        startGeneration(prepared, requestMessages, placeholder.id, baseUrl, apiKey, model)
     }
 
     fun sendMessage(
@@ -277,122 +392,186 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val state = uiState.value
         if (state.busy || (text.isBlank() && attachments.isEmpty())) return
         val session = state.sessions.firstOrNull { it.id == state.currentId } ?: repository.newSession()
-        val generationId = generationIds.incrementAndGet()
-        activeGenerationId = generationId
-        activeGenerationModel = model
         val userText = text.trim()
-        val userMessage = ChatMessage(ids.incrementAndGet(), userText, ChatMessage.Role.USER, attachments = attachments)
+        val userMessage = ChatMessage(
+            id = ids.incrementAndGet(),
+            text = userText,
+            role = ChatMessage.Role.USER,
+            attachments = attachments
+        )
         val assistantId = ids.incrementAndGet()
-        val title = if (session.title == "New chat") {
+        val title = if (session.title == "New chat" || session.title == "Temporary chat") {
             (userText.ifBlank { attachments.firstOrNull()?.name ?: "New chat" })
-                .replace("\n", " ").trim().take(60).ifBlank { "New chat" }
+                .replace("\n", " ")
+                .trim()
+                .take(60)
+                .ifBlank { session.title }
         } else session.title
-        val requestMessages = session.messages + userMessage
-        val placeholder = ChatMessage(assistantId, "", ChatMessage.Role.ASSISTANT)
+
+        val requestMessages = branchForRequest(session.messages) + userMessage
+        val placeholder = ChatMessage(
+            assistantId,
+            "",
+            ChatMessage.Role.ASSISTANT,
+            parentMessageId = userMessage.id
+        )
         val prepared = session.copy(
             title = title,
             updatedAt = System.currentTimeMillis(),
-            messages = requestMessages + placeholder
+            messages = session.messages + userMessage + placeholder
         )
-        updateSession(prepared, persist = true, model = model)
-        _uiState.update { it.copy(busy = true) }
-
-        generationJob = viewModelScope.launch {
-            val result = apiClient.send(
-                getApplication(),
-                baseUrl,
-                apiKey,
-                model,
-                requestMessages
-            ) { delta ->
-                if (activeGenerationId != generationId) return@send
-                val current = uiState.value.sessions.firstOrNull { it.id == prepared.id } ?: return@send
-                val updated = current.messages.map { message ->
-                    if (message.id == assistantId) message.copy(text = message.text + delta) else message
-                }
-                _uiState.update { it.copy(sessions = it.sessions.map { s -> if (s.id == current.id) current.copy(messages = updated, updatedAt = System.currentTimeMillis()) else s }) }
-            }
-
-            if (activeGenerationId != generationId) return@launch
-            val current = uiState.value.sessions.firstOrNull { it.id == prepared.id } ?: return@launch
-            val updated = current.messages.map { message ->
-                if (message.id != assistantId) message
-                else when (result) {
-                    is ChatResult.Success -> message.copy(text = result.text)
-                    is ChatResult.Failure -> message.copy(text = result.message, role = ChatMessage.Role.ERROR)
-                    is ChatResult.Cancelled -> message
-                }
-            }
-            val finished = current.copy(messages = updated, updatedAt = System.currentTimeMillis())
-            _uiState.update { it.copy(sessions = it.sessions.map { s -> if (s.id == finished.id) finished else s }, busy = false) }
-            runCatching { repository.saveSession(finished, model) }
-            activeGenerationId = null
-            generationJob = null
-        }
+        startGeneration(prepared, requestMessages, assistantId, baseUrl, apiKey, model)
     }
 
-    fun regenerate(messageId: Long, baseUrl: String, apiKey: String, model: String) {
+    fun regenerate(
+        messageId: Long,
+        baseUrl: String,
+        apiKey: String,
+        model: String
+    ) {
         val state = uiState.value
         if (state.busy) return
         val session = state.sessions.firstOrNull { it.id == state.currentId } ?: return
         val index = session.messages.indexOfFirst { it.id == messageId }
-        if (index <= 0) return
-        val requestMessages = session.messages.take(index).filter { it.role != ChatMessage.Role.ERROR && it.parentMessageId == null }
-        if (requestMessages.lastOrNull()?.role != ChatMessage.Role.USER) return
+        if (index < 0) return
+        val selected = session.messages[index]
+        if (selected.role != ChatMessage.Role.ASSISTANT) return
+        val parentUserIndex = session.messages.take(index).indexOfLast { it.role == ChatMessage.Role.USER }
+        if (parentUserIndex < 0) return
+        val parentUser = session.messages[parentUserIndex]
+        val contextBefore = branchForRequest(session.messages.take(parentUserIndex + 1))
+        val assistantId = ids.incrementAndGet()
+        val placeholder = ChatMessage(
+            assistantId,
+            "",
+            ChatMessage.Role.ASSISTANT,
+            parentMessageId = parentUser.id
+        )
+        val insertAt = (index + 1).coerceAtMost(session.messages.size)
+        val messages = session.messages.toMutableList().apply { add(insertAt, placeholder) }
+        val prepared = session.copy(messages = messages, updatedAt = System.currentTimeMillis())
+        startGeneration(prepared, contextBefore, assistantId, baseUrl, apiKey, model)
+    }
+
+    private fun startGeneration(
+        prepared: ChatSession,
+        requestMessages: List<ChatMessage>,
+        assistantId: Long,
+        baseUrl: String,
+        apiKey: String,
+        model: String
+    ) {
+        cancelGeneration()
         val generationId = generationIds.incrementAndGet()
         activeGenerationId = generationId
         activeGenerationModel = model
-        val assistantId = ids.incrementAndGet()
-        val placeholder = ChatMessage(assistantId, "", ChatMessage.Role.ASSISTANT)
-        // Explicit "regenerate from here" semantics: the old response and all later
-        // messages belong to the affected branch, so they are replaced by the new response.
-        val prepared = session.copy(
-            messages = requestMessages + placeholder,
-            updatedAt = System.currentTimeMillis()
-        )
-        updateSession(prepared, persist = true, model = model)
-        _uiState.update { it.copy(busy = true) }
+
+        replaceSession(prepared, persist = !prepared.temporary, model = model)
+        _uiState.update {
+            it.copy(
+                busy = true,
+                contextUsedChars = ContextManager.trim(requestMessages, currentSettings.contextLimit).usedChars,
+                contextLimit = currentSettings.contextLimit,
+                contextTruncated = ContextManager.trim(requestMessages, currentSettings.contextLimit).truncated
+            )
+        }
+
         generationJob = viewModelScope.launch {
-            val result = apiClient.send(getApplication(), baseUrl, apiKey, model, requestMessages) { delta ->
-                if (activeGenerationId != generationId) return@send
-                val current = uiState.value.sessions.firstOrNull { it.id == prepared.id } ?: return@send
-                val updated = current.messages.map { message ->
-                    if (message.id == assistantId) message.copy(text = message.text + delta) else message
-                }
-                _uiState.update { it.copy(sessions = it.sessions.map { s -> if (s.id == current.id) current.copy(messages = updated) else s }) }
-            }
+            val result = apiClient.send(
+                context = getApplication(),
+                baseUrl = baseUrl,
+                apiKey = apiKey,
+                model = model,
+                messages = requestMessages,
+                onDelta = { delta ->
+                    if (activeGenerationId != generationId) return@send
+                    val current = uiState.value.sessions.firstOrNull { it.id == prepared.id } ?: return@send
+                    val updated = current.messages.map { message ->
+                        if (message.id == assistantId) message.copy(text = message.text + delta) else message
+                    }
+                    replaceSessionsInState(
+                        current.copy(
+                            messages = updated,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                },
+                systemPrompt = prepared.systemPrompt ?: currentSettings.systemPrompt,
+                contextLimit = currentSettings.contextLimit,
+                webSearch = uiState.value.webSearchEnabled,
+                localTools = uiState.value.localToolsEnabled
+            )
+
             if (activeGenerationId != generationId) return@launch
+
             val current = uiState.value.sessions.firstOrNull { it.id == prepared.id } ?: return@launch
             val updated = current.messages.map { message ->
-                if (message.id == assistantId) {
-                    when (result) {
-                        is ChatResult.Success -> message.copy(text = result.text)
-                        is ChatResult.Failure -> message.copy(text = result.message, role = ChatMessage.Role.ERROR)
-                        is ChatResult.Cancelled -> message
-                    }
-                } else message
+                if (message.id != assistantId) return@map message
+                when (result) {
+                    is ChatResult.Success -> message.copy(text = result.text, metadata = result.metadata)
+                    is ChatResult.Failure -> message.copy(text = result.message, role = ChatMessage.Role.ERROR)
+                    ChatResult.Cancelled -> message
+                }
             }
-            val finished = current.copy(messages = updated, updatedAt = System.currentTimeMillis())
-            _uiState.update { it.copy(sessions = it.sessions.map { s -> if (s.id == finished.id) finished else s }, busy = false) }
-            runCatching { repository.saveSession(finished, model) }
+            val finished = current.copy(
+                messages = updated,
+                updatedAt = System.currentTimeMillis()
+            )
+            replaceSessionsInState(finished)
+            _uiState.update { it.copy(busy = false) }
+            if (!finished.temporary) runCatching { repository.saveSession(finished, model) }
             activeGenerationId = null
             generationJob = null
         }
     }
 
+    private fun branchForRequest(messages: List<ChatMessage>): List<ChatMessage> {
+        if (messages.isEmpty()) return emptyList()
+        val output = mutableListOf<ChatMessage>()
+        val seenParent = mutableSetOf<Long>()
+        messages.forEach { message ->
+            if (message.role == ChatMessage.Role.ERROR) return@forEach
+            if (message.role == ChatMessage.Role.ASSISTANT && message.parentMessageId != null) {
+                if (message.parentMessageId in seenParent) return@forEach
+                seenParent += message.parentMessageId
+            }
+            output += message
+        }
+        return output
+    }
+
+    private fun remapImportedSessions(sessions: List<ChatSession>): List<ChatSession> {
+        val sessionIds = mutableMapOf<String, String>()
+        val messageIds = mutableMapOf<Long, Long>()
+        val attachmentIds = mutableMapOf<String, String>()
+        sessions.forEach { sessionIds[it.id] = UUID.randomUUID().toString() }
+        sessions.flatMap { it.messages }.forEach { messageIds[it.id] = ids.incrementAndGet() }
+        sessions.flatMap { it.messages }.flatMap { it.attachments }.forEach { attachmentIds[it.id] = UUID.randomUUID().toString() }
+
+        return sessions.map { session ->
+            session.copy(
+                id = sessionIds.getValue(session.id),
+                messages = session.messages.map { message ->
+                    message.copy(
+                        id = messageIds.getValue(message.id),
+                        parentMessageId = message.parentMessageId?.let { messageIds[it] },
+                        attachments = message.attachments.map { attachment ->
+                            attachment.copy(
+                                id = attachmentIds.getValue(attachment.id)
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    }
+
     private fun cancelGeneration() {
-        val generationSession = uiState.value.sessions.firstOrNull { it.id == uiState.value.currentId }
-        val generationModel = activeGenerationModel
         activeGenerationId = null
         apiClient.cancelActive()
         generationJob?.cancel()
         generationJob = null
         _uiState.update { it.copy(busy = false) }
-        generationSession?.let { session ->
-            viewModelScope.launch {
-                runCatching { repository.saveSession(session, generationModel) }
-            }
-        }
     }
 
     fun stopGeneration() = cancelGeneration()
