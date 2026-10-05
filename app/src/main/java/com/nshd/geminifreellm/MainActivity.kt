@@ -20,6 +20,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.nshd.geminifreellm.data.ChatResult
+import com.nshd.geminifreellm.data.AppDiagnostics
 import com.nshd.geminifreellm.data.DocumentExporter
 import com.nshd.geminifreellm.data.DocumentProcessor
 import com.nshd.geminifreellm.data.ExportFormat
@@ -47,6 +48,8 @@ import java.util.concurrent.atomic.AtomicLong
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppDiagnostics.install(this)
+        AppDiagnostics.recordEvent(this, "app_started")
         setContent { AiApp(this) }
     }
 }
@@ -78,6 +81,7 @@ private fun AiApp(context: Context) {
     }
     var selectedModel by remember { mutableStateOf(prefs.getString("model", "auto") ?: "auto") }
     var models by remember { mutableStateOf<List<ModelInfo>>(emptyList()) }
+    var diagnostics by remember { mutableStateOf(AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())) }
 
     val storedSessions = remember { store.loadSessions() }
     var sessions by remember { mutableStateOf(storedSessions) }
@@ -285,6 +289,7 @@ private fun AiApp(context: Context) {
                     )
                 }
                 is ChatResult.Failure -> {
+                    AppDiagnostics.recordEvent(context, "chat_failure: " + result.message)
                     val current = sessions.firstOrNull { it.id == activeSession.id } ?: activeSession
                     val updated = current.messages.map { message ->
                         if (message.id == assistantId) {
@@ -408,6 +413,7 @@ private fun AiApp(context: Context) {
                     )
                 }
                 is MediaResult.Failure -> {
+                    AppDiagnostics.recordEvent(context, "media_failure[" + type + "]: " + result.message)
                     replaceSession(
                         current.copy(
                             messages = current.messages + ChatMessage(
@@ -461,6 +467,8 @@ private fun AiApp(context: Context) {
                         .putString("aiName", aiName)
                         .putString("theme", theme.name)
                         .apply()
+                    diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
+                    AppDiagnostics.recordEvent(context, "settings_saved")
                     showSettings = false
                     if (aiName.isNotBlank()) showOnboarding = false
                 },
@@ -473,7 +481,24 @@ private fun AiApp(context: Context) {
                     requestSaveFile(file)
                 },
                 onImportChats = { importLauncher.launch(arrayOf("application/json", "text/*")) },
-                onClearChats = { clearDialog = true }
+                onClearChats = { clearDialog = true },
+                diagnostics = diagnostics,
+                onExportDiagnostics = {
+                    runCatching {
+                        AppDiagnostics.exportReport(context, baseUrl, apiKey.isNotBlank(), sessions.size)
+                    }.onSuccess { file -> requestSaveFile(file) }
+                        .onFailure { Toast.makeText(context, it.message ?: "Diagnostics export failed", Toast.LENGTH_LONG).show() }
+                },
+                onSafeRepair = {
+                    AppDiagnostics.safeRepair(context)
+                    diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
+                    Toast.makeText(context, "Safe repair completed", Toast.LENGTH_SHORT).show()
+                },
+                onClearCrashReport = {
+                    AppDiagnostics.clearPreviousCrash(context)
+                    diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
+                    Toast.makeText(context, "Crash report cleared", Toast.LENGTH_SHORT).show()
+                }
             )
         }
     }
