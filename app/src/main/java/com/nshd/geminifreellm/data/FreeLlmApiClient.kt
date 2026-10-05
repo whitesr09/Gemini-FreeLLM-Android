@@ -55,8 +55,8 @@ class FreeLlmApiClient {
         onDelta: (String) -> Unit
     ): ChatResult = withContext(Dispatchers.IO) {
         val cleanBase = baseUrl.trim().trimEnd('/')
-        if (cleanBase.isBlank()) return@withContext ChatResult.Failure("Base URL is empty.")
-        if (apiKey.isBlank()) return@withContext ChatResult.Failure("Unified API key is missing.")
+        if (cleanBase.isBlank()) return@use ChatResult.Failure("Base URL is empty.")
+        if (apiKey.isBlank()) return@use ChatResult.Failure("Unified API key is missing.")
 
         try {
             val jsonMessages = JSONArray()
@@ -96,7 +96,7 @@ class FreeLlmApiClient {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
-                    return@withContext ChatResult.Failure(
+                    return@use ChatResult.Failure(
                         when (response.code) {
                             401, 403 -> "The API key was rejected. Check your Unified API key."
                             404 -> "API endpoint not found. Check the Base URL."
@@ -108,7 +108,7 @@ class FreeLlmApiClient {
                 }
 
                 val source = response.body?.source()
-                    ?: return@withContext ChatResult.Failure("The server returned an empty response.")
+                    ?: return@use ChatResult.Failure("The server returned an empty response.")
 
                 val contentType = response.header("Content-Type").orEmpty()
                 val textBuilder = StringBuilder()
@@ -116,9 +116,9 @@ class FreeLlmApiClient {
                 if (!contentType.contains("text/event-stream", ignoreCase = true)) {
                     val body = source.buffer().readUtf8()
                     val text = parseChatText(body)
-                    if (text.isBlank()) return@withContext ChatResult.Failure("The server returned an unreadable response.")
+                    if (text.isBlank()) return@use ChatResult.Failure("The server returned an unreadable response.")
                     onDeltaOnMain(onDelta, text)
-                    return@withContext ChatResult.Success(text)
+                    return@use ChatResult.Success(text)
                 }
 
                 while (!source.exhausted()) {
@@ -353,7 +353,7 @@ class FreeLlmApiClient {
             .header("Accept", "image/*")
             .get()
             .build()
-        return         client.newCall(request).execute().use { response ->
+        return         return         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Couldn't download generated image (" + response.code + ").")
             val body = response.body ?: error("Generated image response was empty.")
             val maxBytes = 20L * 1024L * 1024L
