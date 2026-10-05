@@ -505,7 +505,7 @@ class FreeLlmApiClient {
             .header("Accept", "image/*")
             .get()
             .build()
-        return client.newCall(request).execute().use { response ->
+        return mediaClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Couldn't download generated image (" + response.code + ").")
             val body = response.body ?: error("Generated image response was empty.")
             val maxBytes = 20L * 1024L * 1024L
