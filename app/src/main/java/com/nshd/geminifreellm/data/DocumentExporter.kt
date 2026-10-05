@@ -112,7 +112,7 @@ object DocumentExporter {
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
-        .replace("\\\"", "&quot;")
+        .replace("\"", "&quot;")
 
     private fun escapeXml(value: String): String = value
         .replace("&", "&amp;")
