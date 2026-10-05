@@ -405,7 +405,6 @@ private fun AiApp(context: Context) {
                 },
                 onImportChats = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
                 onClearChats = { clearDialog = true },
-                diagnostics = diagnostics,
                 onExportDiagnostics = {
                     scope.launch {
                         runCatching {
@@ -436,7 +435,6 @@ private fun AiApp(context: Context) {
                 onAppLock = { enabled ->
                     prefs.edit().putBoolean("appLockEnabled", enabled).apply()
                 },
-                onTestConnection = { chatVm.testConnection(baseUrl, apiKey) },
             )
         }
     }
