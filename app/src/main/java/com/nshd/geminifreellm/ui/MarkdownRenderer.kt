@@ -149,14 +149,81 @@ private fun isTableSeparator(line:String):Boolean{
 }
 private fun splitTableLine(line: String): List<String> = line.trim().removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
 
-private fun inlineAnnotated(source:String,colors:AppColors):AnnotatedString{
-    val b=AnnotatedString.Builder();val fence='\u0060';var i=0
-    while(i<source.length){
-        if(source[i]=='['){val close=source.indexOf("](",i+1);if(close>i){val end=source.indexOf(')',close+2);if(end>close+2){val label=source.substring(i+1,close);val url=source.substring(close+2,end);b.pushStringAnnotation("URL",url);b.withStyle(SpanStyle(color=colors.accent,textDecoration=TextDecoration.Underline,fontWeight=FontWeight.Medium)){append(label)};b.pop();i=end+1;continue}}}
-        if(source.startsWith("**",i)||source.startsWith("__",i)){val token=source.substring(i,i+2);val end=source.indexOf(token,i+2);if(end>i+2){b.withStyle(SpanStyle(fontWeight=FontWeight.SemiBold)){append(source.substring(i+2,end))};i=end+2;continue}}
-        if(source[i]==fence){val end=source.indexOf(fence,i+1);if(end>i+1){b.withStyle(SpanStyle(fontFamily=FontFamily.Monospace,background=colors.elevated)){append(source.substring(i+1,end))};i=end+1;continue}}
-        if(source[i]=='*'||source[i]=='_'){val end=source.indexOf(source[i],i+1);if(end>i+1){b.withStyle(SpanStyle(fontStyle=FontStyle.Italic)){append(source.substring(i+1,end))};i=end+1;continue}}
-        b.append(source[i]);i++
+private fun inlineAnnotated(source: String, colors: AppColors): AnnotatedString {
+    val builder = AnnotatedString.Builder()
+    val fence = '\\u0060'
+    var i = 0
+
+    fun appendStyled(style: SpanStyle, value: String) {
+        builder.pushStyle(style)
+        builder.append(value)
+        builder.pop()
     }
-    return b.toAnnotatedString()
+
+    while (i < source.length) {
+        if (source[i] == '[') {
+            val close = source.indexOf("](", i + 1)
+            if (close > i) {
+                val endUrl = source.indexOf(')', close + 2)
+                if (endUrl > close + 2) {
+                    val label = source.substring(i + 1, close)
+                    val url = source.substring(close + 2, endUrl)
+                    builder.pushStringAnnotation("URL", url)
+                    appendStyled(
+                        SpanStyle(
+                            color = colors.accent,
+                            textDecoration = TextDecoration.Underline,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        label
+                    )
+                    builder.pop()
+                    i = endUrl + 1
+                    continue
+                }
+            }
+        }
+
+        if (source.startsWith("**", i) || source.startsWith("__", i)) {
+            val token = source.substring(i, i + 2)
+            val endStrong = source.indexOf(token, i + 2)
+            if (endStrong > i + 2) {
+                appendStyled(
+                    SpanStyle(fontWeight = FontWeight.SemiBold),
+                    source.substring(i + 2, endStrong)
+                )
+                i = endStrong + 2
+                continue
+            }
+        }
+
+        if (source[i] == fence) {
+            val endCode = source.indexOf(fence, i + 1)
+            if (endCode > i + 1) {
+                appendStyled(
+                    SpanStyle(fontFamily = FontFamily.Monospace, background = colors.elevated),
+                    source.substring(i + 1, endCode)
+                )
+                i = endCode + 1
+                continue
+            }
+        }
+
+        if (source[i] == '*' || source[i] == '_') {
+            val endItalic = source.indexOf(source[i], i + 1)
+            if (endItalic > i + 1) {
+                appendStyled(
+                    SpanStyle(fontStyle = FontStyle.Italic),
+                    source.substring(i + 1, endItalic)
+                )
+                i = endItalic + 1
+                continue
+            }
+        }
+
+        builder.append(source[i])
+        i++
+    }
+
+    return builder.toAnnotatedString()
 }
