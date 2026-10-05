@@ -8,12 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [
-        ChatSessionEntity::class,
-        ChatMessageEntity::class,
-        AttachmentEntity::class
-    ],
-    version = 2,
+    entities = [ChatSessionEntity::class, ChatMessageEntity::class, AttachmentEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -26,6 +22,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_sessions ADD COLUMN systemPrompt TEXT")
+                db.execSQL("ALTER TABLE chat_sessions ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE chat_sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile private var INSTANCE: AppDatabase? = null
 
         fun get(context: Context): AppDatabase =
@@ -35,8 +39,9 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "freellm.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
-                    .build().also { INSTANCE = it }
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .build()
+                    .also { INSTANCE = it }
             }
     }
 }
