@@ -1,6 +1,7 @@
 package com.nshd.geminifreellm.security
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
@@ -48,6 +49,21 @@ class SecureCredentialStore(context: Context) {
 
     fun clear() {
         prefs.edit().remove(KEY_CIPHERTEXT).apply()
+    }
+
+    /**
+     * One-time migration for versions that stored the API key in the normal settings
+     * preferences. The plaintext value is read only for the migration, encrypted, then
+     * immediately removed from the legacy preferences.
+     */
+    fun migrateLegacy(legacyPrefs: SharedPreferences) {
+        if (prefs.contains(KEY_CIPHERTEXT)) return
+        val legacy = legacyPrefs.getString("apiKey", null)?.trim().orEmpty()
+        if (legacy.isBlank()) return
+        runCatching {
+            setApiKey(legacy)
+            legacyPrefs.edit().remove("apiKey").apply()
+        }
     }
 
     private fun getOrCreateKey(): SecretKey {
