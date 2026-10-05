@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nshd.geminifreellm.data.ChatResult
+import com.nshd.geminifreellm.data.ConnectionCheck
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.data.database.RoomChatRepository
 import com.nshd.geminifreellm.model.Attachment
@@ -19,7 +20,10 @@ import java.util.concurrent.atomic.AtomicLong
 data class ChatUiState(
     val sessions: List<ChatSession> = emptyList(),
     val currentId: String? = null,
-    val busy: Boolean = false
+    val busy: Boolean = false,
+    val connectionTesting: Boolean = false,
+    val connectionResult: ConnectionCheck? = null,
+    val connectionError: String? = null
 )
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -65,6 +69,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 repository.saveCurrentId(fresh.id)
             } else {
                 _uiState.value = ChatUiState(loaded, current, false)
+            }
+        }
+    }
+
+    fun testConnection(baseUrl: String, apiKey: String) {
+        _uiState.update { it.copy(connectionTesting = true, connectionError = null) }
+        viewModelScope.launch {
+            val result = apiClient.testConnection(baseUrl, apiKey)
+            result.onSuccess { check ->
+                _uiState.update { it.copy(connectionTesting = false, connectionResult = check, connectionError = null) }
+            }.onFailure { error ->
+                _uiState.update { it.copy(connectionTesting = false, connectionResult = null, connectionError = error.message ?: "Connection test failed.") }
             }
         }
     }
