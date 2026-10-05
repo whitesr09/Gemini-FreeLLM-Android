@@ -101,6 +101,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectSession(id: String) {
         if (uiState.value.sessions.any { it.id == id }) {
+            if (activeGenerationId != null && uiState.value.currentId != id) cancelGeneration()
             _uiState.update { it.copy(currentId = id) }
             viewModelScope.launch { repository.saveCurrentId(id) }
         }
@@ -245,12 +246,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val state = uiState.value
         if (state.busy) return
         val session = state.sessions.firstOrNull { it.id == state.currentId } ?: return
-        val generationId = generationIds.incrementAndGet()
-        activeGenerationId = generationId
         val index = session.messages.indexOfFirst { it.id == messageId }
         if (index <= 0) return
         val requestMessages = session.messages.take(index).filter { it.role != ChatMessage.Role.ERROR && it.parentMessageId == null }
         if (requestMessages.lastOrNull()?.role != ChatMessage.Role.USER) return
+        val generationId = generationIds.incrementAndGet()
+        activeGenerationId = generationId
         val assistantId = ids.incrementAndGet()
         val placeholder = ChatMessage(assistantId, "", ChatMessage.Role.ASSISTANT)
         // Preserve the old response: regeneration creates a new response instead of deleting history.
