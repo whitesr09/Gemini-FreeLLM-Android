@@ -45,11 +45,7 @@ android {
     }
 
     buildTypes {
-        getByName("debug") {
-            if (signingConfigured) {
-                signingConfig = signingConfigs.getByName("release")
-            }
-        }
+        getByName("debug") { } 
         getByName("release") {
             if (signingConfigured) {
                 signingConfig = signingConfigs.getByName("release")
@@ -82,4 +78,5 @@ dependencies {
     ksp("androidx.room:room-compiler:2.8.3")
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }
