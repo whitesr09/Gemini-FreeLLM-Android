@@ -31,7 +31,7 @@ object DocumentProcessor {
         val mime = resolver.getType(uri) ?: guessMime(uri)
         val name = queryName(context, uri) ?: "attachment"
         val extension = extensionFor(name, mime)
-        val safeName = UUID.randomUUID().toString() + if (extension.isBlank()) "" else ".\${extension}"
+        val safeName = UUID.randomUUID().toString() + if (extension.isBlank()) "" else ".${extension}"
         val dir = File(context.filesDir, "attachments").apply { mkdirs() }
         val file = File(dir, safeName)
 
@@ -81,7 +81,7 @@ object DocumentProcessor {
                         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                         bitmap.eraseColor(android.graphics.Color.WHITE)
                         page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        val out = File(dir, "page_\${UUID.randomUUID()}.jpg")
+                        val out = File(dir, "page_${UUID.randomUUID()}.jpg")
                         FileOutputStream(out).use { fos ->
                             bitmap.compress(Bitmap.CompressFormat.JPEG, IMAGE_QUALITY, fos)
                         }
