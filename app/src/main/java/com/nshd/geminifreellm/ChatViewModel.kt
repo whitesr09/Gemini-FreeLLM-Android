@@ -34,6 +34,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         load()
     }
 
+    fun replaceSession(session: ChatSession, persist: Boolean = true, model: String = "auto") = updateSession(session, persist, model)
+
     private fun updateSession(session: ChatSession, persist: Boolean, model: String = "auto") {
         _uiState.update { state ->
             val exists = state.sessions.any { it.id == session.id }
@@ -103,6 +105,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             starred = !(uiState.value.sessions.firstOrNull { it.id == id }?.starred ?: false)
         ) ?: return
         updateSession(changed, persist = true, model = changed.model)
+    }
+
+    fun persistSession(session: ChatSession, model: String) {
+        viewModelScope.launch { runCatching { repository.saveSession(session, model) } }
+    }
+
+    fun clearAll(model: String) {
+        viewModelScope.launch {
+            runCatching { repository.clearAll() }
+            val fresh = repository.newSession()
+            _uiState.value = ChatUiState(listOf(fresh), fresh.id, false)
+            runCatching { repository.saveSession(fresh, model) }
+            repository.saveCurrentId(fresh.id)
+        }
     }
 
     fun persistAll(model: String) {
@@ -191,13 +207,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val session = state.sessions.firstOrNull { it.id == state.currentId } ?: return
         val index = session.messages.indexOfFirst { it.id == messageId }
         if (index <= 0) return
-        val requestMessages = session.messages.take(index).filter { it.role != ChatMessage.Role.ERROR }
+        val requestMessages = session.messages.take(index).filter { it.role != ChatMessage.Role.ERROR && it.parentMessageId == null }
         if (requestMessages.lastOrNull()?.role != ChatMessage.Role.USER) return
         val assistantId = ids.incrementAndGet()
         val placeholder = ChatMessage(assistantId, "", ChatMessage.Role.ASSISTANT)
         // Preserve the old response: regeneration creates a new response instead of deleting history.
+        val oldResponse = session.messages[index]
         val prepared = session.copy(
-            messages = requestMessages + placeholder,
+            messages = requestMessages + oldResponse + placeholder.copy(parentMessageId = oldResponse.id),
             updatedAt = System.currentTimeMillis()
         )
         updateSession(prepared, persist = true, model = model)
