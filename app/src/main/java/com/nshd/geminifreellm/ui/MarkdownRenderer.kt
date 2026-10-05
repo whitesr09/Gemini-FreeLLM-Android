@@ -14,7 +14,7 @@ object MarkdownRenderer {
         val html = renderer.render(parser.parse(markdown.take(MAX_CHARS)))
         return html.replace(Regex("""href="([^"]*)"""")) { match ->
             val url = match.groupValues[1]
-            if (url.startsWith("https://", true) || url.startsWith("http://", true)) match.value else "href="#""
+            if (url.startsWith("https://", true) || url.startsWith("http://", true)) match.value else "href=\"#\"""
         }
     }
 }
