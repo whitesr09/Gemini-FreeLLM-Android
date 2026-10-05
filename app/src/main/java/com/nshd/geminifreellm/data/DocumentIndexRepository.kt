@@ -22,7 +22,7 @@ class DocumentIndexRepository(context: Context) {
     suspend fun indexFile(file: File, apiClient: FreeLlmApiClient, baseUrl: String, apiKey: String, embeddingModel: String): Result<Int> {
         return runCatching {
             require(file.isFile) { "Document does not exist." }
-            val text = DocumentProcessor.extractText(appContext, file, null, file.name)
+            val text = DocumentProcessor.extractText(appContext, file, "application/octet-stream", file.name)
                 ?.take(300_000)
                 ?.trim()
                 .orEmpty()
@@ -74,7 +74,7 @@ class DocumentIndexRepository(context: Context) {
         value.split(',').mapNotNull { it.toFloatOrNull() }
 
     private fun chunk(text: String): List<String> {
-        val paragraphs = text.split(Regex("\n\s*\n"))
+        val paragraphs = text.split(Regex("\\n\\s*\\n"))
         val chunks = mutableListOf<String>()
         val buffer = StringBuilder()
         for (paragraph in paragraphs) {
