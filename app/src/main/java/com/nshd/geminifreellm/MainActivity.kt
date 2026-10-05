@@ -358,19 +358,14 @@ private fun AiApp(context: Context) {
     val settingsContent: @Composable () -> Unit = {
         if (showSettings) {
             SettingsDialog(
-                settings = chatState.settings.copy(
-                    baseUrl = baseUrl,
-                    aiName = aiName,
-                    selectedModel = selectedModel,
-                    theme = themeMode.name
-                ),
+                settings = chatState.settings,
                 apiKey = apiKey,
-                storageUsage = StorageManager.usage(context),
+                storageUsage = chatState.storage,
                 diagnostics = diagnostics,
                 connectionTesting = chatState.connectionTesting,
                 connectionResult = chatState.connectionResult,
                 connectionError = chatState.connectionError,
-                onTestConnection = { url, key -> chatVm.testConnection(url.trim(), key.trim()) },
+                onTestConnection = { url, key -> chatVm.testConnection(url, key) },
                 onSave = { settings, key ->
                     baseUrl = settings.baseUrl
                     apiKey = key
@@ -378,19 +373,18 @@ private fun AiApp(context: Context) {
                     selectedModel = settings.selectedModel
                     themeMode = runCatching { ThemeMode.valueOf(settings.theme) }.getOrDefault(ThemeMode.SYSTEM)
                     secureCredentials.setApiKey(apiKey)
+                    chatVm.applySettings(settings)
                     prefs.edit()
-                        .putString("baseUrl", baseUrl)
-                        .putString("aiName", aiName)
-                        .putString("theme", themeMode.name)
-                        .putString("model", selectedModel)
-                        .putBoolean("appLockEnabled", settings.appLockEnabled)
-                        .putInt("appLockTimeoutMinutes", settings.appLockTimeoutMinutes)
+                        .putString("baseUrl", settings.baseUrl)
+                        .putString("aiName", settings.aiName)
+                        .putString("model", settings.selectedModel)
+                        .putString("theme", settings.theme)
                         .apply()
-                    chatVm.applySettings(settings.copy(baseUrl = baseUrl, aiName = aiName, selectedModel = selectedModel, theme = themeMode.name))
-                    diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
+                    diagnostics = AppDiagnostics.selfCheck(context, settings.baseUrl, apiKey.isNotBlank())
                     AppDiagnostics.recordEvent(context, "settings_saved")
                     showSettings = false
-                    if (aiName.isNotBlank()) showOnboarding = false
+                    showOnboarding = settings.aiName.isBlank()
+                    chatVm.refreshModels(settings.baseUrl, apiKey)
                 },
                 onDismiss = {
                     if (apiKey.isNotBlank() && aiName.isNotBlank()) showSettings = false
@@ -419,26 +413,26 @@ private fun AiApp(context: Context) {
                     scope.launch {
                         withContext(Dispatchers.IO) { AppDiagnostics.maintenance(context) }
                         chatVm.cleanupOrphans()
+                        chatVm.storageSnapshot()
                         diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
-                        Toast.makeText(context, "Maintenance started", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Maintenance completed", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onClearCrashReport = {
                     AppDiagnostics.clearPreviousCrash(context)
                     diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
-                    Toast.makeText(context, "Crash report cleared", Toast.LENGTH_SHORT).show()
                 },
                 onClearCache = {
-                    StorageManager.clearCache(context)
+                    com.nshd.geminifreellm.data.StorageManager.clearCache(context)
+                    chatVm.storageSnapshot()
                     Toast.makeText(context, "Cache cleared", Toast.LENGTH_SHORT).show()
                 },
                 onAppLock = { enabled ->
                     prefs.edit().putBoolean("appLockEnabled", enabled).apply()
-                },
+                }
             )
         }
     }
-
     AiTheme(themeMode) {
         ChatScreen(
             aiName = aiName.ifBlank { "Assistant" },
