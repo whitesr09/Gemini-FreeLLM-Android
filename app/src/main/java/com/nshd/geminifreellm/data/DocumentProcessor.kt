@@ -83,8 +83,9 @@ object DocumentProcessor {
         }
         val lower = name.lowercase()
         return when {
+            lower.endsWith(".pdf") -> PdfTextExtractor.extract(file).takeIf { it.isNotBlank() }
             lower.endsWith(".docx") || lower.endsWith(".pptx") || lower.endsWith(".xlsx") ->
-                extractOfficeXml(file).take(MAX_TEXT_CHARS)
+                OfficeDocumentParser.extract(file).takeIf { it.isNotBlank() }
             else -> null
         }
     }
