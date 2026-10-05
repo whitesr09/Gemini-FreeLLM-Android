@@ -151,7 +151,7 @@ private fun splitTableLine(line: String): List<String> = line.trim().removePrefi
 
 private fun inlineAnnotated(source: String, colors: AppColors): AnnotatedString {
     val builder = AnnotatedString.Builder()
-    val fence = '\\u0060'
+    val fence = 96.toChar()
     var i = 0
 
     fun appendStyled(style: SpanStyle, value: String) {
