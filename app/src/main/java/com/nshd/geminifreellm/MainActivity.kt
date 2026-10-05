@@ -18,6 +18,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,7 +107,7 @@ class MainActivity : ComponentActivity() {
         AppDiagnostics.install(this)
         AppDiagnostics.recordEvent(this, "app_started")
         pausedAt = System.currentTimeMillis()
-        setContent { AiApp(this) }
+        setContent { AiApp(this, onUnlock = { requestUnlock() }) }
     }
 
     override fun onPause() {
@@ -136,7 +137,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AiApp(activity: MainActivity) {
+private fun AiApp(activity: MainActivity, onUnlock: () -> Unit) {
     val context: Context = activity
     val locked by activity.locked.collectAsState()
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
@@ -690,7 +691,7 @@ private fun AiApp(activity: MainActivity) {
                     com.nshd.geminifreellm.ui.AiOrb(Modifier.size(92.dp), false)
                     BasicText("App locked", color = com.nshd.geminifreellm.ui.LocalAppColors.current.text, fontSize = 22.sp)
                     Spacer(Modifier.width(1.dp))
-                    AppButton("Unlock", onClick = { activity.requestUnlock() })
+                    AppButton("Unlock", onClick = onUnlock)
                 }
             }
         }
