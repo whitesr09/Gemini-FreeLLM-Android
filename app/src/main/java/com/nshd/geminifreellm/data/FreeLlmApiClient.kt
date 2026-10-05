@@ -39,10 +39,10 @@ sealed interface MediaResult {
 
 class FreeLlmApiClient {
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .callTimeout(240, TimeUnit.SECONDS)
+        .readTimeout(330, TimeUnit.SECONDS)
+        .callTimeout(360, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -196,10 +196,10 @@ class FreeLlmApiClient {
         runCatching {
             val cleanBase = baseUrl.trim().trimEnd('/')
             val payload = JSONObject()
-                .put("model", model.ifBlank { "auto" })
+                .put("model", "auto")
                 .put("prompt", prompt)
                 .put("n", 1)
-                .put("response_format", "b64_json")
+                .put("response_format", "url")
 
             val request = Request.Builder()
                 .url(cleanBase + "/images/generations")
@@ -256,10 +256,26 @@ class FreeLlmApiClient {
                     val body = response.body?.string().orEmpty()
                     error(parseServerError(body) ?: "Video generation failed (" + response.code + ").")
                 }
-                val bytes = response.body?.bytes() ?: error("The video provider returned no data.")
+                val body = response.body ?: error("The video provider returned no data.")
+                val maxBytes = 120L * 1024L * 1024L
+                val advertised = body.contentLength()
+                if (advertised > maxBytes) error("Generated video is too large to store safely.")
                 val dir = File(context.filesDir, "generated").apply { mkdirs() }
                 val file = File(dir, "video_" + System.currentTimeMillis() + ".mp4")
-                file.writeBytes(bytes)
+                body.byteStream().use { input ->
+                    file.outputStream().use { output ->
+                        val buffer = ByteArray(32 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            total += read
+                            if (total > maxBytes) error("Generated video is too large to store safely.")
+                            output.write(buffer, 0, read)
+                        }
+                    }
+                }
+                if (!file.exists() || file.length() == 0L) error("The video provider returned an empty file.")
                 MediaResult.Success(GeneratedMedia(file, "video/mp4", file.name))
             }
         }.getOrElse { MediaResult.Failure(it.message ?: "Video generation failed.") }
@@ -339,7 +355,22 @@ class FreeLlmApiClient {
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Couldn't download generated image (" + response.code + ").")
-            return response.body?.bytes() ?: error("Generated image response was empty.")
+            val body = response.body ?: error("Generated image response was empty.")
+            val maxBytes = 20L * 1024L * 1024L
+            if (body.contentLength() > maxBytes) error("Generated image is too large to store safely.")
+            val output = java.io.ByteArrayOutputStream()
+            body.byteStream().use { input ->
+                val buffer = ByteArray(16 * 1024)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    total += read
+                    if (total > maxBytes) error("Generated image is too large to store safely.")
+                    output.write(buffer, 0, read)
+                }
+            }
+            output.toByteArray()
         }
     }
 }
