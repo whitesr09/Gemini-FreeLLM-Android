@@ -598,13 +598,17 @@ private fun AiApp(context: Context) {
                     )
                 },
                 actions = {
-                    AppTextButton("Cancel") { clearDialog = false }
-                    AppButton("Clear", onClick = {
-                        sessions = listOf(store.newSession())
-                        currentId = sessions.first().id
-                        persist()
-                        clearDialog = false
-                    }, modifier = androidx.compose.ui.Modifier.width(110.dp))
+                    AppTextButton("Cancel", onClick = { clearDialog = false })
+                    AppButton(
+                        "Clear",
+                        modifier = Modifier.width(110.dp),
+                        onClick = {
+                            sessions = listOf(store.newSession())
+                            currentId = sessions.first().id
+                            persist()
+                            clearDialog = false
+                        }
+                    )
                 }
             )
         }
@@ -633,7 +637,7 @@ private fun GenerationDialog(
         },
         actions = {
             AppTextButton("Cancel", onClick = onDismiss)
-            AppButton("Generate", enabled = prompt.isNotBlank(), modifier = androidx.compose.ui.Modifier.width(110.dp), onClick = onGenerate)
+            AppButton("Generate", enabled = prompt.isNotBlank(), modifier = Modifier.width(110.dp), onClick = onGenerate)
         }
     )
 }
