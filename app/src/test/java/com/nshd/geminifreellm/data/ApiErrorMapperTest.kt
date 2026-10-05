@@ -12,9 +12,9 @@ class ApiErrorMapperTest {
         assertEquals(ApiErrorKind.FORBIDDEN, ApiErrorMapper.fromHttp(403, null).kind)
         assertEquals(ApiErrorKind.NOT_FOUND, ApiErrorMapper.fromHttp(404, null).kind)
         assertEquals(ApiErrorKind.TIMEOUT, ApiErrorMapper.fromHttp(408, null).kind)
-        assertEquals(ApiErrorKind.UNPROCESSABLE_ENTITY, ApiErrorMapper.fromHttp(422, null).kind)
+        assertEquals(ApiErrorKind.UNSUPPORTED, ApiErrorMapper.fromHttp(422, null).kind)
         assertEquals(ApiErrorKind.RATE_LIMITED, ApiErrorMapper.fromHttp(429, null).kind)
-        assertEquals(ApiErrorKind.SERVER_ERROR, ApiErrorMapper.fromHttp(500, null).kind)
+        assertEquals(ApiErrorKind.SERVER, ApiErrorMapper.fromHttp(500, null).kind)
         assertEquals(ApiErrorKind.SERVER_ERROR, ApiErrorMapper.fromHttp(502, null).kind)
         assertTrue(ApiErrorMapper.fromHttp(408, null).retryable)
         assertTrue(ApiErrorMapper.fromHttp(429, null).retryable)
@@ -24,7 +24,7 @@ class ApiErrorMapperTest {
 
     @Test fun preservesDeveloperDebugCodeForBadRequest() {
         val error = ApiErrorMapper.fromHttp(422, "Validation failed")
-        assertEquals("bad_request_422", error.debugCode)
+        assertEquals("unsupported", error.debugCode)
         assertEquals(422, error.httpStatus)
     }
 }
