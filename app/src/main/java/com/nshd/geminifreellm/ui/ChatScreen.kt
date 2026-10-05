@@ -120,11 +120,29 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
     }
 }
 
+
+@Composable
+private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val c = LocalAppColors.current
+    Box(
+        Modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(17.dp))
+            .background(if (selected) c.accentSoft else c.background)
+            .border(1.dp, if (selected) c.accent else c.border, RoundedCornerShape(17.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        BasicText(label, color = if (selected) c.accent else c.muted, fontSize = 11.sp)
+    }
+}
+
 @Composable private fun SearchField(query: String, onChange: (String) -> Unit) { val c = LocalAppColors.current; BasicTextField(value = query, onValueChange = onChange, modifier = Modifier.fillMaxWidth().height(44.dp).background(c.elevated, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 11.dp), singleLine = true, textStyle = TextStyle(color = c.text, fontSize = 14.sp), cursorBrush = SolidColor(c.accent), decorationBox = { inner -> Box { if (query.isBlank()) BasicText("⌕  Search chats", color = c.muted, fontSize = 14.sp); inner() } }) }
 
 @Composable private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (String) -> Unit) { val c = LocalAppColors.current; Column(Modifier.widthIn(min = 230.dp, max = 320.dp).background(c.surface, RoundedCornerShape(14.dp)).border(1.dp, c.border, RoundedCornerShape(14.dp)).padding(8.dp)) { val choices = models.filter { it.available }.ifEmpty { listOf(ModelInfo("auto", "Auto", true)) }; choices.forEach { model -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).clickable { onSelect(model.id) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { BasicText(model.name, color = c.text, fontSize = 13.sp); if (model.id != model.name) BasicText(model.id, color = c.muted, fontSize = 10.sp) }; if (model.id == selected) BasicText("✓", color = c.accent, fontSize = 16.sp) } } } }
 
-@Composable private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boolean, modifier: Modifier, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit) {
+@Composable private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boolean, modifier: Modifier, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit) {
     val c = LocalAppColors.current; val state = rememberLazyListState(); LaunchedEffect(messages.lastOrNull()?.id) { if (messages.isNotEmpty()) state.animateScrollToItem(messages.lastIndex) }
     if (messages.isEmpty()) { EmptyState(modifier); return }
     LazyColumn(state = state, modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
