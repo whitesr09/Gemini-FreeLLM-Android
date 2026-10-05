@@ -72,7 +72,7 @@ object AppDiagnostics {
         checks += if (app.filesDir.exists() && app.filesDir.canWrite()) "✓ App storage writable" else "✗ App storage unavailable"
         checks += if (generated.canWrite()) "✓ Generated-media storage ready" else "✗ Generated-media storage unavailable"
         checks += if (attachments.canWrite()) "✓ Attachment storage ready" else "✗ Attachment storage unavailable"
-        checks += if (baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) "✓ API URL valid" else "✗ API URL invalid"
+        checks += if (baseUrl.startsWith("https://")) "✓ API URL uses HTTPS" else "✗ API URL must use HTTPS"
         checks += if (apiKeyPresent) "✓ Unified API key configured" else "• API key not configured"
         val freeMb = app.filesDir.usableSpace / (1024L * 1024L)
         checks += if (freeMb >= 250) "✓ Free storage: " + freeMb + " MB" else "⚠ Low free storage: " + freeMb + " MB"
