@@ -111,28 +111,8 @@ private fun AiApp(context: Context) {
     var pendingSaveFile by remember { mutableStateOf<File?>(null) }
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
 
-    fun persistSession(session: ChatSession) {
-        scope.launch {
-            runCatching { store.saveSession(session, selectedModel) }
-                .onFailure { AppDiagnostics.recordEvent(context, "room_save_failure") }
-            store.saveCurrentId(session.id)
-        }
-    }
-
-    fun persistAll() {
-        scope.launch {
-            sessions.forEach { session ->
-                runCatching { store.saveSession(session, selectedModel) }
-                    .onFailure { AppDiagnostics.recordEvent(context, "room_save_failure") }
-            }
-            currentId?.let(store::saveCurrentId)
-        }
-    }
-
     fun replaceSession(session: ChatSession, persistNow: Boolean = true) {
-        sessions = sessions.map { if (it.id == session.id) session else it }
-        currentId = session.id
-        if (persistNow) persistSession(session)
+        chatVm.replaceSession(session, persistNow, selectedModel)
     }
 
     fun makeNewChat() = chatVm.newChat()
