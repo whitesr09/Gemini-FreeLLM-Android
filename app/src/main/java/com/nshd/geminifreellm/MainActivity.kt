@@ -28,7 +28,7 @@ import com.nshd.geminifreellm.data.DocumentProcessor
 import com.nshd.geminifreellm.data.ExportFormat
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.data.GeneratedMedia
-import com.nshd.geminifreellm.data.LocalChatStore
+import com.nshd.geminifreellm.data.database.RoomChatRepository
 import com.nshd.geminifreellm.data.MediaResult
 import com.nshd.geminifreellm.data.ModelInfo
 import com.nshd.geminifreellm.model.Attachment
@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
 private fun AiApp(context: Context) {
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     val secureCredentials = remember { SecureCredentialStore(context).also { it.migrateLegacy(prefs) } }
-    val store = remember { LocalChatStore(context) }
+    val store = remember { RoomChatRepository(context) }
     val client = remember { FreeLlmApiClient() }
     val scope = rememberCoroutineScope()
     val ids = remember { AtomicLong(System.currentTimeMillis()) }
@@ -88,14 +88,8 @@ private fun AiApp(context: Context) {
     var models by remember { mutableStateOf<List<ModelInfo>>(emptyList()) }
     var diagnostics by remember { mutableStateOf(AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())) }
 
-    val storedSessions = remember { store.loadSessions() }
-    var sessions by remember { mutableStateOf(storedSessions) }
-    var currentId by remember {
-        mutableStateOf(
-            store.currentId()?.takeIf { id -> storedSessions.any { it.id == id } }
-                ?: storedSessions.firstOrNull()?.id
-        )
-    }
+    var sessions by remember { mutableStateOf<List<ChatSession>>(emptyList()) }
+    var currentId by remember { mutableStateOf<String?>(null) }
 
     val emptyFallback = remember { store.newSession() }
     val activeSession = sessions.firstOrNull { it.id == currentId }
@@ -115,7 +109,13 @@ private fun AiApp(context: Context) {
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
 
     fun persist() {
-        store.saveSessions(sessions, currentId)
+        scope.launch {
+            sessions.forEach { session ->
+                runCatching { store.saveSession(session, selectedModel) }
+                    .onFailure { AppDiagnostics.recordEvent(context, "room_save_failure") }
+            }
+            currentId?.let(store::saveCurrentId)
+        }
     }
 
     fun replaceSession(session: ChatSession, persistNow: Boolean = true) {
@@ -196,12 +196,17 @@ private fun AiApp(context: Context) {
     }
 
     LaunchedEffect(Unit) {
-        if (sessions.isEmpty()) {
+        val loaded = runCatching { store.loadSessions() }.getOrElse {
+            AppDiagnostics.recordEvent(context, "room_load_failure")
+            emptyList()
+        }
+        sessions = loaded
+        val savedId = store.currentId()
+        currentId = savedId?.takeIf { id -> loaded.any { it.id == id } }
+            ?: loaded.firstOrNull()?.id
+            ?: emptyFallback.id
+        if (loaded.isEmpty()) {
             sessions = listOf(emptyFallback)
-            currentId = emptyFallback.id
-            persist()
-        } else if (currentId == null) {
-            currentId = sessions.first().id
             persist()
         }
     }
@@ -606,8 +611,10 @@ private fun AiApp(context: Context) {
                         "Clear",
                         modifier = Modifier.width(110.dp),
                         onClick = {
-                            sessions = listOf(store.newSession())
-                            currentId = sessions.first().id
+                            scope.launch { runCatching { store.clearAll() } }
+                            val fresh = store.newSession()
+                            sessions = listOf(fresh)
+                            currentId = fresh.id
                             persist()
                             clearDialog = false
                         }
