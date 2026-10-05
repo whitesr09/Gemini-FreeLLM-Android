@@ -32,7 +32,7 @@ object SseParser {
                 return@runCatching Event.ToolDelta(
                     index = tool.optInt("index", 0),
                     id = tool.optString("id").takeIf { it.isNotBlank() },
-                    name = fn?.optString("name").takeIf { it.isNotBlank() },
+                    name = fn?.optString("name")?.takeIf { it.isNotBlank() },
                     arguments = fn?.optString("arguments").orEmpty()
                 )
             }
