@@ -15,7 +15,7 @@ class ApiErrorMapperTest {
         assertEquals(ApiErrorKind.UNSUPPORTED, ApiErrorMapper.fromHttp(422, null).kind)
         assertEquals(ApiErrorKind.RATE_LIMITED, ApiErrorMapper.fromHttp(429, null).kind)
         assertEquals(ApiErrorKind.SERVER, ApiErrorMapper.fromHttp(500, null).kind)
-        assertEquals(ApiErrorKind.SERVER_ERROR, ApiErrorMapper.fromHttp(502, null).kind)
+        assertEquals(ApiErrorKind.SERVER, ApiErrorMapper.fromHttp(502, null).kind)
         assertTrue(ApiErrorMapper.fromHttp(408, null).retryable)
         assertTrue(ApiErrorMapper.fromHttp(429, null).retryable)
         assertTrue(ApiErrorMapper.fromHttp(503, null).retryable)
