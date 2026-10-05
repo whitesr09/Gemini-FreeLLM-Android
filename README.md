@@ -31,3 +31,7 @@ The app stores the Unified API key locally for convenience. This repository inte
 ## Build
 
 Pushes to `main` trigger GitHub Actions. The generated debug APK is uploaded as the `AI-FreeLLM-debug` workflow artifact.
+
+
+## UI architecture
+The 2.0 redesign uses a lightweight custom Compose design system inspired by modern ChatGPT conversation patterns. Material 3 widgets are intentionally not used. Chat history, settings, attachments, and composer state remain local-first.
