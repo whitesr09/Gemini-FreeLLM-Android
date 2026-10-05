@@ -25,6 +25,7 @@ data class StorageSnapshot(
     val attachmentBytes: Long,
     val generatedBytes: Long,
     val cacheBytes: Long,
+    val documentIndexBytes: Long,
     val missingReferences: Int,
     val sessionCount: Long
 )
@@ -114,6 +115,7 @@ class RoomChatRepository(context: Context) {
             attachmentBytes = dao.attachmentBytes(),
             generatedBytes = directoryBytes(File(appContext.filesDir, "generated")),
             cacheBytes = directoryBytes(appContext.cacheDir),
+            documentIndexBytes = dao.documentChunksBytes(),
             missingReferences = rows.count { it.localPath.isBlank() || !File(it.localPath).isFile },
             sessionCount = dao.sessionCount()
         )

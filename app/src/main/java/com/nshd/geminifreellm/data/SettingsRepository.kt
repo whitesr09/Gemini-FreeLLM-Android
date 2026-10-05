@@ -11,6 +11,8 @@ data class AppSettings(
     val temporaryDefault: Boolean = false,
     val webSearchDefault: Boolean = false,
     val localToolsEnabled: Boolean = true,
+    val localRagDefault:Boolean=false,
+    val structuredOutputDefault:Boolean=false,
     val animationsEnabled: Boolean = true,
     val appLockEnabled: Boolean = false,
     val appLockTimeoutMinutes: Int = 5,
@@ -29,6 +31,8 @@ class SettingsRepository(context: Context) {
         temporaryDefault = prefs.getBoolean("temporaryDefault", false),
         webSearchDefault = prefs.getBoolean("webSearchDefault", false),
         localToolsEnabled = prefs.getBoolean("localToolsEnabled", true),
+        localRagDefault=prefs.getBoolean("localRagDefault",false),
+        structuredOutputDefault=prefs.getBoolean("structuredOutputDefault",false),
         animationsEnabled = prefs.getBoolean("animationsEnabled", true),
         appLockEnabled = prefs.getBoolean("appLockEnabled", false),
         appLockTimeoutMinutes = prefs.getInt("appLockTimeoutMinutes", 5).coerceIn(1, 60),
@@ -45,6 +49,8 @@ class SettingsRepository(context: Context) {
             .putBoolean("temporaryDefault", value.temporaryDefault)
             .putBoolean("webSearchDefault", value.webSearchDefault)
             .putBoolean("localToolsEnabled", value.localToolsEnabled)
+            .putBoolean("localRagDefault",value.localRagDefault)
+            .putBoolean("structuredOutputDefault",value.structuredOutputDefault)
             .putBoolean("animationsEnabled", value.animationsEnabled)
             .putBoolean("appLockEnabled", value.appLockEnabled)
             .putInt("appLockTimeoutMinutes", value.appLockTimeoutMinutes.coerceIn(1, 60))

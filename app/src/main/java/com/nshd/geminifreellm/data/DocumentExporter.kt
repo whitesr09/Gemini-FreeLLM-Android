@@ -1,9 +1,12 @@
 package com.nshd.geminifreellm.data
 
+import android.content.Context
+
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import com.nshd.geminifreellm.model.ChatMessage
+import com.nshd.geminifreellm.model.ChatSession
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
@@ -20,7 +23,7 @@ enum class ExportFormat(val extension: String, val mime: String) {
 }
 
 object DocumentExporter {
-    fun renderText(message: ChatMessage, format: ExportFormat): File {
+    fun renderConversation(context:Context,sessions:List<ChatSession>,format:ExportFormat):File{\n        val safe=sessions.filterNot{it.temporary};val body=safe.joinToString("\\n\\n==============================\\n\\n"){s->"# "+s.title+"\\n\\n"+s.messages.joinToString("\\n\\n"){msg->"## "+msg.role.name+"\\n"+msg.text};val file=File(context.cacheDir,"freellm-conversation-"+System.currentTimeMillis()+"."+format.extension);when(format){ExportFormat.JSON->file.writeText(org.json.JSONObject().put("version",1).put("sessions",org.json.JSONArray().apply{safe.forEach{put(it.toJson())}}).toString(2),StandardCharsets.UTF_8);ExportFormat.HTML->file.writeText("<!doctype html><html><head><meta charset=\\\"utf-8\\\"><meta name=\\\"viewport\\\" content=\\\"width=device-width,initial-scale=1\\\"><title>FreeLLM AI conversation</title></head><body><article><pre>"+escapeHtml(body)+"</pre></article></body></html>",StandardCharsets.UTF_8);ExportFormat.TEXT,ExportFormat.MARKDOWN->file.writeText(body,StandardCharsets.UTF_8);ExportFormat.PDF->writePdf(file,body);ExportFormat.DOCX->writeDocx(file,body)};return file}\n\n    fun renderText(message: ChatMessage, format: ExportFormat): File {
         val file = File.createTempFile("ai_export_", ".${format.extension}")
         when (format) {
             ExportFormat.TEXT, ExportFormat.MARKDOWN -> file.writeText(message.text, StandardCharsets.UTF_8)

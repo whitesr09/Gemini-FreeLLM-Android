@@ -36,6 +36,9 @@ fun SettingsDialog(
     onMaintenance: () -> Unit,
     onClearCrashReport: () -> Unit,
     onClearCache: () -> Unit,
+    onClearDocumentIndex: () -> Unit,
+    onExportJson: () -> Unit,
+    onExportHtml: () -> Unit,
     onAppLock: (Boolean) -> Unit
 ) {
     var draft by remember(settings) { mutableStateOf(settings) }
@@ -190,7 +193,7 @@ fun SettingsDialog(
                             color = LocalAppColors.current.muted,
                             fontSize = 11.sp
                         )
-                        AppTextButton("Clear cache") { onClearCache() }
+                        Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){AppTextButton("Clear cache"){onClearCache()};AppTextButton("Clear document index"){onClearDocumentIndex()}}
                     }
                 }
 

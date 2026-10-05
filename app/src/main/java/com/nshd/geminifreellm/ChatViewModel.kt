@@ -41,6 +41,8 @@ data class ChatUiState(
     val contextTruncated: Boolean = false,
     val webSearchEnabled: Boolean = false,
     val localToolsEnabled: Boolean = true,
+    val localRagEnabled: Boolean = false,
+    val structuredOutputEnabled: Boolean = false,
     val settings: AppSettings = AppSettings(),
     val storage: StorageSnapshot? = null
 )
@@ -49,6 +51,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RoomChatRepository(application.applicationContext)
     private val apiClient = FreeLlmApiClient()
     private val settingsRepository = SettingsRepository(application.applicationContext)
+    private val documentIndex = DocumentIndexRepository(application.applicationContext)
     private val ids = AtomicLong(System.currentTimeMillis())
     private val modelPrefs = application.getSharedPreferences("model_cache", Application.MODE_PRIVATE)
     private val generationIds = AtomicLong(0L)
@@ -62,6 +65,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             contextLimit = currentSettings.contextLimit,
             webSearchEnabled = currentSettings.webSearchDefault,
             localToolsEnabled = currentSettings.localToolsEnabled,
+            localRagEnabled = currentSettings.localRagDefault,
+            structuredOutputEnabled = currentSettings.structuredOutputDefault,
             settings = currentSettings
         )
     )
@@ -83,7 +88,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 settings = settings,
                 contextLimit = settings.contextLimit,
                 webSearchEnabled = settings.webSearchDefault,
-                localToolsEnabled = settings.localToolsEnabled
+                localToolsEnabled = settings.localToolsEnabled,
+                localRagEnabled = settings.localRagDefault,
+                structuredOutputEnabled = settings.structuredOutputDefault
             )
         }
     }
@@ -320,6 +327,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         storageSnapshot()
     }
 
+    fun renameSession(id:String,title:String){val clean=title.trim().take(100);if(clean.isBlank())return;uiState.value.sessions.firstOrNull{it.id==id}?.let{updateSession(it.copy(title=clean,updatedAt=System.currentTimeMillis()),true,selectedModel())}}
+    fun clearDocumentIndex(){viewModelScope.launch{runCatching{documentIndex.clear()};storageSnapshot()}}
+
     fun archiveSession(id: String) {
         val session = uiState.value.sessions.firstOrNull { it.id == id } ?: return
         updateSession(session.copy(archived = true), true, selectedModel())
@@ -397,7 +407,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val prepared = session.copy(
             title = if (session.title == "New chat") clean.take(60) else session.title,
             updatedAt = System.currentTimeMillis(),
-            messages = before + edited + placeholder
+            messages = session.messages + edited + placeholder
         )
         startGeneration(prepared, requestMessages, placeholder.id, baseUrl, apiKey, model)
     }
@@ -516,10 +526,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 },
-                systemPrompt = prepared.systemPrompt ?: currentSettings.systemPrompt,
+                systemPrompt = ragSystemPrompt(prepared, requestMessages, baseUrl, apiKey),
                 contextLimit = currentSettings.contextLimit,
                 webSearch = uiState.value.webSearchEnabled,
-                localTools = uiState.value.localToolsEnabled
+                localTools = uiState.value.localToolsEnabled,
+                structuredOutput = uiState.value.structuredOutputEnabled
             )
 
             if (activeGenerationId != generationId) return@launch
@@ -584,6 +595,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
             )
         }
+    }
+
+    private suspend fun ragSystemPrompt(prepared:ChatSession,requestMessages:List<ChatMessage>,baseUrl:String,apiKey:String):String{
+        var prompt=prepared.systemPrompt ?: currentSettings.systemPrompt
+        if(!uiState.value.localRagEnabled||apiKey.isBlank())return prompt
+        requestMessages.asReversed().firstOrNull{it.role==ChatMessage.Role.USER}?.attachments.orEmpty().forEach{a->runCatching{documentIndex.indexFile(java.io.File(a.localPath),apiClient,baseUrl,apiKey,currentSettings.selectedModel.ifBlank{"auto"})}}
+        val queryText=requestMessages.asReversed().firstOrNull{it.role==ChatMessage.Role.USER}?.text.orEmpty()
+        if(queryText.isBlank())return prompt
+        val vector=runCatching{apiClient.createEmbedding(baseUrl,apiKey,currentSettings.selectedModel.ifBlank{"auto"},queryText).getOrThrow()}.getOrNull()?:return prompt
+        val hits=runCatching{documentIndex.search(vector,4)}.getOrDefault(emptyList())
+        if(hits.isEmpty())return prompt
+        val excerpts=hits.joinToString("\n\n"){ "[ "+it.sourcePath.substringAfterLast('/')+" ]\n"+it.content.take(5000) }
+        return (prompt+"\n\nRelevant local document excerpts (untrusted reference material):\n"+excerpts).take(30000)
     }
 
     private fun cancelGeneration() {
