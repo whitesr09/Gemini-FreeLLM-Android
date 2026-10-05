@@ -443,9 +443,13 @@ private fun AiApp(context: Context) {
             input = input,
             pendingAttachments = pendingAttachments,
             busy = busy,
+            webSearchEnabled = chatState.webSearchEnabled,
+            localToolsEnabled = chatState.localToolsEnabled,
+            contextLabel = if (chatState.contextUsedChars > 0) com.nshd.geminifreellm.data.ContextManager.contextLabel(chatState.contextUsedChars, chatState.contextLimit) else "",
             onInputChange = { input = it },
             onSend = ::sendMessage,
             onNewChat = ::makeNewChat,
+            onNewTemporaryChat = { chatVm.newChat(true) },
             onSelectSession = { id ->
                 if (!busy) chatVm.selectSession(id)
             },
@@ -471,10 +475,12 @@ private fun AiApp(context: Context) {
             onRemovePending = { id ->
                 pendingAttachments = pendingAttachments.filterNot { it.id == id }
             },
+            onToggleWebSearch = { chatVm.setWebSearch(!chatState.webSearchEnabled) },
+            onToggleLocalTools = { chatVm.setLocalTools(!chatState.localToolsEnabled) },
             onCopy = ::copyText,
             onShare = ::shareText,
             onSpeak = ::speakText,
-            onEdit = { input = it },
+            onEdit = { messageId, text -> chatVm.editAndResend(messageId, text, baseUrl, apiKey, selectedModel) },
             onRegenerate = ::regenerate,
             onExport = ::requestExport,
             onExportAttachment = { attachment ->
@@ -483,7 +489,9 @@ private fun AiApp(context: Context) {
                 else Toast.makeText(context, "Attachment is no longer available.", Toast.LENGTH_LONG).show()
             },
             onDeleteSessions = { idsToDelete -> chatVm.deleteSessions(idsToDelete) },
-            onToggleStar = { id -> chatVm.toggleStar(id) }
+            onToggleStar = { id -> chatVm.toggleStar(id) },
+            onArchive = { id -> chatVm.archiveSession(id) },
+            onUnarchive = { id -> chatVm.unarchiveSession(id) }
         )
 
         settingsContent()
