@@ -35,8 +35,6 @@ import com.nshd.geminifreellm.data.StorageManager
 import com.nshd.geminifreellm.data.BackupManager
 import com.nshd.geminifreellm.data.DocumentExporter
 import com.nshd.geminifreellm.data.DocumentProcessor
-import com.nshd.geminifreellm.data.DraftRepository
-import com.nshd.geminifreellm.data.DraftState
 import com.nshd.geminifreellm.data.ExportFormat
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.data.MediaResult
@@ -111,7 +109,6 @@ private fun AiApp(context: Context) {
     val client = remember { FreeLlmApiClient() }
     val scope = rememberCoroutineScope()
     val ids = remember { AtomicLong(System.currentTimeMillis()) }
-    val draftRepository = remember { DraftRepository(context) }
 
     DisposableEffect(Unit) {
         onDispose { client.cancelActive() }
@@ -288,7 +285,6 @@ private fun AiApp(context: Context) {
     fun sendMessage() {
         if (busy || (input.isBlank() && pendingAttachments.isEmpty())) return
         chatVm.sendMessage(baseUrl, apiKey, selectedModel, input, pendingAttachments)
-        draftRepository.clear(activeSession.id)
         input = ""
         pendingAttachments = emptyList()
     }
@@ -447,9 +443,6 @@ private fun AiApp(context: Context) {
                     AppDiagnostics.clearPreviousCrash(context)
                     diagnostics = AppDiagnostics.selfCheck(context, baseUrl, apiKey.isNotBlank())
                 },
-                onClearDocumentIndex = { chatVm.clearDocumentIndex() },
-                onExportJson = { scope.launch { runCatching { withContext(Dispatchers.IO){DocumentExporter.renderConversation(context,sessions,ExportFormat.JSON)} }.onSuccess{requestSaveFile(it)}.onFailure{Toast.makeText(context,it.message?:"Export failed",Toast.LENGTH_LONG).show()} } },
-                onExportHtml = { scope.launch { runCatching { withContext(Dispatchers.IO){DocumentExporter.renderConversation(context,sessions,ExportFormat.HTML)} }.onSuccess{requestSaveFile(it)}.onFailure{Toast.makeText(context,it.message?:"Export failed",Toast.LENGTH_LONG).show()} } },
                 onClearCache = {
                     com.nshd.geminifreellm.data.StorageManager.clearCache(context)
                     chatVm.storageSnapshot()
@@ -473,10 +466,8 @@ private fun AiApp(context: Context) {
             busy = busy,
             webSearchEnabled = chatState.webSearchEnabled,
             localToolsEnabled = chatState.localToolsEnabled,
-            localRagEnabled = chatState.localRagEnabled,
-            structuredOutputEnabled = chatState.structuredOutputEnabled,
             contextLabel = if (chatState.contextUsedChars > 0) com.nshd.geminifreellm.data.ContextManager.contextLabel(chatState.contextUsedChars, chatState.contextLimit) else "",
-            onInputChange = { value -> input=value; draftRepository.save(activeSession.id, DraftState(value,pendingAttachments.map{it.id})) },
+            onInputChange = { input = it },
             onSend = ::sendMessage,
             onNewChat = ::makeNewChat,
             onNewTemporaryChat = { chatVm.newChat(true) },
@@ -504,12 +495,9 @@ private fun AiApp(context: Context) {
             },
             onRemovePending = { id ->
                 pendingAttachments = pendingAttachments.filterNot { it.id == id }
-                draftRepository.save(activeSession.id, DraftState(input,pendingAttachments.map{it.id}))
             },
             onToggleWebSearch = { chatVm.setWebSearch(!chatState.webSearchEnabled) },
             onToggleLocalTools = { chatVm.setLocalTools(!chatState.localToolsEnabled) },
-            onToggleLocalRag = { chatVm.setLocalRag(!chatState.localRagEnabled) },
-            onToggleStructuredOutput = { chatVm.setStructuredOutput(!chatState.structuredOutputEnabled) },
             onCopy = ::copyText,
             onShare = ::shareText,
             onSpeak = ::speakText,
@@ -525,7 +513,6 @@ private fun AiApp(context: Context) {
             onToggleStar = { id -> chatVm.toggleStar(id) },
             onArchive = { id -> chatVm.archiveSession(id) },
             onUnarchive = { id -> chatVm.unarchiveSession(id) },
-            onRename = { id, name -> chatVm.renameSession(id,name) },
             onOpenAttachment = { attachment -> previewAttachment = attachment },
             onDeleteAttachment = { attachment -> chatVm.deleteAttachment(attachment.id) },
             onShareAttachment = ::shareAttachment,
