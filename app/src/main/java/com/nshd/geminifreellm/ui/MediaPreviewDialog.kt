@@ -10,9 +10,7 @@ import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -34,13 +32,13 @@ fun MediaPreviewDialog(
 ) {
     val file = remember(attachment.localPath) { File(attachment.localPath) }
     val isVideo = attachment.mimeType.startsWith("video/") || attachment.kind == Attachment.Kind.GENERATED_VIDEO
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(attachment.name) },
-        text = {
+    AppDialog(
+        title = attachment.name,
+        onDismiss = onDismiss,
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (!file.exists()) {
-                    Text("This media file is no longer available.")
+                    BasicText("This media file is no longer available.", color = LocalAppColors.current.muted)
                 } else if (isVideo) {
                     AndroidView(
                         factory = { context ->
@@ -85,26 +83,20 @@ fun MediaPreviewDialog(
                                 .transformable(transformState),
                             contentScale = ContentScale.Fit
                         )
-                    } else Text("Unable to decode this image.")
+                    } else BasicText("Unable to decode this image.", color = LocalAppColors.current.muted)
                 }
-                Text(attachment.mimeType + " · " + formatBytes(attachment.sizeBytes), color = LocalAppColors.current.muted)
+                BasicText(attachment.mimeType + " · " + formatBytes(attachment.sizeBytes), color = LocalAppColors.current.muted)
             }
         },
-        confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onSave) { Text("Save") }
-                TextButton(onClick = onShare) { Text("Share") }
-                onRegenerate?.let { action -> TextButton(onClick = action) { Text("Regenerate") } }
-                TextButton(onClick = onDelete) { Text("Delete") }
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+        actions = {
+            AppTextButton("Close", onClick = onDismiss)
+            AppTextButton("Save", onClick = onSave)
+            AppTextButton("Share", onClick = onShare)
+            onRegenerate?.let { action -> AppTextButton("Regenerate", onClick = action) }
+            AppButton("Delete", modifier = Modifier.width(90.dp), onClick = onDelete)
+        }
     )
+
 }
 
-private fun formatBytes(value: Long): String = when {
-    value < 1024 -> value.toString() + " B"
-    value < 1024 * 1024 -> (value / 1024f).roundToInt().toString() + " KB"
-    value < 1024 * 1024 * 1024L -> (value / (1024f * 1024f)).roundToInt().toString() + " MB"
-    else -> (value / (1024f * 1024f * 1024f)).roundToInt().toString() + " GB"
-}
+private fun formatBytes
