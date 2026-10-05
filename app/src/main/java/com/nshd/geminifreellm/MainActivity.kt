@@ -28,6 +28,7 @@ import com.nshd.geminifreellm.data.DocumentProcessor
 import com.nshd.geminifreellm.data.ExportFormat
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.data.MediaResult
+import com.nshd.geminifreellm.data.ModelCache
 import com.nshd.geminifreellm.model.Attachment
 import com.nshd.geminifreellm.model.ChatMessage
 import com.nshd.geminifreellm.model.ChatSession
@@ -177,11 +178,12 @@ private fun AiApp(context: Context) {
 
     LaunchedEffect(baseUrl, apiKey) {
         if (baseUrl.isBlank() || apiKey.isBlank()) {
-            models = emptyList()
+            models = ModelCache.load(context)?.models.orEmpty()
         } else {
             val result = client.fetchModels(baseUrl, apiKey)
             result.onSuccess { list ->
                 models = list
+                ModelCache.save(context, list)
                 if (selectedModel != "auto" && list.none { it.id == selectedModel && it.available }) {
                     selectedModel = "auto"
                     prefs.edit().putString("model", "auto").apply()
