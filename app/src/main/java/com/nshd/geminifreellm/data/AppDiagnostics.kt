@@ -31,7 +31,7 @@ object AppDiagnostics {
                     appendLine("thread=" + thread.name)
                     appendLine("package=" + appContext.packageName)
                     appendLine()
-                    append(sw.toString())
+                    append(redactSensitive(sw.toString()).take(30_000))
                 }
                 File(dir, CRASH_FILE).writeText(report)
             }
@@ -43,7 +43,7 @@ object AppDiagnostics {
         runCatching {
             val dir = File(context.applicationContext.filesDir, DIR).apply { mkdirs() }
             val file = File(dir, EVENTS_FILE)
-            file.appendText(now() + " | " + event.take(500) + "\n")
+            file.appendText(now() + " | " + redactSensitive(event).take(500) + "\n")
             if (file.length() > 64 * 1024L) {
                 val lines = file.readLines().takeLast(250)
                 file.writeText(lines.joinToString("\n") + "\n")
@@ -100,14 +100,18 @@ object AppDiagnostics {
         return file
     }
 
-    fun safeRepair(context: Context) {
+    /**
+     * Non-destructive maintenance. It only removes temporary cache data and recreates
+     * required app directories. User chats, attachments, and generated media are never
+     * deleted here because reference ownership belongs to the database layer.
+     */
+    fun maintenance(context: Context) {
         val app = context.applicationContext
         File(app.cacheDir, "tmp").deleteRecursively()
-        File(app.filesDir, "generated").apply { mkdirs() }.listFiles()?.forEach { file ->
-            if (file.isFile && System.currentTimeMillis() - file.lastModified() > 14L * 24 * 60 * 60 * 1000) file.delete()
-        }
-        File(app.filesDir, "attachments").apply { mkdirs() }
-        recordEvent(app, "safe_repair_completed")
+        File(app.cacheDir, "rendered_pages").deleteRecursively()
+        File(app.filesDir, "generated").mkdirs()
+        File(app.filesDir, "attachments").mkdirs()
+        recordEvent(app, "maintenance_completed")
     }
 
     private fun sanitizeUrl(value: String): String {
