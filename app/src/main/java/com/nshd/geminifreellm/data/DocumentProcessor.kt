@@ -183,66 +183,6 @@ object DocumentProcessor {
         }.getOrElse { bitmap }
     }
 
-    private fun extractOfficeXml(file: File): String {
-        val parts = mutableListOf<String>()
-        var entryCount = 0
-        var totalBytes = 0L
-        ZipInputStream(file.inputStream().buffered()).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                entryCount++
-                require(entryCount <= MAX_ZIP_ENTRIES) { "Office document contains too many ZIP entries." }
-                val rawPath = entry.name.replace('\\', '/')
-                require(
-                    !rawPath.startsWith("/") &&
-                        !rawPath.split('/').any { it == ".." } &&
-                        !rawPath.contains("\\u0000")
-                ) { "Unsafe ZIP entry path." }
-
-                val path = rawPath.lowercase()
-                val wanted = path.endsWith(".xml") &&
-                    (path.startsWith("word/") ||
-                        path.startsWith("ppt/slides/") ||
-                        path == "xl/sharedstrings.xml" ||
-                        path.startsWith("xl/worksheets/"))
-
-                if (!entry.isDirectory && wanted) {
-                    val out = ByteArrayOutputStream()
-                    val buffer = ByteArray(16 * 1024)
-                    var entryBytes = 0L
-                    while (true) {
-                        val read = zip.read(buffer)
-                        if (read < 0) break
-                        entryBytes += read
-                        totalBytes += read
-                        require(entryBytes <= MAX_ZIP_ENTRY_BYTES) { "ZIP entry is too large." }
-                        require(totalBytes <= MAX_ZIP_TOTAL_BYTES) { "Office document expands beyond the safe processing limit." }
-                        out.write(buffer, 0, read)
-                    }
-                    val xml = out.toString(StandardCharsets.UTF_8.name())
-                    val text = xml
-                        .replace(Regex("<w:tab[^>]*/>"), "\t")
-                        .replace(Regex("<br[^>]*/?>"), "\n")
-                        .replace(Regex("<[^>]+>"), " ")
-                        .replace("&amp;", "&")
-                        .replace("&lt;", "<")
-                        .replace("&gt;", ">")
-                        .replace("&quot;", "\"")
-                        .replace("&apos;", "'")
-                        .replace(Regex("\\s+"), " ")
-                        .trim()
-                    if (text.isNotBlank()) parts += text
-                } else {
-                    // Consume non-target entries without buffering them.
-                    val buffer = ByteArray(8 * 1024)
-                    while (zip.read(buffer) >= 0) Unit
-                }
-                zip.closeEntry()
-            }
-        }
-        return parts.joinToString("\n").take(MAX_TEXT_CHARS)
-    }
-
     private fun isTextExtension(name: String): Boolean {
         val lower = name.lowercase()
         return listOf(".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm", ".kt", ".java", ".py", ".js", ".ts", ".tsx", ".jsx", ".css", ".scss", ".yaml", ".yml", ".sql", ".c", ".cpp", ".h", ".hpp", ".log")
