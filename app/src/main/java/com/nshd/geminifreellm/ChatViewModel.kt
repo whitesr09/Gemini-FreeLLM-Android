@@ -351,6 +351,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         storageSnapshot()
     }
 
+
+    fun renameSession(id: String, title: String) {
+        val clean = title.trim().replace("\\n", " ").take(80)
+        if (clean.isBlank()) return
+        val session = uiState.value.sessions.firstOrNull { it.id == id } ?: return
+        updateSession(session.copy(title = clean, updatedAt = System.currentTimeMillis()), !session.temporary, selectedModel())
+    }
+
     fun archiveSession(id: String) {
         val session = uiState.value.sessions.firstOrNull { it.id == id } ?: return
         updateSession(session.copy(archived = true), true, selectedModel())
