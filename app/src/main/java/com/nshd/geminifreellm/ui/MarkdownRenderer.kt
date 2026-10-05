@@ -14,13 +14,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextDecoration
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 private sealed interface MarkdownBlock {
     data class Paragraph(val value:String):MarkdownBlock
@@ -89,7 +90,7 @@ private fun CodeBlock(block:MarkdownBlock.Code,onCopyCode:(String)->Unit){
     Column(Modifier.fillMaxWidth().background(c.surface,RoundedCornerShape(12.dp)).border(1.dp,c.border,RoundedCornerShape(12.dp))){
         Row(Modifier.fillMaxWidth().height(48.dp).padding(start=12.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically){
             BasicText(block.language.ifBlank{"code"},color=c.muted,fontSize=10.sp,fontWeight=FontWeight.Medium,modifier=Modifier.weight(1f))
-            AppIconButton("copy","Copy code"){onCopyCode(block.value)}
+            AppIconButton("copy","Copy code", onClick = { onCopyCode(block.value) })
         }
         Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(12.dp)){BasicText(block.value,color=c.text,fontSize=13.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)}
     }
@@ -112,7 +113,7 @@ private fun parseMarkdown(source:String):List<MarkdownBlock>{
     val result=mutableListOf<MarkdownBlock>()
     var codeMode=false
     var language=""
-    val fence="\\u0060\\u0060\\u0060"
+    val fence="```"
     val code=StringBuilder()
     var i=0
     while(i<lines.size){
@@ -146,7 +147,7 @@ private fun isTableSeparator(line:String):Boolean{
     val cells=line.trim().removePrefix("|").removeSuffix("|").split('|')
     return cells.size>=2&&cells.all{cell->val clean=cell.trim().replace(":","");clean.count{it=='-'}>=3&&clean.all{it=='-'||it.isWhitespace()}}
 }
-private fun splitTableLine(line:String):List<String>=line.trim().removePrefix("|").removeSuffix("|").split('|').map{it.trim()}
+private fun splitTableLine(line: String): List<String> = line.trim().removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
 
 private fun inlineAnnotated(source:String,colors:AppColors):AnnotatedString{
     val b=AnnotatedString.Builder();val fence='\u0060';var i=0
