@@ -6,7 +6,7 @@
         android:label="AI"
         android:icon="@drawable/ic_ai_orb"
         android:roundIcon="@drawable/ic_ai_orb"
-        android:theme="@style/Theme.GeminiFreeLLM"
+        android:theme="@style/Theme.AI"
         android:usesCleartextTraffic="true">
 
         <activity
