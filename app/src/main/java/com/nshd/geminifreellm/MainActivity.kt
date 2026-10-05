@@ -673,16 +673,16 @@ private fun AiApp(activity: MainActivity) {
             )
         }
 
-        if (generationMode != null) {
+        generationMode?.let { type ->
             GenerationDialog(
-                type = generationMode!!,
+                type = type,
                 prompt = generationPrompt,
                 onPromptChange = { generationPrompt = it },
                 onDismiss = {
                     generationMode = null
                     generationPrompt = ""
                 },
-                onGenerate = { runGeneration(generationMode!!, generationPrompt) }
+                onGenerate = { runGeneration(type, generationPrompt) }
             )
         }
 
