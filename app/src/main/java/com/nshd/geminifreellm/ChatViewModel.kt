@@ -78,6 +78,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun cleanupOrphans() {
+        viewModelScope.launch { runCatching { repository.cleanupOrphans() } }
+    }
+
     fun testConnection(baseUrl: String, apiKey: String) {
         _uiState.update { it.copy(connectionTesting = true, connectionError = null) }
         viewModelScope.launch {
