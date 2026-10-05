@@ -66,6 +66,29 @@ fun SettingsDialog(
                     AppField(key, { key = it; error = null }, "Unified API key", singleLine = true, password = !showKey)
                     Spacer(Modifier.height(4.dp))
                     AppTextButton(if (showKey) "Hide key" else "Show key") { showKey = !showKey }
+                    Spacer(Modifier.height(6.dp))
+                    AppTextButton(if (connectionTesting) "Testing…" else "Test connection") {
+                        if (!connectionTesting) onTestConnection()
+                    }
+                    connectionError?.let {
+                        Spacer(Modifier.height(4.dp))
+                        BasicText(it, color = LocalAppColors.current.error, fontSize = 11.sp)
+                    }
+                    connectionResult?.let { check ->
+                        Spacer(Modifier.height(5.dp))
+                        BasicText(
+                            "Reachable: " + if (check.serverReachable) "yes" else "no" +
+                                " · Auth: " + if (check.authenticationAccepted) "accepted" else "rejected",
+                            color = LocalAppColors.current.muted, fontSize = 11.sp
+                        )
+                        BasicText(
+                            "Models: " + check.modelsAvailable + " · " + check.latencyMs + " ms · Vision: " +
+                                if (check.visionAvailable) "yes" else "no" +
+                                " · Image: " + if (check.imageGenerationAvailable) "yes" else "no" +
+                                " · Video: " + if (check.videoGenerationAvailable) "yes" else "no",
+                            color = LocalAppColors.current.muted, fontSize = 11.sp
+                        )
+                    }
                 }
                 item {
                     SectionTitle("Appearance")
