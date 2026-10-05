@@ -9,6 +9,7 @@ import com.nshd.geminifreellm.data.ConnectionCheck
 import com.nshd.geminifreellm.data.ContextManager
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.data.ModelInfo
+import com.nshd.geminifreellm.data.DocumentIndexRepository
 import com.nshd.geminifreellm.data.SettingsRepository
 import com.nshd.geminifreellm.data.database.StorageSnapshot
 import com.nshd.geminifreellm.data.database.RoomChatRepository
@@ -49,6 +50,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RoomChatRepository(application.applicationContext)
     private val apiClient = FreeLlmApiClient()
     private val settingsRepository = SettingsRepository(application.applicationContext)
+    private val documentIndexRepository = DocumentIndexRepository(application.applicationContext)
     private val ids = AtomicLong(System.currentTimeMillis())
     private val modelPrefs = application.getSharedPreferences("model_cache", Application.MODE_PRIVATE)
     private val generationIds = AtomicLong(0L)
@@ -94,6 +96,35 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setLocalTools(enabled: Boolean) {
         _uiState.update { it.copy(localToolsEnabled = enabled) }
+    }
+
+    fun setDocumentIndexEnabled(enabled: Boolean) {
+        currentSettings = currentSettings.copy(documentIndexEnabled = enabled)
+        settingsRepository.save(currentSettings)
+        _uiState.update { it.copy(settings = currentSettings) }
+    }
+
+    fun indexDocument(file: java.io.File, baseUrl: String, apiKey: String) {
+        if (!currentSettings.documentIndexEnabled || !file.isFile || apiKey.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                documentIndexRepository.indexFile(file, apiClient, baseUrl, apiKey, "auto")
+            }.onFailure { error ->
+                com.nshd.geminifreellm.data.AppDiagnostics.recordEvent(
+                    getApplication(),
+                    "document_index_failed: " + (error.message ?: "unknown")
+                )
+            }.onSuccess {
+                storageSnapshot()
+            }
+        }
+    }
+
+    fun clearDocumentIndex() {
+        viewModelScope.launch {
+            runCatching { documentIndexRepository.clear() }
+            storageSnapshot()
+        }
     }
 
     fun storageSnapshot() {
@@ -497,6 +528,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         generationJob = viewModelScope.launch {
+            val effectiveSystemPrompt = buildSystemPrompt(
+                prepared.systemPrompt ?: currentSettings.systemPrompt,
+                requestMessages,
+                baseUrl,
+                apiKey
+            )
             val result = apiClient.send(
                 context = getApplication(),
                 baseUrl = baseUrl,
@@ -516,7 +553,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 },
-                systemPrompt = prepared.systemPrompt ?: currentSettings.systemPrompt,
+                systemPrompt = effectiveSystemPrompt,
                 contextLimit = currentSettings.contextLimit,
                 webSearch = uiState.value.webSearchEnabled,
                 localTools = uiState.value.localToolsEnabled
@@ -545,6 +582,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private suspend fun buildSystemPrompt(
+        base: String,
+        messages: List<ChatMessage>,
+        baseUrl: String,
+        apiKey: String
+    ): String {
+        if (!currentSettings.documentIndexEnabled || apiKey.isBlank()) return base
+        val query = messages.lastOrNull { it.role == ChatMessage.Role.USER }?.text?.trim().orEmpty()
+        if (query.isBlank()) return base
+        val vector = apiClient.createEmbedding(baseUrl, apiKey, "auto", query).getOrNull() ?: return base
+        val chunks = documentIndexRepository.search(vector, 4)
+        if (chunks.isEmpty()) return base
+        val context = chunks.joinToString("\n\n") {
+            "[Source: ${it.sourcePath}]\n${it.content.take(6_000)}"
+        }
+        val suffix = "\n\nUse the following locally indexed document context when relevant. Do not cite it as web data. If it does not answer the question, say so.\n" + context
+        return (base + suffix).take(60_000)
+    }
     private fun branchForRequest(messages: List<ChatMessage>): List<ChatMessage> {
         if (messages.isEmpty()) return emptyList()
         val output = mutableListOf<ChatMessage>()
