@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.material3.Text
+import androidx.compose.foundation.text.BasicText
 
 @Composable
 fun AppDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit, actions: @Composable RowScope.() -> Unit) {
@@ -26,9 +26,9 @@ fun AppDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnS
         Box(Modifier.fillMaxWidth().padding(18.dp).background(c.surface, RoundedCornerShape(18.dp)).border(1.dp, c.border, RoundedCornerShape(18.dp))) {
             Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, color = c.text, fontSize = 20.sp)
+                    BasicText(title, color = c.text, fontSize = 20.sp)
                     Spacer(Modifier.weight(1f))
-                    Text("×", color = c.muted, fontSize = 26.sp, modifier = Modifier.clickable(onClick = onDismiss).padding(horizontal = 6.dp))
+                    BasicText("×", color = c.muted, fontSize = 26.sp, modifier = Modifier.clickable(onClick = onDismiss).padding(horizontal = 6.dp))
                 }
                 Spacer(Modifier.height(16.dp))
                 content()
@@ -43,7 +43,7 @@ fun AppDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnS
 fun AppButton(text: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
     val c = LocalAppColors.current
     Box(modifier.fillMaxWidth().height(44.dp).background(if (enabled) c.accent else c.elevated, RoundedCornerShape(12.dp)).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
-        Text(text, color = if (enabled) Color.White else c.muted, fontSize = 14.sp)
+        BasicText(text, color = if (enabled) Color.White else c.muted, fontSize = 14.sp)
     }
 }
 
@@ -59,7 +59,7 @@ fun AppTextButton(text: String, onClick: () -> Unit, enabled: Boolean = true, mo
 fun AppField(value: String, onValueChange: (String) -> Unit, label: String, modifier: Modifier = Modifier, singleLine: Boolean = true, minLines: Int = 1, password: Boolean = false) {
     val c = LocalAppColors.current
     Column(modifier) {
-        Text(label, color = c.muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
+        BasicText(label, color = c.muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
