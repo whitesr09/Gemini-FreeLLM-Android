@@ -63,7 +63,6 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           unzip -t "$APK" >/dev/null
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$APK" >/dev/null
 
       - name: Release AAB
         run: gradle bundleRelease --no-daemon --stacktrace
@@ -73,6 +72,9 @@ jobs:
         with:
           name: FreeLLM-AI-release-unsigned
           path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Validate release AAB
+        run: unzip -t app/build/outputs/bundle/release/app-release.aab >/dev/null
 
       - name: Upload release AAB
         uses: actions/upload-artifact@v4
