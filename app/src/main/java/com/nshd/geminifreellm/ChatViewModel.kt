@@ -98,7 +98,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun storageSnapshot() {
         viewModelScope.launch {
-            _uiState.update { it.copy(storage = runCatching { repository.storageSnapshot() }.getOrNull()) }
+            _uiState.update { it.copy(storage = runCatching { repository.storageSnapshot().let { s -> StorageUsage(s.attachmentBytes, s.generatedBytes, 0L, s.cacheBytes, 0L, s.attachmentBytes + s.generatedBytes + s.cacheBytes) } }.getOrNull()) }
         }
     }
 
