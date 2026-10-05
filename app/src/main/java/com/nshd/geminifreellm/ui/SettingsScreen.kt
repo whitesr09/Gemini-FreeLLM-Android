@@ -27,7 +27,11 @@ fun SettingsDialog(
     onDismiss: () -> Unit,
     onExportChats: () -> Unit,
     onImportChats: () -> Unit,
-    onClearChats: () -> Unit
+    onClearChats: () -> Unit,
+    diagnostics: List<String>,
+    onExportDiagnostics: () -> Unit,
+    onSafeRepair: () -> Unit,
+    onClearCrashReport: () -> Unit
 ) {
     var url by remember(baseUrl) { mutableStateOf(baseUrl) }
     var key by remember(apiKey) { mutableStateOf(apiKey) }
@@ -75,6 +79,21 @@ fun SettingsDialog(
                         AppTextButton("Import") { onImportChats() }
                         Spacer(Modifier.weight(1f))
                         AppTextButton("Clear") { onClearChats() }
+                    }
+                }
+                item {
+                    SectionTitle("Diagnostics & recovery")
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        diagnostics.take(8).forEach { line ->
+                            BasicText(line, color = if (line.startsWith("✗")) LocalAppColors.current.error else LocalAppColors.current.muted, fontSize = 11.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                        AppTextButton("Export report") { onExportDiagnostics() }
+                        AppTextButton("Safe repair") { onSafeRepair() }
+                        Spacer(Modifier.weight(1f))
+                        AppTextButton("Clear crash") { onClearCrashReport() }
                     }
                 }
                 if (error != null) item {
