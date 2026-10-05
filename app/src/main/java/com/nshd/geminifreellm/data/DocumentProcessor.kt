@@ -150,7 +150,7 @@ object DocumentProcessor {
         val out = ByteArrayOutputStream()
         oriented.compress(Bitmap.CompressFormat.JPEG, IMAGE_QUALITY, out)
         oriented.recycle()
-        return out
+        return out.toByteArray()
     }
 
     private fun applyExifOrientation(file: File, bitmap: Bitmap): Bitmap {
