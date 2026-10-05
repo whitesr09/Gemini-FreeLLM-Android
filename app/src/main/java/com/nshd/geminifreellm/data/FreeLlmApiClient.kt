@@ -86,7 +86,7 @@ class FreeLlmApiClient {
 
     private fun normalizeBaseUrl(raw: String): String {
         val value = raw.trim().trimEnd('/')
-        require(value.startsWith("https://") || value.startsWith("http://")) { "Base URL must use http:// or https://." }
+        require(value.startsWith("https://")) { "Base URL must use HTTPS." }
         require(!value.contains("\n") && !value.contains("\r") && !value.contains(" ")) { "Base URL contains invalid whitespace." }
         val normalized = value.removeSuffix("/chat/completions").removeSuffix("/models")
         return normalized.trimEnd('/')
