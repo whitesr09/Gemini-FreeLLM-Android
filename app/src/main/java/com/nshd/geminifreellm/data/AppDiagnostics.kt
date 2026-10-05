@@ -85,11 +85,11 @@ object AppDiagnostics {
         val report = JSONObject()
             .put("package", app.packageName)
             .put("generatedAt", now())
-            .put("baseUrl", baseUrl)
+            .put("baseUrl", sanitizeUrl(baseUrl))
             .put("apiKeyConfigured", apiKeyPresent)
             .put("chatCount", chatCount)
             .put("freeStorageBytes", app.filesDir.usableSpace)
-            .put("previousCrash", readPreviousCrash(app).orEmpty())
+            .put("previousCrash", redactSensitive(readPreviousCrash(app).orEmpty()).take(12_000))
             .put(
                 "events",
                 runCatching { File(app.filesDir, DIR + "/" + EVENTS_FILE).readText().takeLast(32_000) }.getOrDefault("")
@@ -108,6 +108,20 @@ object AppDiagnostics {
         }
         File(app.filesDir, "attachments").apply { mkdirs() }
         recordEvent(app, "safe_repair_completed")
+    }
+
+    private fun sanitizeUrl(value: String): String {
+        return runCatching {
+            android.net.Uri.parse(value).let { uri ->
+                uri.buildUpon().clearQuery().fragment(null).build().toString()
+            }
+        }.getOrDefault(value.substringBefore("?").substringBefore("#"))
+    }
+
+    private fun redactSensitive(value: String): String {
+        return value
+            .replace(Regex("(?i)Bearer\\s+[A-Za-z0-9._~+/=-]+"), "Bearer [REDACTED]")
+            .replace(Regex("(?i)(api[_-]?key|authorization|token|secret|password)\\s*[:=]\\s*[^\\s,}]+"), "$1=[REDACTED]")
     }
 
     private fun now(): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US).format(Date())
