@@ -145,7 +145,7 @@ class FreeLlmApiClient {
                 cleanBase, apiKey, model.ifBlank { "auto" }, requestMessages, tools, onDelta
             )
 
-            if (latest.toolCalls.any { !it.name.equals("google_search",true) }) {
+            if (latest.toolCalls.isNotEmpty()) {
                 val followUp = requestMessages.toMutableList()
                 val assistant = JSONObject()
                     .put("role", "assistant")
@@ -505,7 +505,7 @@ class FreeLlmApiClient {
             .put("messages", JSONArray().apply { messages.forEach { put(it) } })
             .put("stream", true)
             .put("stream_options", JSONObject().put("include_usage", true))
-        if(structuredOutput){val schema=JSONObject().put("type","object").put("properties",JSONObject().put("answer",JSONObject().put("type","string"))).put("required",JSONArray().put("answer")).put("additionalProperties",false);payload.put("response_format",StructuredOutput.responseFormat(StructuredOutputRequest(schema)))}\n        tools?.let{payload.put("tools",it).put("tool_choice","auto")}
+        tools?.let { payload.put("tools", it).put("tool_choice", "auto") }
 
         val request = Request.Builder()
             .url(baseUrl + "/chat/completions")
