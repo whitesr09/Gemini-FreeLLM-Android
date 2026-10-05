@@ -46,7 +46,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Gemini-FreeLLM-debug
+          name: AI-FreeLLM-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Detect permanent release signing configuration
