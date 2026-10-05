@@ -34,6 +34,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val generationIds = AtomicLong(0L)
     private var generationJob: Job? = null
     private var activeGenerationId: Long? = null
+    private var activeGenerationModel: String = "auto"
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -191,6 +192,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val session = state.sessions.firstOrNull { it.id == state.currentId } ?: repository.newSession()
         val generationId = generationIds.incrementAndGet()
         activeGenerationId = generationId
+        activeGenerationModel = model
         val userText = text.trim()
         val userMessage = ChatMessage(ids.incrementAndGet(), userText, ChatMessage.Role.USER, attachments = attachments)
         val assistantId = ids.incrementAndGet()
@@ -252,12 +254,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (requestMessages.lastOrNull()?.role != ChatMessage.Role.USER) return
         val generationId = generationIds.incrementAndGet()
         activeGenerationId = generationId
+        activeGenerationModel = model
         val assistantId = ids.incrementAndGet()
         val placeholder = ChatMessage(assistantId, "", ChatMessage.Role.ASSISTANT)
-        // Preserve the old response: regeneration creates a new response instead of deleting history.
-        val oldResponse = session.messages[index]
+        // Explicit "regenerate from here" semantics: the old response and all later
+        // messages belong to the affected branch, so they are replaced by the new response.
         val prepared = session.copy(
-            messages = requestMessages + oldResponse + placeholder.copy(parentMessageId = oldResponse.id),
+            messages = requestMessages + placeholder,
             updatedAt = System.currentTimeMillis()
         )
         updateSession(prepared, persist = true, model = model)
@@ -291,11 +294,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun cancelGeneration() {
+        val generationSession = uiState.value.sessions.firstOrNull { it.id == uiState.value.currentId }
+        val generationModel = activeGenerationModel
         activeGenerationId = null
         apiClient.cancelActive()
         generationJob?.cancel()
         generationJob = null
         _uiState.update { it.copy(busy = false) }
+        generationSession?.let { session ->
+            viewModelScope.launch {
+                runCatching { repository.saveSession(session, generationModel) }
+            }
+        }
     }
 
     fun stopGeneration() = cancelGeneration()
