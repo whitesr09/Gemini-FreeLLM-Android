@@ -37,18 +37,6 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Build debug APK
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-        run: gradle assembleDebug --no-daemon --stacktrace
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: AI-FreeLLM-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-
       - name: Detect permanent release signing configuration
         id: signing
         env:
@@ -90,7 +78,7 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Build signed release APK when configured
-        if: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 != '' }}
+        if: ${{ steps.signing.outputs.configured == 'true' }}
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -103,7 +91,7 @@ jobs:
           gradle assembleRelease --no-daemon --stacktrace
 
       - name: Upload signed release APK when configured
-        if: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 != '' }}
+        if: ${{ steps.signing.outputs.configured == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: AI-FreeLLM-release
