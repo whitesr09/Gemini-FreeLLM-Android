@@ -22,6 +22,10 @@ data class PreparedAttachment(
 
 object DocumentProcessor {
     private const val MAX_TEXT_CHARS = 120_000
+    private const val MAX_INPUT_FILE_BYTES = 25L * 1024 * 1024
+    private const val MAX_ZIP_ENTRIES = 256
+    private const val MAX_ZIP_ENTRY_BYTES = 10L * 1024 * 1024
+    private const val MAX_ZIP_TOTAL_BYTES = 30L * 1024 * 1024
     private const val MAX_PDF_PAGES = 8
     private const val IMAGE_MAX_SIDE = 1400
     private const val IMAGE_QUALITY = 72
@@ -34,9 +38,26 @@ object DocumentProcessor {
         val safeName = UUID.randomUUID().toString() + if (extension.isBlank()) "" else ".${extension}"
         val dir = File(context.filesDir, "attachments").apply { mkdirs() }
         val file = File(dir, safeName)
+        val advertisedSize = runCatching { resolver.openAssetFileDescriptor(uri, "r")?.length ?: -1L }.getOrDefault(-1L)
+        if (advertisedSize > MAX_INPUT_FILE_BYTES) {
+            throw IllegalArgumentException("File is too large. Maximum supported size is 25 MB.")
+        }
 
         resolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(file).use { output -> input.copyTo(output) }
+            FileOutputStream(file).use { output ->
+                val buffer = ByteArray(32 * 1024)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    total += read
+                    if (total > MAX_INPUT_FILE_BYTES) {
+                        file.delete()
+                        throw IllegalArgumentException("File is too large. Maximum supported size is 25 MB.")
+                    }
+                    output.write(buffer, 0, read)
+                }
+            }
         } ?: return null
 
         val kind = if (mime.startsWith("image/")) Attachment.Kind.IMAGE else Attachment.Kind.FILE
@@ -102,7 +123,23 @@ object DocumentProcessor {
         val bitmap = BitmapFactory.decodeFile(
             file.absolutePath,
             BitmapFactory.Options().apply { inSampleSize = sample }
-        ) ?: return file.readBytes()
+        )
+        if (bitmap == null) {
+            require(file.length() <= MAX_INPUT_FILE_BYTES) { "Image is too large or unsupported." }
+            return file.inputStream().use { input ->
+                val out = ByteArrayOutputStream()
+                val buffer = ByteArray(16 * 1024)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    total += read
+                    if (total > MAX_INPUT_FILE_BYTES) throw IllegalArgumentException("Image is too large.")
+                    out.write(buffer, 0, read)
+                }
+                out.toByteArray()
+            }
+        }
         val out = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, IMAGE_QUALITY, out)
         bitmap.recycle()
