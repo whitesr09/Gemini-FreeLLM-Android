@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nshd.geminifreellm.data.ConnectionCheck
 
 private const val DEFAULT_API = "https://nshd-freellm-api.onrender.com/v1"
 
@@ -30,7 +31,11 @@ fun SettingsDialog(
     diagnostics: List<String>,
     onExportDiagnostics: () -> Unit,
     onSafeRepair: () -> Unit,
-    onClearCrashReport: () -> Unit
+    onClearCrashReport: () -> Unit,
+    onTestConnection: () -> Unit,
+    connectionTesting: Boolean,
+    connectionResult: ConnectionCheck?,
+    connectionError: String?
 ) {
     var url by remember(baseUrl) { mutableStateOf(baseUrl) }
     var key by remember(apiKey) { mutableStateOf(apiKey) }
