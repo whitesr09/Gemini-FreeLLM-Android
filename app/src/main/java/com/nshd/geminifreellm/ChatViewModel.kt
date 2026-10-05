@@ -300,6 +300,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         updateSession(session.copy(starred = !session.starred), true, selectedModel())
     }
 
+    fun deleteAttachment(attachmentId: String) {
+        if (attachmentId.isBlank()) return
+        val session = uiState.value.sessions.firstOrNull { it.id == uiState.value.currentId } ?: return
+        val target = session.messages.asSequence().flatMap { it.attachments.asSequence() }.firstOrNull { it.id == attachmentId }
+            ?: return
+        val root = getApplication<Application>().filesDir.canonicalFile
+        val targetFile = runCatching { java.io.File(target.localPath).canonicalFile }.getOrNull()
+        if (targetFile != null && (targetFile.path == root.path || targetFile.path.startsWith(root.path + java.io.File.separator))) {
+            runCatching { targetFile.delete() }
+        }
+        val updated = session.copy(
+            messages = session.messages.map { message ->
+                message.copy(attachments = message.attachments.filterNot { it.id == attachmentId })
+            },
+            updatedAt = System.currentTimeMillis()
+        )
+        updateSession(updated, persist = !updated.temporary, model = selectedModel())
+        storageSnapshot()
+    }
+
     fun archiveSession(id: String) {
         val session = uiState.value.sessions.firstOrNull { it.id == id } ?: return
         updateSession(session.copy(archived = true), true, selectedModel())
