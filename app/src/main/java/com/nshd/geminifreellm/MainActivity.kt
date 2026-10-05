@@ -639,11 +639,7 @@ private fun AiApp(context: Context) {
                         "Clear",
                         modifier = Modifier.width(110.dp),
                         onClick = {
-                            scope.launch { runCatching { store.clearAll() } }
-                            val fresh = store.newSession()
-                            sessions = listOf(fresh)
-                            currentId = fresh.id
-                            persist()
+                            chatVm.clearAll(selectedModel)
                             clearDialog = false
                         }
                     )
