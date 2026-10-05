@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AttachmentEntity::class
     ],
     version = 2,
-    exportSchema = true
+    exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
