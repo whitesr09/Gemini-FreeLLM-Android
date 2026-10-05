@@ -83,7 +83,7 @@ fun SettingsDialog(
             }
         },
         actions = {
-            AppTextButton("Cancel", onDismiss)
+            AppTextButton("Cancel", onClick = onDismiss)
             Spacer(Modifier.width(8.dp))
             AppButton(
                 "Save",
@@ -113,7 +113,7 @@ fun AiNameOnboarding(currentName: String, onContinue: (String) -> Unit) {
             AppField(name, { name = it.take(40) }, "AI name", singleLine = true)
         },
         actions = {
-            AppButton("Continue", { if (name.trim().isNotBlank()) onContinue(name.trim()) }, enabled = name.trim().isNotBlank(), modifier = Modifier.width(130.dp))
+            AppButton("Continue", enabled = name.trim().isNotBlank(), modifier = Modifier.width(130.dp), onClick = { if (name.trim().isNotBlank()) onContinue(name.trim()) })
         }
     )
 }
