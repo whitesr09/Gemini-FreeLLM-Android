@@ -154,6 +154,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exportJson(): String = repository.exportJson(uiState.value.sessions)
 
+    fun importSessions(sessions: List<ChatSession>, model: String) {
+        viewModelScope.launch {
+            repository.importSessions(sessions, model)
+            val merged = (uiState.value.sessions + sessions).distinctBy { it.id }
+                .sortedByDescending { it.updatedAt }
+            val current = merged.firstOrNull()?.id
+            _uiState.value = uiState.value.copy(sessions = merged, currentId = current)
+            current?.let(repository::saveCurrentId)
+        }
+    }
+
     fun importJson(raw: String, model: String) {
         viewModelScope.launch {
             val imported = runCatching { repository.importJson(raw) }.getOrElse { emptyList() }
@@ -228,6 +239,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             activeGenerationId = null
             generationJob = null
         }
+    }
 
     fun regenerate(messageId: Long, baseUrl: String, apiKey: String, model: String) {
         val state = uiState.value
