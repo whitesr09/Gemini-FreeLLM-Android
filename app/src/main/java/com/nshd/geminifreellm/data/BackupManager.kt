@@ -77,6 +77,7 @@ object BackupManager {
         var entries = 0
         var total = 0L
         var chatsJson: String? = null
+        var manifestSeen = false
         try {
             ZipInputStream(FileInputStream(file).buffered()).use { zip ->
                 while (true) {
@@ -110,14 +111,16 @@ object BackupManager {
                             val manifest = JSONObject(out.readText(StandardCharsets.UTF_8).take(64_000))
                             require(manifest.optString("format") == "Gemini-FreeLLM-Android") { "Unsupported backup format." }
                             require(manifest.optInt("version", -1) == BACKUP_VERSION) { "Unsupported backup version." }
+                            manifestSeen = true
                         }
                         name == CHATS -> chatsJson = out.readText(StandardCharsets.UTF_8).take(12_000_000)
                         name.startsWith("attachments/") || name.startsWith("generated/") ->
-                            extracted[name.substringAfter('/').substringBefore('-')] = out
+                            extracted[name.substringAfter('/').take(36)] = out
                     }
                     zip.closeEntry()
                 }
             }
+            require(manifestSeen) { "Backup is missing manifest.json." }
             val raw = chatsJson ?: error("Backup is missing chats.json.")
             val root = JSONObject(raw)
             val sessions = mutableListOf<ChatSession>()
