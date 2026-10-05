@@ -270,7 +270,9 @@ class FreeLlmApiClient {
                 .header("Accept", "application/json")
                 .get()
                 .build()
+            val started = System.nanoTime()
             client.newCall(request).execute().use { response ->
+                val latencyMs = (System.nanoTime() - started) / 1_000_000L
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     error(ApiErrorMapper.fromHttp(response.code, parseServerError(body)).message)
@@ -303,7 +305,7 @@ class FreeLlmApiClient {
         prompt: String
     ): MediaResult = withContext(Dispatchers.IO) {
         runCatching {
-            val cleanBase = baseUrl.trim().trimEnd('/')
+            val cleanBase = normalizeBaseUrl(baseUrl)
             val payload = JSONObject()
                 .put("model", model.ifBlank { "auto" })
                 .put("prompt", prompt)
@@ -350,7 +352,7 @@ class FreeLlmApiClient {
         prompt: String
     ): MediaResult = withContext(Dispatchers.IO) {
         runCatching {
-            val cleanBase = baseUrl.trim().trimEnd('/')
+            val cleanBase = normalizeBaseUrl(baseUrl)
             val payload = JSONObject()
                 .put("model", model.ifBlank { "auto" })
                 .put("prompt", prompt)
