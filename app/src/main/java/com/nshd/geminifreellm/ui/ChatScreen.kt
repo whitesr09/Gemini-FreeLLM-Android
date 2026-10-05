@@ -177,7 +177,7 @@ private fun ModelMenu(models: List<ModelInfo>, selected: String, onSelect: (Stri
     }
 }
 @Composable
-private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boolean, modifier: Modifier, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit) {
+private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boolean, modifier: Modifier, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit) {
     val c = LocalAppColors.current
     val state = rememberLazyListState()
     var branchSelection by remember(messages) { mutableStateOf(emptyMap<Long, Int>()) }
@@ -199,7 +199,7 @@ private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boole
         items(displayMessages, key = { it.id }) { message ->
             val siblings = message.parentMessageId?.let { branchGroups[it] }
             if (siblings.isNullOrEmpty()) {
-                MessageBlock(message, aiName, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment)
+                MessageBlock(message, aiName, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, onRegenerateMedia)
             } else {
                 val index = siblings.indexOfFirst { it.id == message.id }.coerceAtLeast(0)
                 MessageBlock(message, aiName, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, index, siblings.size) { next ->
@@ -212,7 +212,7 @@ private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boole
 }
 @Composable private fun EmptyState(modifier: Modifier) { val c = LocalAppColors.current; Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) { AiOrb(Modifier.size(72.dp), true); Spacer(Modifier.height(20.dp)); BasicText("How can I help?", color = c.text, fontSize = 25.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.height(8.dp)); BasicText("Start a new conversation.", color = c.muted, fontSize = 14.sp) } } }
 
-@Composable private fun MessageBlock(message: ChatMessage, aiName: String, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, branchIndex: Int = -1, branchCount: Int = 0, onBranchChange: ((Int) -> Unit)? = null) {
+@Composable private fun MessageBlock(message: ChatMessage, aiName: String, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onOpenAttachment: (Attachment) -> Unit, onDeleteAttachment: (Attachment) -> Unit, onShareAttachment: (Attachment) -> Unit, onRegenerateMedia: (ChatMessage, Attachment) -> Unit, branchIndex: Int = -1, branchCount: Int = 0, onBranchChange: ((Int) -> Unit)? = null) {
     val c = LocalAppColors.current
     val user = message.role == ChatMessage.Role.USER
     val error = message.role == ChatMessage.Role.ERROR
@@ -223,7 +223,7 @@ private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boole
                 BasicText(if (user) "You" else if (error) "Error" else aiName, color = if (error) c.error else c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(5.dp))
                 if (user) Box(Modifier.background(c.userBubble, ChatRadius).padding(horizontal = 15.dp, vertical = 11.dp)) { MessageText(message.text, error) } else MessageText(message.text, error)
-                if (message.attachments.isNotEmpty()) { Spacer(Modifier.height(8.dp)); AttachmentList(message.attachments, onExportAttachment) }
+                if (message.attachments.isNotEmpty()) { Spacer(Modifier.height(8.dp)); AttachmentList(message.attachments, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, { attachment -> onRegenerateMedia(message, attachment) }) }
                 if (message.text.isNotBlank() && !error) MessageActions(message, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, branchIndex, branchCount, onBranchChange)
             }
         }
@@ -263,6 +263,18 @@ private fun MessageList(messages: List<ChatMessage>, aiName: String, busy: Boole
         ActionText("TXT") { onExport(message, ExportFormat.TEXT) }
     }
 }
+@Composable private fun ActionText(label: String, onClick: () -> Unit) {
+    BasicText(
+        label,
+        color = LocalAppColors.current.muted,
+        fontSize = 10.sp,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .semantics { role = Role.Button; contentDescription = label }
+            .padding(horizontal = 7.dp, vertical = 5.dp)
+    )
+}
+
 @Composable private fun AttachmentList(attachments: List<Attachment>, onExport: (Attachment) -> Unit, onOpen: (Attachment) -> Unit, onDelete: (Attachment) -> Unit, onShare: (Attachment) -> Unit, onRegenerate: (Attachment) -> Unit) { val c = LocalAppColors.current; LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(attachments, key = { it.id }) { attachment -> Column(Modifier.widthIn(max = 190.dp).background(c.elevated, RoundedCornerShape(10.dp)).clickable { if (attachment.mimeType.startsWith("image/") || attachment.mimeType.startsWith("video/") || attachment.kind == Attachment.Kind.GENERATED_IMAGE || attachment.kind == Attachment.Kind.GENERATED_VIDEO) onOpen(attachment) else onExport(attachment) }.padding(9.dp)) { if (attachment.kind == Attachment.Kind.IMAGE || attachment.kind == Attachment.Kind.GENERATED_IMAGE) { val bitmap = remember(attachment.localPath) { runCatching { BitmapFactory.decodeFile(attachment.localPath) }.getOrNull() }; if (bitmap != null) { androidx.compose.foundation.Image(bitmap.asImageBitmap(), null, Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop); Spacer(Modifier.height(6.dp)) } }; BasicText(attachment.name, color = c.text, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); BasicText(if (attachment.mimeType.startsWith("image/") || attachment.mimeType.startsWith("video/") || attachment.kind == Attachment.Kind.GENERATED_IMAGE || attachment.kind == Attachment.Kind.GENERATED_VIDEO) "Tap to view" else "Tap to save", color = c.muted, fontSize = 9.sp) } } } }
 
 @Composable
