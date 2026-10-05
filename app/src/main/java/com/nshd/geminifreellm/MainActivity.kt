@@ -284,13 +284,19 @@ private fun AiApp(activity: MainActivity) {
     val attachmentLauncher = rememberLauncherForMultipleDocuments { uris ->
         if (uris.isEmpty()) return@rememberLauncherForMultipleDocuments
         scope.launch {
-            val added = uris.mapNotNull { uri ->
+            val prepared = uris.mapNotNull { uri ->
                 runCatching {
-                    withContext(Dispatchers.IO) { DocumentProcessor.copyToAppStorage(context, uri)?.attachment }
+                    withContext(Dispatchers.IO) { DocumentProcessor.copyToAppStorage(context, uri) }
                 }.getOrNull()
             }
+            val added = prepared.map { it.attachment }
             if (added.isNotEmpty()) {
                 pendingAttachments = pendingAttachments + added
+                if (chatState.settings.documentIndexEnabled && apiKey.isNotBlank()) {
+                    prepared.forEach { item ->
+                        chatVm.indexDocument(File(item.attachment.localPath), baseUrl, apiKey)
+                    }
+                }
             }
         }
     }
@@ -500,6 +506,10 @@ private fun AiApp(activity: MainActivity) {
                     com.nshd.geminifreellm.data.StorageManager.clearCache(context)
                     chatVm.storageSnapshot()
                     Toast.makeText(context, "Cache cleared", Toast.LENGTH_SHORT).show()
+                },
+                onClearDocumentIndex = {
+                    chatVm.clearDocumentIndex()
+                    Toast.makeText(context, "Document index cleared", Toast.LENGTH_SHORT).show()
                 },
                 onAppLock = { enabled ->
                     prefs.edit().putBoolean("appLockEnabled", enabled).apply()
