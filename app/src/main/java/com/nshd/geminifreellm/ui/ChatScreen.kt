@@ -91,7 +91,7 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
     }
     Box(Modifier.fillMaxHeight().width(320.dp).background(c.surface).pointerInput(Unit) { detectTapGestures { } }) {
         Column(Modifier.fillMaxSize().padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { AiOrb(Modifier.size(38.dp), false); Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)) { BasicText(aiName, color = c.text, fontSize = 15.sp); BasicText("Chats", color = c.muted, fontSize = 12.sp) }; HeaderButton("⚙", onSettings) }
+            Row(verticalAlignment = Alignment.CenterVertically) { AiOrb(Modifier.size(38.dp), false); Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)) { BasicText(aiName, color = c.text, fontSize = 15.sp); BasicText("Chats", color = c.muted, fontSize = 12.sp) }; HeaderButton("settings", onSettings) }
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.weight(1f).height(44.dp).background(c.elevated, RoundedCornerShape(12.dp)).clickable(onClick = onNewChat).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) { BasicText("+ New", color = c.text, fontSize = 13.sp) }
@@ -113,8 +113,8 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
                         BasicText(if (selecting) if (isSelected) "✓" else "○" else "•", color = if (isSelected) c.accent else c.muted, fontSize = 16.sp); Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) { BasicText(item.title, color = c.text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); item.preview().takeIf { it.isNotBlank() }?.let { BasicText(it, color = c.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) } }
                         if (!selecting) {
-                            AppIconButton(if (item.starred) "star" else "starBorder", if (item.starred) "Unstar conversation" else "Star conversation") { onToggleStar(item.id) }
-                            AppIconButton(if (item.archived) "unarchive" else "archive", if (item.archived) "Unarchive conversation" else "Archive conversation") { if (item.archived) onUnarchive(item.id) else onArchive(item.id) }
+                            AppIconButton(if (item.starred) "star" else "starBorder", if (item.starred) "Unstar conversation" else "Star conversation", onClick = { onToggleStar(item.id) })
+                            AppIconButton(if (item.archived) "unarchive" else "archive", if (item.archived) "Unarchive conversation" else "Archive conversation", onClick = { if (item.archived) onUnarchive(item.id) else onArchive(item.id) })
                         }
                     }
                 }
@@ -170,7 +170,7 @@ private fun SmallPill(label: String, selected: Boolean, onClick: () -> Unit) {
             if (!user) AiOrb(Modifier.size(28.dp), false)
             Column(horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
                 BasicText(if (user) "You" else if (error) "Error" else aiName, color = if (error) c.error else c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.height(5.dp))
-                if (user) Box(Modifier.background(c.userBubble, ChatRadius).padding(horizontal = 15.dp, vertical = 11.dp)) { MessageText(message.text, error, onCopy) } else MessageText(message.text, error)
+                if (user) Box(Modifier.background(c.userBubble, ChatRadius).padding(horizontal = 15.dp, vertical = 11.dp)) { MessageText(message.text, error, onCopy) } else MessageText(message.text, error, onCopy)
                 if (message.attachments.isNotEmpty()) { Spacer(Modifier.height(8.dp)); AttachmentList(message.attachments, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, { attachment -> onRegenerateMedia(message, attachment) }) }
                 if (message.text.isNotBlank() && !error) MessageActions(message, onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport)
             }
