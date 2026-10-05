@@ -66,7 +66,7 @@ object SseParser {
     }
 
     private fun unescapeJsonString(value: String): String = value
-        .replace("\\"", """)
+        .replace("\\\"", """)
         .replace("\\\\", "\\")
         .replace("\\n", "\n")
         .replace("\\r", "\r")
