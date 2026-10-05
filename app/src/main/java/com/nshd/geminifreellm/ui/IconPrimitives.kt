@@ -38,6 +38,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 private fun iconFor(key:String):ImageVector=when(key){
  "menu"->Icons.Filled.Menu;"model"->Icons.Filled.ExpandMore;"add"->Icons.Filled.Add;"settings"->Icons.Filled.Settings
  "attach"->Icons.Filled.AttachFile;"mic"->Icons.Filled.Mic;"web"->Icons.Filled.Public;"tools"->Icons.Filled.Build
@@ -50,5 +55,5 @@ private fun iconFor(key:String):ImageVector=when(key){
 }
 @Composable fun AppIcon(key:String,contentDescription:String?,modifier:Modifier=Modifier,tint:Color=LocalAppColors.current.muted)=Icon(iconFor(key),contentDescription,modifier,tint)
 @Composable fun AppIconButton(key:String,contentDescription:String,onClick:()->Unit,tint:Color=LocalAppColors.current.muted){
- Box(Modifier.size(48.dp).clickable(onClick=onClick),contentAlignment=Alignment.Center){AppIcon(key,contentDescription,Modifier.size(24.dp),tint)}
+ Box(Modifier.size(48.dp).clickable(onClick=onClick).semantics { role = Role.Button; this.contentDescription = contentDescription },contentAlignment=Alignment.Center){AppIcon(key,contentDescription,Modifier.size(24.dp),tint)}
 }
