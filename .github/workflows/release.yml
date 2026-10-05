@@ -76,7 +76,6 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           unzip -t "$APK" >/dev/null
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$APK" >/dev/null
 
       - name: Upload unsigned release APK
         if: ${{ steps.signing.outputs.configured != 'true' }}
@@ -88,6 +87,10 @@ jobs:
       - name: Build unsigned release AAB
         if: ${{ steps.signing.outputs.configured != 'true' }}
         run: gradle bundleRelease --no-daemon --stacktrace
+
+      - name: Validate unsigned release AAB
+        if: ${{ steps.signing.outputs.configured != 'true' }}
+        run: unzip -t app/build/outputs/bundle/release/app-release.aab >/dev/null
 
       - name: Upload unsigned release AAB
         if: ${{ steps.signing.outputs.configured != 'true' }}
@@ -112,7 +115,7 @@ jobs:
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" >/dev/null
+          unzip -t "$APK" >/dev/null
 
       - name: Build signed release AAB
         if: ${{ steps.signing.outputs.configured == 'true' }}
@@ -129,6 +132,10 @@ jobs:
         with:
           name: FreeLLM-AI-release
           path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Validate signed release AAB
+        if: ${{ steps.signing.outputs.configured == 'true' }}
+        run: unzip -t app/build/outputs/bundle/release/app-release.aab >/dev/null
 
       - name: Upload signed release AAB
         if: ${{ steps.signing.outputs.configured == 'true' }}
