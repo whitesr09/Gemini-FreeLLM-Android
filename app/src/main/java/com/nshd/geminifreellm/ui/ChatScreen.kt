@@ -49,12 +49,12 @@ private fun iconLabel(symbol: String): String = when (symbol) {
 }
 
 @Composable
-fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, webSearchEnabled: Boolean = false, localToolsEnabled: Boolean = true, contextLabel: String = "", onInputChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit = onNewChat, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onVoice: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, imageSupported: Boolean, videoSupported: Boolean, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onToggleWebSearch: () -> Unit = {}, onToggleLocalTools: () -> Unit = {}, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit = {}, onUnarchive: (String) -> Unit = {}, onRename: (String) -> Unit = {}, onOpenAttachment: (Attachment) -> Unit = {}, onDeleteAttachment: (Attachment) -> Unit = {}, onShareAttachment: (Attachment) -> Unit = {}, onRegenerateMedia: (ChatMessage, Attachment) -> Unit = { _, _ -> }, onSuggestedPrompt: (String) -> Unit = {}) {
+fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>, selectedModel: String, models: List<ModelInfo>, input: String, pendingAttachments: List<Attachment>, busy: Boolean, statusLabel: String = "", webSearchEnabled: Boolean = false, localToolsEnabled: Boolean = true, contextLabel: String = "", onInputChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit, onNewChat: () -> Unit, onNewTemporaryChat: () -> Unit = onNewChat, onSelectSession: (String) -> Unit, onSettings: () -> Unit, onAttach: () -> Unit, onVoice: () -> Unit, onGenerateImage: () -> Unit, onGenerateVideo: () -> Unit, imageSupported: Boolean, videoSupported: Boolean, onSelectModel: (String) -> Unit, onRemovePending: (String) -> Unit, onToggleWebSearch: () -> Unit = {}, onToggleLocalTools: () -> Unit = {}, onCopy: (String) -> Unit, onShare: (String) -> Unit, onSpeak: (String) -> Unit, onEdit: (Long, String) -> Unit, onRegenerate: (Long) -> Unit, onExport: (ChatMessage, ExportFormat) -> Unit, onExportAttachment: (Attachment) -> Unit, onDeleteSessions: (Set<String>) -> Unit, onToggleStar: (String) -> Unit, onArchive: (String) -> Unit = {}, onUnarchive: (String) -> Unit = {}, onRename: (String) -> Unit = {}, onOpenAttachment: (Attachment) -> Unit = {}, onDeleteAttachment: (Attachment) -> Unit = {}, onShareAttachment: (Attachment) -> Unit = {}, onRegenerateMedia: (ChatMessage, Attachment) -> Unit = { _, _ -> }, onSuggestedPrompt: (String) -> Unit = {}) {
     var drawerOpen by remember { mutableStateOf(false) }
     var modelOpen by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(LocalAppColors.current.background)) {
         Column(Modifier.fillMaxSize()) {
-            TopBar(aiName, selectedModel, busy, { drawerOpen = true }, onNewChat, onSettings) { modelOpen = !modelOpen }
+            TopBar(aiName, selectedModel, busy, statusLabel, { drawerOpen = true }, onNewChat, onSettings) { modelOpen = !modelOpen }
             MessageList(session.messages, aiName, busy, Modifier.weight(1f), onCopy, onShare, onSpeak, onEdit, onRegenerate, onExport, onExportAttachment, onOpenAttachment, onDeleteAttachment, onShareAttachment, onRegenerateMedia, onSuggestedPrompt)
             Composer(input, pendingAttachments, busy, webSearchEnabled, localToolsEnabled, contextLabel, onInputChange, onSend, onStop, onAttach, onVoice, onGenerateImage, onGenerateVideo, imageSupported, videoSupported, onRemovePending, onToggleWebSearch, onToggleLocalTools)
         }
@@ -66,11 +66,11 @@ fun ChatScreen(aiName: String, session: ChatSession, sessions: List<ChatSession>
     }
 }
 
-@Composable private fun TopBar(aiName: String, selectedModel: String, busy: Boolean, onMenu: () -> Unit, onNewChat: () -> Unit, onSettings: () -> Unit, onModel: () -> Unit) {
+@Composable private fun TopBar(aiName: String, selectedModel: String, busy: Boolean, statusLabel: String, onMenu: () -> Unit, onNewChat: () -> Unit, onSettings: () -> Unit, onModel: () -> Unit) {
     val c = LocalAppColors.current
     Row(Modifier.fillMaxWidth().height(60.dp).background(c.background).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         HeaderButton("menu", onMenu); Spacer(Modifier.width(8.dp)); AiOrb(Modifier.size(30.dp), busy); Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) { BasicText(aiName.ifBlank { "Assistant" }, color = c.text, fontSize = 15.sp, maxLines = 1); BasicText(selectedModel.ifBlank { "Auto" }, color = c.muted, fontSize = 11.sp, maxLines = 1) }
+        Column(Modifier.weight(1f)) { BasicText(aiName.ifBlank { "Assistant" }, color = c.text, fontSize = 15.sp, maxLines = 1); BasicText(selectedModel.ifBlank { "Auto" }, color = c.muted, fontSize = 11.sp, maxLines = 1); if (statusLabel.isNotBlank()) BasicText(statusLabel, color = if (statusLabel == "Offline") c.error else c.muted, fontSize = 9.sp, maxLines = 1) }
         HeaderButton("model", onModel); HeaderButton("add", onNewChat); HeaderButton("settings", onSettings)
     }
 }
