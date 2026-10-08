@@ -12,14 +12,16 @@ android {
         applicationId = "com.nshd.geminifreellm"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "2.0.1"
+        versionCode = 5
+        versionName = "2.1"
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions.unitTests.isIncludeAndroidResources = true
 
     buildFeatures {
         compose = true
@@ -43,6 +45,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.3")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("org.json:json:20250517")
     testImplementation("com.squareup.okhttp3:mockwebserver:5.1.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

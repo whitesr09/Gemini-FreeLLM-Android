@@ -13,6 +13,12 @@ A native Android AI chat workspace with a calm, ChatGPT-inspired layout and your
 - System, light, dark and AMOLED themes; keyboard and system-bar insets; 48dp controls
 - Separate provider settings, encrypted API keys, model discovery and connection checks
 - Text conversation sharing with a privacy confirmation
+- Expandable provider/model catalogs, search, favorites and last-request access indicators
+- DeepSeek, Mistral, xAI and local Ollama presets
+- Animated thinking and streaming, reduced motion, optional timestamps and compact spacing
+- Editable coding canvas with undo/redo, search, export and AI review prompts
+- Sanitized error/crash log and user-reviewed AI troubleshooting
+- Compatible image generation and asynchronous video jobs, local preview/playback and export
 
 ## Connect an AI
 
@@ -26,6 +32,10 @@ Open **Settings**, choose a provider, enter its API key and exact model ID, then
 | Anthropic | `https://api.anthropic.com/v1` | Anthropic API key |
 | OpenRouter | `https://openrouter.ai/api/v1` | OpenRouter unified key |
 | Groq | `https://api.groq.com/openai/v1` | Groq API key |
+| DeepSeek | `https://api.deepseek.com` | DeepSeek API key |
+| Mistral | `https://api.mistral.ai/v1` | Mistral API key |
+| xAI | `https://api.x.ai/v1` | xAI API key |
+| Ollama | `http://10.0.2.2:11434/v1` (emulator) or your LAN address | Usually empty; follow server configuration |
 | Other / local | Provider's OpenAI-compatible API base URL | Provider key, or empty if server permits |
 
 OpenAI-compatible gateways must support `/chat/completions`; model discovery additionally needs `/models`. Gemini and Anthropic use their native protocols. Proprietary protocols require a dedicated adapter. OpenAI Responses-only models are not supported by the chat-completions adapter.
@@ -36,9 +46,19 @@ On a phone, `127.0.0.1` means the phone itself. For a computer on your network, 
 
 Enable **Image input** only for a vision-capable model. Switching to a text-only profile will require a new chat or re-enabling vision if the conversation contains images. Turn **Stream responses** off for servers that only support complete JSON replies.
 
+## Models, canvas and media
+
+Tap the model name in chat, expand a provider, then select a catalog model or enter its exact ID. Favorites persist. Catalog-listed pricing is separate from account access. **Check access** sends a short, potentially billable prompt after confirmation; badges reflect the last request in this session. Remaining quota and free-tier expiry are unknown unless the provider exposes them. Conversation text is retained when switching providers.
+
+For DeepSeek, use its preset and a direct DeepSeek API key. A FreeLLMAPI/OpenRouter key belongs in that gateway's profile. Fetch current model IDs instead of guessing. HTTP 402 means insufficient provider balance; 429 can mean rate or quota limits.
+
+Open **Chat options → Coding canvas**, or use the canvas icon on a code block. Code is saved per conversation. Explain/Review/Fix/Optimize prepare a draft for you to inspect and send. Code is never executed locally.
+
+Open **Chat options → Create image or video**. Images use Gemini's image-capable `generateContent` route or a compatible `/images/generations` endpoint. Videos use `/videos`, job polling and content download. Enter a media model ID with account access; the app confirms potentially billable submissions. This does not change your chat model. Video jobs can be resumed; stopping local waiting does not cancel remote generation or billing.
+
 ## Privacy
 
-Keys are encrypted with a device-bound Android Keystore key. Existing plaintext settings are migrated only after encrypted storage succeeds. Chat history and prepared attachments are stored in private app storage; Android backup is disabled. Settings prevent screenshots/recent-app captures while keys are being edited. No prompt or key logging is added.
+Keys are encrypted with a device-bound Android Keystore key. Existing plaintext settings are migrated only after encrypted storage succeeds. Chat history and prepared attachments are stored in private app storage; Android backup is disabled. Settings prevent screenshots/recent-app captures while keys are being edited. Diagnostics record only structured error categories and app stack locations, with no prompt, key or raw response logging. Logs are local, capped at 100 events and retained for up to seven days. AI troubleshooting prepares a report draft for review before sending.
 
 Messages and attachments are sent to the selected API server. History is not end-to-end encrypted; the app's local files rely on Android's storage protection. Sharing exports message/document text but excludes credentials and image files. Clearing app data or uninstalling removes local history and keys.
 
@@ -56,7 +76,7 @@ Release APK: `app/build/outputs/apk/release/app-release-unsigned.apk` (configure
 
 ### Identify the installed build
 
-Open the history drawer to see the app version at the bottom, or open **Settings → About** for the version, build number and build type. This source builds **2.0.1 (4)**. Android's **App info** also shows the installed version.
+Open the history drawer to see the app version at the bottom, or open **Settings → About** for the version, build number and build type. This source builds **2.1 (5)**. Android's **App info** also shows the installed version.
 
 Install the downloaded APK as an update and tap **Open** from the installer. Updates signed with the same key retain local chats and provider settings. If Android rejects the update, keep the existing installation and report the exact error; uninstalling or clearing storage deletes local data. APKs from an older GitHub workflow run do not include unpublished changes.
 
@@ -64,10 +84,10 @@ Tests use synthetic HTTP responses and cover all three protocols, streaming comp
 
 ## Boundaries
 
-- Image/video generation, projects, scheduled jobs and live voice calls are not implemented. No nonfunctional controls advertise them.
+- Projects, scheduled jobs and live voice calls are not implemented. Media adapters require provider support; Gemini Veo and proprietary gateway video protocols are not implemented.
 - Up to four attachments per message, 8 MB per input file; image preparation reduces resolution to at most 1600px. Document text is limited to 120,000 characters, and spreadsheets to 400 rows per sheet.
 - PDF support is limited to readable text in simple PDFs; scanned/encrypted/complex PDFs require conversion to text. Office extraction reads DOCX/PPTX/XLSX text, not full document formatting.
 - Markdown is a lightweight renderer, not a complete CommonMark implementation or syntax highlighter.
 - History search is local and in memory. Database-backed pagination, import, advanced performance profiling and a full TalkBack/device matrix remain follow-up work.
 
-See [redesign audit and coverage](docs/REDESIGN.md) for implementation decisions and remaining verification.
+See the [2.1 improvement checklist](docs/UPGRADE-2.1.md) for new features and the earlier [redesign audit and coverage](docs/REDESIGN.md) for implementation decisions and remaining verification.

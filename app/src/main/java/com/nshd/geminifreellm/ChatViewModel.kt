@@ -11,6 +11,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Owns requests across rotation. Requests are bound to a conversation and a unique generation ID. */
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -22,12 +24,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val generatingId: String? = null,
         val preparing: Boolean = false,
         val notice: String? = null,
-        val storageBlocked: Boolean = false
+        val storageBlocked: Boolean = false,
+        val catalogs: Map<Provider, ModelCatalog> = emptyMap(),
+        val access: Map<String, ModelAccess> = emptyMap(),
+        val checking: Set<String> = emptySet()
     ) {
         val active: Conversation? get() = chats.firstOrNull { it.id == activeId }
     }
 
+    val diagnostics = (application as FreeLlmApplication).diagnostics
     private val store = LocalStore(application)
+    private val settingsMutex = Mutex()
+    private val catalogJobs = mutableMapOf<Provider, Job>()
+    private var draftSave: Job? = null
     val client = FreeLlmApiClient()
     private val mutable = MutableStateFlow(State())
     val state = mutable.asStateFlow()
@@ -43,7 +52,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val chats = history.first.ifEmpty { listOf(Conversation()) }
                 mutable.value = State(loading = false, settings = settings, chats = chats,
                     activeId = history.second?.takeIf { id -> chats.any { it.id == id } } ?: chats.first().id)
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                withContext(Dispatchers.IO) { diagnostics.record("Storage", error = error) }
                 // Never overwrite a history/credential file that could not be read.
                 mutable.value = State(loading = false, storageBlocked = true,
                     notice = "Local data could not be opened. Restart the app to retry; existing files have been preserved.")
@@ -52,7 +62,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             for ((chats, active) in saves) {
                 try { withContext(Dispatchers.IO) { store.saveHistory(chats, active) } }
-                catch (_: Exception) { notice("Could not save chats. Free some device storage, then try again.") }
+                catch (error: Exception) {
+                    withContext(Dispatchers.IO) { diagnostics.record("Storage", error = error) }
+                    notice("Could not save chats. Free some device storage, then try again.")
+                }
             }
         }
     }
@@ -67,7 +80,81 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (save) persist()
     }
 
-    fun draft(text: String) = changeChat { it.copy(draft = text.take(120_000)) }
+    fun draft(text: String) {
+        changeChat(save = false) { it.copy(draft = text.take(120_000)) }
+        draftSave?.cancel()
+        draftSave = viewModelScope.launch { delay(350); persist() }
+    }
+    fun saveCanvas(document: CanvasDocument) = changeChat { it.copy(canvas = document.copy(
+        title = document.title.take(80), language = document.language.take(30), code = document.code.take(120_000))) }
+    fun askAboutCanvas(document: CanvasDocument, action: String) {
+        saveCanvas(document)
+        draft("$action this ${document.language} code. Explain your changes and return complete code in a fenced block.\n\n```${document.language}\n${document.code}\n```")
+    }
+    fun diagnose(report: String) {
+        val chat = Conversation(title = "App diagnostics", draft = "Explain these app diagnostics in simple terms. Identify likely causes, safe fixes I can try, and improvements for the developer. Do not claim to have patched the installed APK.\n\n$report")
+        stop()
+        mutable.update { it.copy(chats = listOf(chat) + it.chats, activeId = chat.id) }
+        persist()
+    }
+
+    fun loadCatalog(provider: Provider, force: Boolean = false) {
+        val current = mutable.value
+        val profile = current.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)
+        val cached = current.catalogs[provider]
+        if (catalogJobs[provider]?.isActive == true || (!force && cached?.fetchedAt != null && cached.fetchedAt > System.currentTimeMillis() - 300_000)) return
+        mutable.update { it.copy(catalogs = it.catalogs + (provider to (cached ?: ModelCatalog()).copy(loading = true, error = null))) }
+        catalogJobs[provider] = viewModelScope.launch {
+            try {
+                val models = client.catalog(profile)
+                mutable.update { it.copy(catalogs = it.catalogs + (provider to ModelCatalog(models, fetchedAt = System.currentTimeMillis()))) }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                mutable.update { it.copy(catalogs = it.catalogs + (provider to (cached ?: ModelCatalog()).copy(loading = false,
+                    error = (error as? ApiException)?.message ?: "Could not load models. Retry or enter an ID manually."))) }
+                withContext(Dispatchers.IO) { diagnostics.record("Model catalog", provider, error) }
+            }
+        }
+    }
+
+    suspend fun selectModel(provider: Provider, model: String): Boolean {
+        val profile = mutable.value.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)
+        FreeLlmApiClient.validate(profile.copy(model = model.trim()))?.let { notice(it); return false }
+        return updateSettings { current -> current.copy(selected = provider,
+            profiles = current.profiles.filterNot { it.provider == provider } + profile.copy(model = model.trim())) }
+    }
+
+    fun favorite(provider: Provider, model: String) {
+        viewModelScope.launch {
+            val key = modelKey(provider, model)
+            updateSettings { settings -> settings.copy(favorites = if (key in settings.favorites) settings.favorites - key else (settings.favorites + key).takeLast(100)) }
+        }
+    }
+
+    fun checkModel(provider: Provider, model: String) {
+        val profile = (mutable.value.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)).copy(model = model)
+        val key = modelKey(provider, model)
+        if (key in mutable.value.checking || mutable.value.checking.isNotEmpty()) return
+        mutable.update { it.copy(checking = it.checking + key) }
+        viewModelScope.launch {
+            try {
+                client.generate(profile, listOf(ChatMessage(text = "Reply with OK only.", role = ChatMessage.Role.USER))) {}
+                markAccess(profile, AccessState.USABLE)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                markAccess(profile, (error as? ApiException)?.access ?: AccessState.ERROR)
+                notice((error as? ApiException)?.message ?: "Model check failed.")
+                withContext(Dispatchers.IO) { diagnostics.record("Model access check", provider, error) }
+            } finally { mutable.update { it.copy(checking = it.checking - key) } }
+        }
+    }
+
+    private fun markAccess(profile: ProviderProfile, access: AccessState) {
+        val configured = mutable.value.settings.profiles.firstOrNull { it.provider == profile.provider } ?: ProviderProfile(profile.provider)
+        if (configured.apiKey == profile.apiKey && configured.baseUrl == profile.baseUrl)
+            mutable.update { it.copy(access = it.access + (modelKey(profile.provider, profile.model) to ModelAccess(access))) }
+    }
+    fun flushDraft() { draftSave?.cancel(); persist() }
     fun notice(text: String?) { mutable.update { it.copy(notice = text) } }
 
     fun newChat() {
@@ -101,14 +188,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // Attachment files are collected only at a later startup to avoid racing queued writes.
     }
 
-    suspend fun saveSettings(settings: AppSettings): Boolean {
-        if (mutable.value.storageBlocked) return false
-        return try {
+    suspend fun saveSettings(settings: AppSettings): Boolean = updateSettings { settings }
+
+    private suspend fun updateSettings(transform: (AppSettings) -> AppSettings): Boolean = settingsMutex.withLock {
+        if (mutable.value.storageBlocked) return@withLock false
+        val old = mutable.value.settings
+        val settings = transform(old).let { value -> value.copy(profiles = value.profiles.map { profile ->
+            profile.copy(baseUrl = FreeLlmApiClient.normalizeBaseUrl(profile.baseUrl, profile.provider.protocol), apiKey = profile.apiKey.trim(), model = profile.model.trim())
+        }) }
+        try {
             withContext(Dispatchers.IO) { store.saveSettings(settings) }
-            mutable.update { it.copy(settings = settings) }
+            val changed = settings.profiles.filter { profile -> old.profiles.firstOrNull { it.provider == profile.provider }?.let {
+                it.apiKey != profile.apiKey || it.baseUrl != profile.baseUrl
+            } ?: true }.map { it.provider }.toSet()
+            changed.forEach { catalogJobs.remove(it)?.cancel() }
+            mutable.update { value -> value.copy(settings = settings,
+                catalogs = value.catalogs.filterKeys { it !in changed },
+                access = value.access.filterKeys { key -> changed.none { key.startsWith("${it.name}/") } }) }
             true
         } catch (error: CancellationException) { throw error }
-        catch (_: Exception) { notice("Could not securely save provider settings. Your previous settings are unchanged."); false }
+        catch (error: Exception) {
+            withContext(Dispatchers.IO) { diagnostics.record("Storage", error = error) }
+            notice("Could not securely save provider settings. Your previous settings are unchanged."); false
+        }
     }
 
     fun send() {
@@ -125,6 +227,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             title = if (it.messages.isEmpty()) message.text.ifBlank { message.attachments.first().name }.take(60) else it.title,
             updatedAt = System.currentTimeMillis()) }
         generate(chat.id, history, value.settings.active)
+    }
+
+    fun continueReply() {
+        if (mutable.value.active?.draft?.isNotBlank() == true) { notice("Send or clear your current draft before continuing this reply."); return }
+        draft("Continue your previous response from where it stopped. Avoid repeating completed paragraphs.")
+        send()
     }
 
     fun retry() {
@@ -155,12 +263,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         changeChat(chatId) { it.copy(messages = history + assistant) }
         generation = viewModelScope.launch {
             try {
-                var lastCheckpoint = 0L
-                val text = client.generate(profile, history) { partial ->
-                    // Callback is on an OkHttp worker. All writes are marshalled to the ViewModel's main dispatcher.
-                    viewModelScope.launch {
+                val started = android.os.SystemClock.elapsedRealtime()
+                var firstToken = 0L
+                var lastCheckpoint = started
+                val updates = Channel<String>(Channel.CONFLATED)
+                val collector = launch {
+                    for (partial in updates) {
                         if (generationToken == assistant.id) {
                             val now = android.os.SystemClock.elapsedRealtime()
+                            if (firstToken == 0L && partial.isNotEmpty()) firstToken = now - started
                             val checkpoint = now - lastCheckpoint >= 2000
                             if (checkpoint) lastCheckpoint = now
                             changeChat(chatId, save = checkpoint) { chat ->
@@ -169,11 +280,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }
-                if (generationToken == assistant.id) changeChat(chatId) { chat ->
-                    chat.copy(messages = chat.messages.map { if (it.id == assistant.id) it.copy(text = text, interrupted = false) else it })
+                val text = try { client.generate(profile, history) { updates.trySend(it) } }
+                    finally { updates.close(); collector.join() }
+                if (generationToken == assistant.id) {
+                    markAccess(profile, AccessState.USABLE)
+                    changeChat(chatId) { chat ->
+                        chat.copy(messages = chat.messages.map { if (it.id == assistant.id) it.copy(text = text, interrupted = false,
+                            elapsedMs = android.os.SystemClock.elapsedRealtime() - started, firstTokenMs = firstToken) else it })
+                    }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
+                markAccess(profile, (error as? ApiException)?.access ?: AccessState.ERROR)
+                withContext(Dispatchers.IO) { diagnostics.record("Chat request", profile.provider, error) }
                 if (generationToken == assistant.id) changeChat(chatId) { chat ->
                     chat.copy(messages = chat.messages.filterNot { it.id == assistant.id && it.text.isBlank() } +
                         ChatMessage(text = (error as? ApiException)?.message ?: "Could not complete this reply. Try again.", role = ChatMessage.Role.ERROR))
@@ -213,6 +332,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 changeChat(chat.id) { it.copy(attachments = it.attachments + attachment) }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
+                withContext(Dispatchers.IO) { diagnostics.record("Attachment", error = error) }
                 notice(if (error is IllegalArgumentException || error is IllegalStateException) error.message ?: "Could not prepare this file." else "Could not prepare this file. Try another file.")
             } finally { mutable.update { it.copy(preparing = false) } }
         }

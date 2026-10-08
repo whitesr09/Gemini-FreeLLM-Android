@@ -9,6 +9,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -46,8 +52,10 @@ import java.util.Date
 fun FreeLlmApp(vm: ChatViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
     var settings by rememberSaveable { mutableStateOf(false) }
+    var diagnostics by rememberSaveable { mutableStateOf(false) }
+    var settingsProvider by rememberSaveable { mutableStateOf<String?>(null) }
     val mode = runCatching { ThemeMode.valueOf(state.settings.theme) }.getOrDefault(ThemeMode.SYSTEM)
-    GeminiTheme(mode) {
+    GeminiTheme(mode, state.settings.reducedMotion) {
         when {
             state.loading -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(Modifier.semantics { contentDescription = "Loading your chats" })
@@ -58,16 +66,26 @@ fun FreeLlmApp(vm: ChatViewModel) {
                     Text(state.notice.orEmpty(), Modifier.padding(top = Design.medium))
                 }
             }
-            settings -> SettingsScreen(state.settings, vm.client, vm::saveSettings, { settings = false })
-            else -> ChatWorkspace(state, vm, { settings = true })
+            diagnostics -> DiagnosticsScreen(vm.diagnostics, onAsk = { vm.diagnose(it); diagnostics = false; settings = false }, onBack = { diagnostics = false })
+            settings -> SettingsScreen(state.settings, vm.client, vm::saveSettings, { settings = false },
+                initialProvider = settingsProvider?.let(Provider::valueOf) ?: state.settings.selected, onDiagnostics = { diagnostics = true })
+            else -> ChatWorkspace(state, vm, onSettings = { settingsProvider = null; settings = true },
+                onProviderSettings = { settingsProvider = it.name; settings = true })
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSettings: () -> Unit) {
+private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSettings: () -> Unit, onProviderSettings: (Provider) -> Unit) {
     val chat = state.active ?: return
+    var canvas by rememberSaveable { mutableStateOf(false) }
+    var pendingCanvas by remember { mutableStateOf<CanvasDocument?>(null) }
+    var media by rememberSaveable { mutableStateOf(false) }
+    if (canvas) { CanvasScreen(chat.canvas, vm::saveCanvas, vm::askAboutCanvas, { canvas = false }); return }
+    if (media) { MediaScreen(state.settings, { media = false }); return }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val haptics = LocalHapticFeedback.current
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -104,11 +122,13 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
             }, navigationIcon = {
                 IconButton(onClick = { scope.launch { drawer.open() } }) { Icon(Icons.AutoMirrored.Outlined.MenuOpen, "Open chat history") }
             }, actions = {
-                IconButton(onClick = vm::newChat) { Icon(Icons.Outlined.Edit, "New chat") }
+                IconButton(onClick = { vm.newChat(); keyboard?.hide() }) { Icon(Icons.Outlined.Edit, "New chat") }
                 var overflow by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { overflow = true }) { Icon(Icons.Outlined.MoreHoriz, "Chat options") }
                     DropdownMenu(overflow, { overflow = false }) {
+                        DropdownMenuItem(text = { Text("Coding canvas") }, onClick = { overflow = false; canvas = true }, leadingIcon = { Icon(Icons.Outlined.Code, null) })
+                        DropdownMenuItem(text = { Text("Create image or video") }, onClick = { overflow = false; media = true }, leadingIcon = { Icon(Icons.Outlined.Palette, null) })
                         DropdownMenuItem(text = { Text("Settings") }, onClick = { overflow = false; onSettings() }, leadingIcon = { Icon(Icons.Outlined.Settings, null) })
                         DropdownMenuItem(text = { Text("Share conversation") }, enabled = chat.messages.isNotEmpty(), onClick = { overflow = false; export = true },
                             leadingIcon = { Icon(Icons.Outlined.Share, null) })
@@ -117,7 +137,7 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
             })
         }, bottomBar = {
             Box(Modifier.fillMaxWidth().imePadding().navigationBarsPadding(), contentAlignment = Alignment.Center) {
-                Composer(chat, busy, state.preparing, vm::draft, vm::send, vm::stop,
+                Composer(chat, busy, state.preparing, vm::draft, { if (state.settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); vm.send() }, vm::stop,
                     onAttach = { attachmentPicker.launch(arrayOf("image/*", "text/*", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/json")) },
                     onVoice = {
                         try { voice.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
@@ -129,26 +149,19 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
                 if (chat.messages.isEmpty()) WelcomeState(onPrompt = vm::draft, onSettings = onSettings,
                     needsConnection = state.settings.active.apiKey.isBlank(), modifier = Modifier.widthIn(max = Design.readingWidth).fillMaxSize())
-                else chatScrollStates.SaveableStateProvider(chat.id) { ConversationMessages(chat, busy, vm, onSettings) }
+                else chatScrollStates.SaveableStateProvider(chat.id) { ConversationMessages(chat, busy, vm, onSettings, state.settings) { code, language ->
+                    val document = CanvasDocument("Untitled", language, code)
+                    if (chat.canvas.code.isNotBlank() && chat.canvas.code != code) pendingCanvas = document
+                    else { vm.saveCanvas(document); canvas = true }
+                } }
             }
         }
     }
-    if (models) ModalBottomSheet(onDismissRequest = { models = false }) {
-        Column(Modifier.fillMaxWidth().padding(Design.page), verticalArrangement = Arrangement.spacedBy(Design.small)) {
-            Text("Choose your AI", style = MaterialTheme.typography.titleLarge)
-            Text("The selected provider receives this conversation when you send.", style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            state.settings.profiles.forEach { profile ->
-                ListItem(headlineContent = { Text(profile.provider.label) }, supportingContent = { Text(profile.model, maxLines = 2) },
-                    trailingContent = { if (profile.provider == state.settings.selected) Icon(Icons.Outlined.Check, "Selected") },
-                    modifier = Modifier.clickable {
-                        scope.launch { if (vm.saveSettings(state.settings.copy(selected = profile.provider))) models = false }
-                    })
-            }
-            OutlinedButton(onClick = { models = false; onSettings() }, modifier = Modifier.fillMaxWidth()) { Text("Manage providers & models") }
-            Spacer(Modifier.height(Design.large))
-        }
-    }
+    pendingCanvas?.let { document -> AlertDialog(onDismissRequest = { pendingCanvas = null }, title = { Text("Replace this chat's canvas?") },
+        text = { Text("Opening this code will replace the current canvas. Export existing work first if you want to keep both.") },
+        confirmButton = { TextButton(onClick = { vm.saveCanvas(document); pendingCanvas = null; canvas = true }) { Text("Replace") } },
+        dismissButton = { TextButton(onClick = { pendingCanvas = null }) { Text("Cancel") } }) }
+    if (models) ModelPicker(state, vm, onDismiss = { models = false }, onManage = { models = false; onProviderSettings(it) })
     if (export) AlertDialog(onDismissRequest = { export = false }, title = { Text("Share this conversation?") },
         text = { Text("This includes messages and extracted document text. API keys and image files are excluded.") },
         confirmButton = { TextButton(onClick = {
@@ -234,7 +247,11 @@ private fun HistoryRow(chat: Conversation, active: String, select: () -> Unit, p
         modifier = Modifier.fillMaxWidth().semantics { selected = chat.id == active }) {
         Row(Modifier.padding(start = Design.medium), verticalAlignment = Alignment.CenterVertically) {
             Icon(if (chat.pinned) Icons.Outlined.PushPin else Icons.Outlined.ChatBubbleOutline, null, Modifier.size(20.dp))
-            Text(chat.title, Modifier.weight(1f).padding(horizontal = Design.medium), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+            Column(Modifier.weight(1f).padding(horizontal = Design.medium, vertical = Design.small)) {
+                Text(chat.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                Text(if (chat.draft.isNotBlank()) "Draft · ${chat.draft}" else chat.messages.lastOrNull { it.role != ChatMessage.Role.ERROR }?.text.orEmpty().ifBlank { "New conversation" },
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreHoriz, "Actions for ${chat.title}") }
                 DropdownMenu(menu, { menu = false }) {
@@ -279,48 +296,48 @@ private fun WelcomeState(onPrompt: (String) -> Unit, onSettings: () -> Unit, nee
 }
 
 @Composable
-private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatViewModel, onSettings: () -> Unit) {
+private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatViewModel, onSettings: () -> Unit, settings: AppSettings, onCanvas: (String, String) -> Unit) {
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var follow by rememberSaveable { mutableStateOf(true) }
-    var programmaticScroll by remember { mutableStateOf(false) }
+    val dragging by list.interactionSource.collectIsDraggedAsState()
     suspend fun scrollToLatest() {
-        programmaticScroll = true
-        try {
+        if (chat.messages.isNotEmpty()) {
             list.scrollToItem(chat.messages.lastIndex)
             // The last reply may be taller than the viewport; bring its bottom into view.
             val lastSize = list.layoutInfo.visibleItemsInfo.lastOrNull { it.index == chat.messages.lastIndex }?.size ?: 0
             list.scrollBy(lastSize.toFloat())
-        } finally { programmaticScroll = false }
-    }
-    val lastText = chat.messages.lastOrNull()?.text
-    LaunchedEffect(list) {
-        snapshotFlow { list.isScrollInProgress to list.canScrollForward }.collect { (scrolling, canScroll) ->
-            if (scrolling && !programmaticScroll) follow = !canScroll
         }
     }
+    val lastText = chat.messages.lastOrNull()?.text
+    LaunchedEffect(dragging) { if (dragging) follow = false }
+    LaunchedEffect(list) { snapshotFlow { list.canScrollForward }.collect { if (!it && !dragging) follow = true } }
+    LaunchedEffect(chat.messages.count { it.role == ChatMessage.Role.USER }) { follow = true }
     LaunchedEffect(chat.messages.size, lastText, busy) {
-        if (follow && chat.messages.isNotEmpty()) scrollToLatest()
+        if (follow && !dragging && chat.messages.isNotEmpty()) { withFrameNanos { }; scrollToLatest() }
     }
     Box(Modifier.widthIn(max = Design.readingWidth).fillMaxSize()) {
-        LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(Design.page), verticalArrangement = Arrangement.spacedBy(Design.large)) {
+        LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(Design.page), verticalArrangement = Arrangement.spacedBy(if (settings.compactSpacing) Design.medium else Design.page)) {
             items(chat.messages, key = { it.id }, contentType = { it.role }) { message ->
                 MessageRow(message, busy && message == chat.messages.lastOrNull(),
                     canRetry = !busy && message == chat.messages.lastOrNull() && message.role != ChatMessage.Role.USER,
-                    onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings)
+                    onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings, showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = vm::continueReply)
             }
         }
-        if (!follow && list.canScrollForward) SmallFloatingActionButton(onClick = {
+        AnimatedVisibility(visible = !follow && list.canScrollForward,
+            modifier = Modifier.align(Alignment.BottomCenter), enter = fadeIn(tween(if (settings.reducedMotion) 0 else 160)), exit = fadeOut(tween(if (settings.reducedMotion) 0 else 120))) {
+        SmallFloatingActionButton(onClick = {
             follow = true; scope.launch { scrollToLatest() }
-        }, modifier = Modifier.align(Alignment.BottomCenter).padding(Design.small), containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        }, modifier = Modifier.padding(Design.small), containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Icon(Icons.Outlined.ArrowDownward, "Jump to latest message")
+        }
         }
     }
 }
 
 @Suppress("DEPRECATION")
 @Composable
-private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit) {
+private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit, showTimestamps: Boolean, onCanvas: (String, String) -> Unit, onContinue: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
@@ -337,13 +354,11 @@ private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Bool
                 message.attachments.forEach { file -> AttachmentLabel(file) }
                 when {
                     error -> Text(message.text, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                    message.text.isEmpty() && generating -> Text("Thinking…", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    message.text.isEmpty() && generating -> ThinkingIndicator()
                     user -> SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge) }
-                    else -> MessageContent(message.text)
+                    else -> StreamingContent(message.text, generating, onCanvas)
                 }
-                if (generating) Text("Generating…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                else if (message.interrupted) Text("Reply incomplete", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!generating && message.interrupted) Text("Reply incomplete", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (!generating) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -352,8 +367,12 @@ private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Bool
             }
             if (user && canEdit) IconButton(onClick = { edit = true }) { Icon(Icons.Outlined.Edit, "Edit message", Modifier.size(20.dp)) }
             if (canRetry) IconButton(onClick = onRetry) { Icon(Icons.Outlined.Refresh, if (error) "Retry reply" else "Regenerate reply", Modifier.size(20.dp)) }
+            if (message.interrupted && canRetry) TextButton(onClick = onContinue) { Text("Continue") }
             if (error) TextButton(onClick = onSettings) { Text("Settings") }
-            Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.timestamp)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (showTimestamps) Text(remember(message.timestamp, message.elapsedMs) {
+                DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.timestamp)) +
+                    if (message.elapsedMs > 0) " · %.1fs".format(message.elapsedMs / 1000.0) else ""
+            }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     if (edit) AlertDialog(onDismissRequest = { edit = false }, title = { Text("Edit this message?") },
@@ -380,6 +399,7 @@ private fun AttachmentLabel(file: Attachment, onRemove: (() -> Unit)? = null) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Composer(chat: Conversation, busy: Boolean, preparing: Boolean, onChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit,
                      onAttach: () -> Unit, onVoice: () -> Unit, onRemove: (String) -> Unit) {
@@ -399,13 +419,13 @@ private fun Composer(chat: Conversation, busy: Boolean, preparing: Boolean, onCh
                     IconButton(onClick = onVoice) { Icon(Icons.Outlined.MicNone, "Dictate a message") }
                 } else {
                     FilledIconButton(onClick = if (busy) onStop else onSend,
-                        enabled = busy || !preparing, modifier = Modifier.size(Design.touch)) {
+                        enabled = busy || (!preparing && (chat.draft.isNotBlank() || chat.attachments.isNotEmpty())), modifier = Modifier.size(Design.touch)) {
                         Icon(if (busy) Icons.Outlined.Stop else Icons.Outlined.ArrowUpward, if (busy) "Stop generating" else "Send message")
                     }
                 }
             }
         }
-        Text("AI can make mistakes. Check important information.", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+        if (!WindowInsets.isImeVisible) Text("AI can make mistakes. Check important information.", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

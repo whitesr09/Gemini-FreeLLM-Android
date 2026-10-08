@@ -87,16 +87,21 @@ class LocalStore(private val context: Context) {
 }
 
 internal fun settingsToJson(settings: AppSettings) = JSONObject().put("selected", settings.selected.name)
-    .put("theme", settings.theme).put("profiles", JSONArray(settings.profiles.map {
+    .put("theme", settings.theme).put("reducedMotion", settings.reducedMotion)
+    .put("showTimestamps", settings.showTimestamps).put("compactSpacing", settings.compactSpacing)
+    .put("haptics", settings.haptics).put("favorites", JSONArray(settings.favorites)).put("profiles", JSONArray(settings.profiles.map {
         JSONObject().put("provider", it.provider.name).put("baseUrl", it.baseUrl).put("apiKey", it.apiKey)
-            .put("model", it.model).put("stream", it.stream).put("vision", it.vision)
+            .put("model", it.model).put("stream", it.stream).put("vision", it.vision).put("fastReplies", it.fastReplies)
     }))
 
 internal fun settingsFromJson(json: JSONObject): AppSettings = AppSettings(
     selected = Provider.valueOf(json.getString("selected")), theme = json.optString("theme", "SYSTEM"),
+    reducedMotion = json.optBoolean("reducedMotion"), showTimestamps = json.optBoolean("showTimestamps"),
+    compactSpacing = json.optBoolean("compactSpacing"), haptics = json.optBoolean("haptics", true),
+    favorites = json.optJSONArray("favorites")?.let { array -> (0 until array.length()).map { array.getString(it) } }.orEmpty(),
     profiles = json.getJSONArray("profiles").objects().map {
         ProviderProfile(Provider.valueOf(it.getString("provider")), it.getString("baseUrl"), it.optString("apiKey"),
-            it.getString("model"), it.optBoolean("stream", true), it.optBoolean("vision", false))
+            it.getString("model"), it.optBoolean("stream", true), it.optBoolean("vision", false), it.optBoolean("fastReplies", false))
     }
 )
 
@@ -104,9 +109,10 @@ internal fun conversationsToJson(chats: List<Conversation>) = JSONObject().put("
     .put("chats", JSONArray(chats.map { chat ->
         JSONObject().put("id", chat.id).put("title", chat.title).put("draft", chat.draft)
             .put("pinned", chat.pinned).put("archived", chat.archived).put("updatedAt", chat.updatedAt)
+            .put("canvas", JSONObject().put("title", chat.canvas.title).put("language", chat.canvas.language).put("code", chat.canvas.code))
             .put("attachments", attachmentsJson(chat.attachments)).put("messages", JSONArray(chat.messages.map {
                 JSONObject().put("id", it.id).put("text", it.text).put("role", it.role.name)
-                    .put("timestamp", it.timestamp).put("model", it.model).put("interrupted", it.interrupted)
+                    .put("timestamp", it.timestamp).put("model", it.model).put("interrupted", it.interrupted).put("elapsedMs", it.elapsedMs).put("firstTokenMs", it.firstTokenMs)
                     .put("attachments", attachmentsJson(it.attachments))
             }))
     }))
@@ -114,9 +120,10 @@ internal fun conversationsToJson(chats: List<Conversation>) = JSONObject().put("
 internal fun conversationsFromJson(json: JSONObject): List<Conversation> = json.getJSONArray("chats").objects().map { chat ->
     Conversation(chat.getString("id"), chat.getString("title"), chat.getJSONArray("messages").objects().map {
         ChatMessage(it.getString("id"), it.getString("text"), ChatMessage.Role.valueOf(it.getString("role")),
-            it.getLong("timestamp"), attachmentsFromJson(it.optJSONArray("attachments")), it.optString("model"), it.optBoolean("interrupted"))
+            it.getLong("timestamp"), attachmentsFromJson(it.optJSONArray("attachments")), it.optString("model"), it.optBoolean("interrupted"), it.optLong("elapsedMs"), it.optLong("firstTokenMs"))
     }, chat.optString("draft"), attachmentsFromJson(chat.optJSONArray("attachments")), chat.optBoolean("pinned"),
-        chat.optBoolean("archived"), chat.getLong("updatedAt"))
+        chat.optBoolean("archived"), chat.getLong("updatedAt"),
+        chat.optJSONObject("canvas")?.let { CanvasDocument(it.optString("title", "Untitled"), it.optString("language", "text"), it.optString("code").take(120_000)) } ?: CanvasDocument())
 }
 
 private fun attachmentsJson(attachments: List<Attachment>) = JSONArray(attachments.map {

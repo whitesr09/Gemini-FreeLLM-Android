@@ -12,4 +12,11 @@ class MarkdownTest {
     @Test fun closedFenceDoesNotSwallowFollowingParagraph() {
         assertEquals(listOf(MarkdownBlock("x", ""), MarkdownBlock("After")), markdownBlocks("```\nx\n```\nAfter"))
     }
+    @Test fun tablesParseEscapedPipesAndRejectMalformedRows() {
+        val table = markdownTable("| Name | Value |\n| --- | :---: |\n| A\\|B | 1 |")!!
+        assertEquals(listOf("Name", "Value"), table.header)
+        assertEquals(listOf("A|B", "1"), table.rows.first())
+        assertNull(markdownTable("a|b\nnot|separator"))
+        assertNull(markdownTable("a|b\n---|---\na|b|c"))
+    }
 }

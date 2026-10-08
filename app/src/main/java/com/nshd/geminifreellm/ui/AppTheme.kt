@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.activity.compose.LocalActivity
 import androidx.compose.ui.platform.LocalContext
@@ -54,7 +55,7 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun GeminiTheme(mode: ThemeMode, content: @Composable () -> Unit) {
+fun GeminiTheme(mode: ThemeMode, reducedMotion: Boolean = false, content: @Composable () -> Unit) {
     val dark = mode == ThemeMode.DARK || mode == ThemeMode.AMOLED || (mode == ThemeMode.SYSTEM && isSystemInDarkTheme())
     val scheme = when {
         mode == ThemeMode.AMOLED -> DarkColors.copy(background = Color.Black, surface = Color.Black,
@@ -71,6 +72,7 @@ fun GeminiTheme(mode: ThemeMode, content: @Composable () -> Unit) {
             }
         }
     }
+    CompositionLocalProvider(LocalReducedMotion provides reducedMotion) {
     MaterialTheme(colorScheme = scheme,
         typography = Typography(
             headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold),
@@ -82,4 +84,5 @@ fun GeminiTheme(mode: ThemeMode, content: @Composable () -> Unit) {
         ),
         shapes = Shapes(small = RoundedCornerShape(8.dp), medium = Design.card, large = RoundedCornerShape(24.dp)),
         content = content)
+    }
 }
