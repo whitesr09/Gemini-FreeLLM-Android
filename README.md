@@ -20,7 +20,7 @@ A modern, lightweight Android chat client for a self-hosted [FreeLLMAPI](https:/
 
 Default Base URL:
 
-`http://127.0.0.1:3001/v1`
+`https://nshd-freellm-api.onrender.com/v1`
 
 Enter the **FreeLLMAPI Unified API Key** in Settings. Do not put your Google AI Studio key into this app; keep provider keys inside FreeLLMAPI.
 
