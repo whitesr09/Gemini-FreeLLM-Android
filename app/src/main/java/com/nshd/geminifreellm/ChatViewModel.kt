@@ -27,7 +27,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val storageBlocked: Boolean = false,
         val catalogs: Map<Provider, ModelCatalog> = emptyMap(),
         val access: Map<String, ModelAccess> = emptyMap(),
-        val checking: Set<String> = emptySet()
+        val checking: Set<String> = emptySet(),
+        val autoChecking: Boolean = false,
+        val autoStatus: String = "Discover models, then check which can respond.",
+        val autoChoice: String? = null
     ) {
         val active: Conversation? get() = chats.firstOrNull { it.id == activeId }
     }
@@ -36,7 +39,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val store = LocalStore(application)
     private val settingsMutex = Mutex()
     private val catalogJobs = mutableMapOf<Provider, Job>()
+    private val catalogTokens = mutableMapOf<Provider, String>()
     private var draftSave: Job? = null
+    private var autoCheckJob: Job? = null
     val client = FreeLlmApiClient()
     private val mutable = MutableStateFlow(State())
     val state = mutable.asStateFlow()
@@ -105,15 +110,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val cached = current.catalogs[provider]
         if (catalogJobs[provider]?.isActive == true || (!force && cached?.fetchedAt != null && cached.fetchedAt > System.currentTimeMillis() - 300_000)) return
         mutable.update { it.copy(catalogs = it.catalogs + (provider to (cached ?: ModelCatalog()).copy(loading = true, error = null))) }
+        val token = newId()
+        catalogTokens[provider] = token
         catalogJobs[provider] = viewModelScope.launch {
             try {
                 val models = client.catalog(profile)
-                mutable.update { it.copy(catalogs = it.catalogs + (provider to ModelCatalog(models, fetchedAt = System.currentTimeMillis()))) }
+                if (catalogTokens[provider] == token) mutable.update { it.copy(catalogs = it.catalogs + (provider to ModelCatalog(models, fetchedAt = System.currentTimeMillis()))) }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
-                mutable.update { it.copy(catalogs = it.catalogs + (provider to (cached ?: ModelCatalog()).copy(loading = false,
+                if (catalogTokens[provider] == token) mutable.update { it.copy(catalogs = it.catalogs + (provider to (cached ?: ModelCatalog()).copy(loading = false,
                     error = (error as? ApiException)?.message ?: "Could not load models. Retry or enter an ID manually."))) }
                 withContext(Dispatchers.IO) { diagnostics.record("Model catalog", provider, error) }
+            } finally {
+                if (catalogTokens[provider] == token) mutable.update { value -> value.copy(catalogs = value.catalogs[provider]?.let {
+                    value.catalogs + (provider to it.copy(loading = false))
+                } ?: value.catalogs) }
             }
         }
     }
@@ -125,10 +136,68 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             profiles = current.profiles.filterNot { it.provider == provider } + profile.copy(model = model.trim())) }
     }
 
-    suspend fun selectAuto(): Boolean {
-        val saved = updateSettings { it.copy(autoRouting = true) }
-        if (saved) mutable.value.settings.profiles.filter { it.provider !in mutable.value.settings.autoExcluded }.forEach { loadCatalog(it.provider) }
+    suspend fun setAutoEnabled(enabled: Boolean): Boolean {
+        if (mutable.value.generatingId != null) { notice("Stop the current reply before changing Auto mode."); return false }
+        stopAutoCheck()
+        autoCheckJob?.join()
+        val saved = updateSettings { it.copy(autoRouting = enabled) }
+        if (saved) {
+            if (enabled) checkAutoModels()
+            else {
+                catalogJobs.values.forEach { it.cancel() }
+                mutable.update { it.copy(autoChoice = null, autoStatus = "Auto is off. Your saved manual model is selected.",
+                    catalogs = it.catalogs.mapValues { entry -> entry.value.copy(loading = false) }) }
+            }
+        }
         return saved
+    }
+
+    fun refreshAutoCatalogs(force: Boolean = false) {
+        mutable.value.settings.profiles.filter { FreeLlmApiClient.validate(it, requireModel = false) == null }
+            .forEach { loadCatalog(it.provider, force) }
+    }
+
+    private suspend fun awaitAutoCatalogs() {
+        refreshAutoCatalogs()
+        val jobs = mutable.value.settings.profiles.mapNotNull { catalogJobs[it.provider] }
+        withTimeoutOrNull(8_000) { jobs.joinAll() }
+    }
+
+    fun stopAutoCheck() { autoCheckJob?.cancel() }
+
+    fun checkAutoModels() {
+        if (!mutable.value.settings.autoRouting || mutable.value.autoChecking || mutable.value.checking.isNotEmpty() || mutable.value.generatingId != null) return
+        mutable.update { it.copy(autoChecking = true, autoChoice = null, autoStatus = "Discovering models from configured providers…") }
+        autoCheckJob = viewModelScope.launch {
+            try {
+                awaitAutoCatalogs()
+                val snapshot = mutable.value
+                val history = snapshot.active?.messages.orEmpty() + ChatMessage(text = snapshot.active?.draft.orEmpty(), role = ChatMessage.Role.USER,
+                    attachments = snapshot.active?.attachments.orEmpty())
+                val candidates = AutoRouter.candidates(snapshot.settings, snapshot.catalogs, snapshot.access, history)
+                var started = 0L
+                val (profile, _) = AutoRouter.generate(candidates, firstTokenTimeoutMs = 15_000,
+                    onAttempt = { selected, attempt ->
+                        started = android.os.SystemClock.elapsedRealtime()
+                        mutable.update { it.copy(checking = setOf(modelKey(selected.provider, selected.model)),
+                            autoStatus = "Checking $attempt/${minOf(6, candidates.size)} · ${selected.provider.label} · ${selected.model}") }
+                    }, onFailure = { failed, error ->
+                        markAccess(failed, (error as? ApiException)?.access ?: AccessState.ERROR)
+                        withContext(Dispatchers.IO) { diagnostics.record("Auto access check", failed.provider, error) }
+                    }, request = { selected, emit ->
+                        withTimeoutOrNull(15_000) {
+                            client.generate(selected, listOf(ChatMessage(text = "Reply with OK only.", role = ChatMessage.Role.USER)), onText = emit)
+                        } ?: throw ApiException("Access check timed out.", AccessState.UNAVAILABLE)
+                    }, onText = {})
+                markAccess(profile, AccessState.USABLE, android.os.SystemClock.elapsedRealtime() - started)
+                mutable.update { it.copy(autoChoice = "${profile.provider.label} · ${profile.model}",
+                    autoStatus = "Ready. Auto re-evaluates for each message and switches when a model fails.") }
+            } catch (cancelled: CancellationException) {
+                mutable.update { it.copy(autoStatus = "Check stopped. Completed results are kept.") }; throw cancelled
+            } catch (error: Exception) {
+                mutable.update { it.copy(autoStatus = (error as? ApiException)?.message ?: "Could not check models. Review connections and retry.") }
+            } finally { mutable.update { it.copy(autoChecking = false, checking = emptySet()) } }
+        }
     }
 
     suspend fun saveAgent(agent: AgentConfig): Boolean {
@@ -154,7 +223,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun checkModel(provider: Provider, model: String) {
         val profile = (mutable.value.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)).copy(model = model)
         val key = modelKey(provider, model)
-        if (key in mutable.value.checking || mutable.value.checking.isNotEmpty()) return
+        if (mutable.value.autoChecking || key in mutable.value.checking || mutable.value.checking.isNotEmpty()) return
         mutable.update { it.copy(checking = it.checking + key) }
         viewModelScope.launch {
             try {
@@ -169,10 +238,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun markAccess(profile: ProviderProfile, access: AccessState) {
+    private fun markAccess(profile: ProviderProfile, access: AccessState, latencyMs: Long = 0) {
         val configured = mutable.value.settings.profiles.firstOrNull { it.provider == profile.provider } ?: ProviderProfile(profile.provider)
         if (configured.apiKey == profile.apiKey && configured.baseUrl == profile.baseUrl)
-            mutable.update { it.copy(access = it.access + (modelKey(profile.provider, profile.model) to ModelAccess(access))) }
+            mutable.update { it.copy(access = it.access + (modelKey(profile.provider, profile.model) to ModelAccess(access, latencyMs = latencyMs.coerceAtLeast(0))),
+                autoChoice = if (access != AccessState.USABLE && it.autoChoice == "${profile.provider.label} · ${profile.model}") null else it.autoChoice) }
     }
     fun flushDraft() { draftSave?.cancel(); persist() }
     fun notice(text: String?) { mutable.update { it.copy(notice = text) } }
@@ -221,8 +291,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val changed = settings.profiles.filter { profile -> old.profiles.firstOrNull { it.provider == profile.provider }?.let {
                 it.apiKey != profile.apiKey || it.baseUrl != profile.baseUrl
             } ?: true }.map { it.provider }.toSet()
-            changed.forEach { catalogJobs.remove(it)?.cancel() }
+            if (changed.isNotEmpty() || old.autoExcluded != settings.autoExcluded || (old.autoRouting && !settings.autoRouting)) stopAutoCheck()
+            changed.forEach { catalogTokens.remove(it); catalogJobs.remove(it)?.cancel() }
             mutable.update { value -> value.copy(settings = settings,
+                autoChoice = if (changed.isNotEmpty() || old.autoExcluded != settings.autoExcluded) null else value.autoChoice,
                 catalogs = value.catalogs.filterKeys { it !in changed },
                 access = value.access.filterKeys { key -> changed.none { key.startsWith("${it.name}/") } }) }
             true
@@ -243,7 +315,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         val message = ChatMessage(text = chat.draft.trim(), role = ChatMessage.Role.USER, attachments = chat.attachments)
         val history = chat.messages + message
-        if (requestCandidates(value, history).isEmpty()) { notice("No eligible Auto models. Configure a provider, enable image input if needed, or wait for cooldown."); return }
+
         changeChat { it.copy(messages = history, draft = "", attachments = emptyList(),
             title = if (it.messages.isEmpty()) message.text.ifBlank { message.attachments.first().name }.take(60) else it.title,
             updatedAt = System.currentTimeMillis()) }
@@ -264,7 +336,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (userIndex < 0) return
         if (!value.settings.autoRouting) FreeLlmApiClient.validate(value.settings.active)?.let { notice(it); return }
         val history = chat.messages.take(userIndex + 1)
-        if (requestCandidates(value, history).isEmpty()) { notice("No eligible Auto models. Check provider settings or wait for cooldown."); return }
+
         changeChat { it.copy(messages = history) }
         generate(chat.id, history, value)
     }
@@ -279,28 +351,36 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun generate(chatId: String, history: List<ChatMessage>, snapshot: State) {
-        val candidates = requestCandidates(snapshot, history)
-        var profile = candidates.first()
+        stopAutoCheck()
+        var profile = snapshot.settings.active
         val systemPrompt = snapshot.settings.agent.prompt()
-        val assistant = ChatMessage(text = "", role = ChatMessage.Role.ASSISTANT, model = "${profile.provider.label} · ${profile.model}", interrupted = true)
-        generationToken = assistant.id
+        val assistant = ChatMessage(text = "", role = ChatMessage.Role.ASSISTANT,
+            model = if (snapshot.settings.autoRouting) "Auto · discovering available models…" else "${profile.provider.label} · ${profile.model}", interrupted = true)
+        val token = assistant.id
+        generationToken = token
         mutable.update { it.copy(generatingId = chatId) }
         changeChat(chatId) { it.copy(messages = history + assistant) }
         generation = viewModelScope.launch {
+            var replyId = assistant.id
+            var requestHistory = history
             try {
-                val started = android.os.SystemClock.elapsedRealtime()
+                autoCheckJob?.join()
+                if (snapshot.settings.autoRouting) awaitAutoCatalogs()
+                val candidates = requestCandidates(snapshot.copy(catalogs = mutable.value.catalogs, access = mutable.value.access), history)
+                if (candidates.isEmpty()) throw ApiException("Auto found no eligible model. Open Auto to check provider connections and cooldowns.")
+                var started = android.os.SystemClock.elapsedRealtime()
                 var firstToken = 0L
                 var lastCheckpoint = started
-                val updates = Channel<String>(Channel.CONFLATED)
+                val updates = Channel<Pair<String, String>>(Channel.CONFLATED)
                 val collector = launch {
-                    for (partial in updates) {
-                        if (generationToken == assistant.id) {
+                    for ((id, partial) in updates) {
+                        if (generationToken == token && id == replyId) {
                             val now = android.os.SystemClock.elapsedRealtime()
-                            if (firstToken == 0L && partial.isNotEmpty()) firstToken = now - started
+                            if (firstToken == 0L && partial.isNotEmpty()) firstToken = (now - started).coerceAtLeast(1)
                             val checkpoint = now - lastCheckpoint >= 2000
                             if (checkpoint) lastCheckpoint = now
                             changeChat(chatId, save = checkpoint) { chat ->
-                                chat.copy(messages = chat.messages.map { if (it.id == assistant.id) it.copy(text = partial) else it })
+                                chat.copy(messages = chat.messages.map { if (it.id == id) it.copy(text = partial) else it })
                             }
                         }
                     }
@@ -309,34 +389,48 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     if (snapshot.settings.autoRouting) AutoRouter.generate(candidates,
                         onAttempt = { selected, attempt ->
                             profile = selected
+                            started = android.os.SystemClock.elapsedRealtime(); firstToken = 0L
                             changeChat(chatId, save = false) { chat -> chat.copy(messages = chat.messages.map {
-                                if (it.id == assistant.id) it.copy(model = "Auto · ${selected.provider.label} · ${selected.model}" + if (attempt > 1) " · fallback $attempt" else "") else it
+                                if (it.id == replyId) it.copy(model = "Auto · ${selected.provider.label} · ${selected.model}" + if (attempt > 1) " · fallback $attempt" else "") else it
                             }) }
                         }, onFailure = { failed, error ->
                             markAccess(failed, (error as? ApiException)?.access ?: AccessState.ERROR)
                             withContext(Dispatchers.IO) { diagnostics.record("Auto fallback", failed.provider, error) }
-                        }, request = { selected, emit -> client.generate(selected, history, systemPrompt, emit) },
-                        onText = { updates.trySend(it) }).second
-                    else client.generate(profile, history, systemPrompt) { updates.trySend(it) }
-                }
-                    finally { updates.close(); collector.join() }
-                if (generationToken == assistant.id) {
-                    markAccess(profile, AccessState.USABLE)
+                        }, request = { selected, emit ->
+                            val id = replyId
+                            client.generate(selected, requestHistory, systemPrompt) { partial -> updates.trySend(id to partial); emit(partial) }
+                        }, onText = {}, onPartialFailure = { partial ->
+                            // Persist the completed portion under its original model before starting a new bubble.
+                            val previousId = replyId
+                            val next = ChatMessage(text = "", role = ChatMessage.Role.ASSISTANT, model = "Auto · finding a model to continue…", interrupted = true)
+                            replyId = next.id
+                            changeChat(chatId) { chat -> chat.copy(messages = chat.messages.map {
+                                if (it.id == previousId) it.copy(text = partial, interrupted = true) else it
+                            } + next) }
+                            requestHistory = requestHistory + ChatMessage(text = partial, role = ChatMessage.Role.ASSISTANT) +
+                                ChatMessage(text = "The previous reply was interrupted. Continue from its last unfinished point, preserve the user's requirements, and avoid repeating completed content.", role = ChatMessage.Role.USER)
+                        }).second
+                    else client.generate(profile, history, systemPrompt) { updates.trySend(replyId to it) }
+                } finally { updates.close(); collector.join() }
+                if (generationToken == token) {
+                    val elapsed = android.os.SystemClock.elapsedRealtime() - started
+                    markAccess(profile, AccessState.USABLE, firstToken.takeIf { it > 0 } ?: elapsed)
+                    if (snapshot.settings.autoRouting) mutable.update { it.copy(autoChoice = "${profile.provider.label} · ${profile.model}") }
                     changeChat(chatId) { chat ->
-                        chat.copy(messages = chat.messages.map { if (it.id == assistant.id) it.copy(text = text, interrupted = false,
-                            elapsedMs = android.os.SystemClock.elapsedRealtime() - started, firstTokenMs = firstToken) else it })
+                        chat.copy(messages = chat.messages.map { if (it.id == replyId) it.copy(text = text, interrupted = false,
+                            elapsedMs = elapsed, firstTokenMs = firstToken) else it })
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
-                markAccess(profile, (error as? ApiException)?.access ?: AccessState.ERROR)
+                if (!snapshot.settings.autoRouting) markAccess(profile, (error as? ApiException)?.access ?: AccessState.ERROR)
                 withContext(Dispatchers.IO) { diagnostics.record("Chat request", profile.provider, error) }
-                if (generationToken == assistant.id) changeChat(chatId) { chat ->
-                    chat.copy(messages = chat.messages.filterNot { it.id == assistant.id && it.text.isBlank() } +
+                if (generationToken == token) changeChat(chatId) { chat ->
+                    chat.copy(messages = chat.messages.filterNot { it.id == replyId && it.text.isBlank() } +
                         ChatMessage(text = (error as? ApiException)?.message ?: "Could not complete this reply. Try again.", role = ChatMessage.Role.ERROR))
                 }
             } finally {
-                if (generationToken == assistant.id) {
+                if (generationToken == token) {
                     generationToken = null
                     mutable.update { it.copy(generatingId = null) }
                     persist()
@@ -348,6 +442,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun stop() {
         generationToken = null
         generation?.cancel()
+        if (mutable.value.generatingId != null) catalogJobs.values.forEach { it.cancel() }
         generation = null
         val id = mutable.value.generatingId
         mutable.update { it.copy(generatingId = null) }

@@ -73,6 +73,40 @@ class AutoAgentTest {
         }, onText = {})
         assertEquals(listOf(a, b), calls)
     }
+    @Test fun rateLimitKeepsOtherModelsAtSameProviderEligible() = runTest {
+        val other = a.copy(model = "working-model")
+        val settings = AppSettings(profiles = listOf(a))
+        val access = mapOf(modelKey(a.provider, a.model) to ModelAccess(AccessState.RATE_LIMITED))
+        assertEquals(listOf(other), AutoRouter.candidates(settings, mapOf(a.provider to ModelCatalog(listOf(ModelInfo(other.model)))), access, history))
+        val calls = mutableListOf<ProviderProfile>()
+        val result = AutoRouter.generate(listOf(a, other), onAttempt = { _, _ -> }, onFailure = { _, _ -> }, request = { p, _ ->
+            calls += p; if (p == a) throw ApiException("Rate limited", AccessState.RATE_LIMITED); "OK"
+        }, onText = {})
+        assertEquals(listOf(a, other), calls); assertEquals(other to "OK", result)
+    }
+
+    @Test fun partialFallbackCanContinueWithoutMixingOutput() = runTest {
+        val saved = mutableListOf<String>()
+        val result = AutoRouter.generate(listOf(a, b), onAttempt = { _, _ -> }, onFailure = { _, _ -> }, request = { p, emit ->
+            if (p == a) { emit("Preserved partial"); throw ApiException("Interrupted") }
+            assertEquals(listOf("Preserved partial"), saved); "Continuation"
+        }, onText = {}, onPartialFailure = { saved += it })
+        assertEquals(b to "Continuation", result)
+    }
+    @Test fun modelPermissionFailureDoesNotExcludeOtherModels() {
+        val denied = mapOf(modelKey(a.provider, a.model) to ModelAccess(AccessState.MODEL_REJECTED))
+        val other = a.copy(model = "allowed")
+        assertEquals(listOf(other), AutoRouter.candidates(AppSettings(profiles = listOf(a)), mapOf(a.provider to ModelCatalog(listOf(ModelInfo("allowed")))), denied, history))
+    }
+    @Test fun allFailuresAreBoundedAndReported() = runTest {
+        var calls = 0
+        try {
+            AutoRouter.generate((1..20).map { a.copy(model = "model-$it") }, onAttempt = { _, _ -> }, onFailure = { _, _ -> }, request = { _, _ -> calls++; throw ApiException("Unavailable") }, onText = {})
+            fail("Expected failure")
+        } catch (error: ApiException) { assertTrue(error.message!!.contains("6 attempts")) }
+        assertEquals(6, calls)
+    }
+
     @Test fun partialRepliesNeverSwitchProvider() = runTest {
         val calls = mutableListOf<ProviderProfile>(); val partials = mutableListOf<String>()
         try {

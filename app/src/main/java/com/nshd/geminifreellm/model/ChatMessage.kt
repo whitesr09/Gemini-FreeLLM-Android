@@ -89,10 +89,10 @@ data class CanvasDocument(val title: String = "Untitled", val language: String =
 data class ModelInfo(val id: String, val name: String = id, val contextTokens: Long? = null, val freePricing: Boolean? = null)
 
 enum class AccessState(val label: String) {
-    UNKNOWN("Access unverified"), USABLE("Last request succeeded"), AUTH("Key / access rejected"),
+    MODEL_REJECTED("Model access rejected"), UNKNOWN("Access unverified"), USABLE("Last request succeeded"), AUTH("Key / access rejected"),
     QUOTA("Quota / balance exhausted"), RATE_LIMITED("Rate limited"), UNAVAILABLE("Model / endpoint unavailable"), ERROR("Last request failed")
 }
-data class ModelAccess(val state: AccessState = AccessState.UNKNOWN, val checkedAt: Long = System.currentTimeMillis())
+data class ModelAccess(val state: AccessState = AccessState.UNKNOWN, val checkedAt: Long = System.currentTimeMillis(), val latencyMs: Long = 0)
 data class ModelCatalog(val models: List<ModelInfo> = emptyList(), val loading: Boolean = false,
     val error: String? = null, val fetchedAt: Long = 0)
 fun modelKey(provider: Provider, model: String) = "${provider.name}/$model"

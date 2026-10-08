@@ -116,7 +116,7 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
                 TextButton(onClick = { models = true }, contentPadding = PaddingValues(horizontal = Design.small)) {
                     Column(Modifier.weight(1f, fill = false), horizontalAlignment = Alignment.Start) {
                         Text("FreeLLM AI", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                        Text(if (state.settings.autoRouting) "Auto · best available" else state.settings.active.model.ifBlank { "Choose a model" }, style = MaterialTheme.typography.labelSmall,
+                        Text(if (state.settings.autoRouting) "Auto · all providers" else state.settings.active.model.ifBlank { "Choose a model" }, style = MaterialTheme.typography.labelSmall,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Icon(Icons.Outlined.KeyboardArrowDown, "Choose AI model")

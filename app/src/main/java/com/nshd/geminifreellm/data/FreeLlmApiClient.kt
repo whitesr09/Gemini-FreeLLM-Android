@@ -364,7 +364,8 @@ class FreeLlmApiClient(
             val quota = response.code == 402 || code in setOf("insufficient_quota", "insufficient_balance", "billing_hard_limit_reached", "credit_balance_too_low")
             val state = when {
                 quota -> AccessState.QUOTA
-                response.code == 401 || response.code == 403 -> AccessState.AUTH
+                response.code == 401 -> AccessState.AUTH
+                response.code == 403 -> AccessState.MODEL_REJECTED
                 response.code == 429 -> AccessState.RATE_LIMITED
                 response.code == 404 -> AccessState.UNAVAILABLE
                 else -> AccessState.ERROR

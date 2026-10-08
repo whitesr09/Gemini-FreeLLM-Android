@@ -24,6 +24,7 @@ import java.util.Date
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> Unit, onManage: (Provider) -> Unit) {
+    var autoTab by rememberSaveable { mutableStateOf(true) }
     var expanded by rememberSaveable { mutableStateOf(state.settings.selected.name) }
     var query by rememberSaveable { mutableStateOf("") }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -35,7 +36,7 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
     val providers = remember(state.settings.selected, state.settings.profiles) {
         Provider.entries.sortedBy { if (it == state.settings.selected) 0 else if (state.settings.profiles.any { p -> p.provider == it }) 1 else 2 }
     }
-    LaunchedEffect(expanded) { Provider.entries.firstOrNull { it.name == expanded }?.let(vm::loadCatalog) }
+    LaunchedEffect(expanded, autoTab) { if (autoTab) vm.refreshAutoCatalogs() else Provider.entries.firstOrNull { it.name == expanded }?.let(vm::loadCatalog) }
     fun select(provider: Provider, model: String) {
         if (selecting) return
         scope.launch {
@@ -53,16 +54,12 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
                 }
                 IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "Close model picker") }
             }
-            Card(Modifier.fillMaxWidth().padding(horizontal = Design.page, vertical = Design.small)) {
-                Column(Modifier.padding(Design.medium)) {
-                    TextButton(enabled = !selecting, onClick = { scope.launch {
-                        selecting = true
-                        if (vm.selectAuto()) onDismiss() else feedback = "Could not save Auto selection."
-                        selecting = false
-                    } }) { Text(if (state.settings.autoRouting) "✓ Auto · selected" else "Auto · choose for me") }
-                    Text("Ranks configured models using availability, favorites and task fit. Tries up to 6 models before any reply starts. Chat and agent context may go to multiple enabled providers; normal API charges apply.", style = MaterialTheme.typography.bodySmall)
-                }
+            Row(Modifier.fillMaxWidth().padding(horizontal = Design.page), horizontalArrangement = Arrangement.spacedBy(Design.small)) {
+                FilterChip(autoTab, { autoTab = true }, label = { Text("Auto · all providers") })
+                FilterChip(!autoTab, { autoTab = false }, label = { Text("Manual selection") })
             }
+            if (autoTab) AutoModelsPanel(state, vm, onDismiss)
+            else {
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = Design.page, vertical = Design.small),
                 placeholder = { Text("Search models in expanded provider") }, singleLine = true, shape = Design.card,
                 leadingIcon = { Icon(Icons.Outlined.Search, null) }, trailingIcon = {
@@ -147,6 +144,7 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
                         }
                     }
                 }
+            }
             }
         }
     }
