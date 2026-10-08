@@ -27,6 +27,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nshd.geminifreellm.data.ApiException
+import com.nshd.geminifreellm.BuildConfig
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.model.*
 import kotlinx.coroutines.CancellationException
@@ -164,6 +165,8 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 SectionTitle("About")
                 Text("FreeLLM AI · Your models, one space", style = MaterialTheme.typography.bodyLarge)
+                Text("Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.BUILD_TYPE}",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Text chat with OpenAI-compatible APIs, Gemini and Anthropic. Image/video generation and live voice calls are not supported.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FreeLlmApiClient.validate(profile)?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }

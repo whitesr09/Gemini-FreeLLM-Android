@@ -54,6 +54,12 @@ export ANDROID_HOME=/path/to/android/sdk
 Debug APK: `app/build/outputs/apk/debug/app-debug.apk`.
 Release APK: `app/build/outputs/apk/release/app-release-unsigned.apk` (configure your own signing for distribution).
 
+### Identify the installed build
+
+Open the history drawer to see the app version at the bottom, or open **Settings → About** for the version, build number and build type. This source builds **2.0.1 (4)**. Android's **App info** also shows the installed version.
+
+Install the downloaded APK as an update and tap **Open** from the installer. Updates signed with the same key retain local chats and provider settings. If Android rejects the update, keep the existing installation and report the exact error; uninstalling or clearing storage deletes local data. APKs from an older GitHub workflow run do not include unpublished changes.
+
 Tests use synthetic HTTP responses and cover all three protocols, streaming completion, cancellation, safe failures, model discovery, credential/header routing, document context, serialization and archive limits. They do not verify live account entitlements or third-party service availability.
 
 ## Boundaries

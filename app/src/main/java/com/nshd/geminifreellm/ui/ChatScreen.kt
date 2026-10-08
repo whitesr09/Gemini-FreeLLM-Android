@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nshd.geminifreellm.ChatViewModel
+import com.nshd.geminifreellm.BuildConfig
 import com.nshd.geminifreellm.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -208,6 +209,9 @@ private fun HistoryDrawer(state: ChatViewModel.State, vm: ChatViewModel, onClose
         ListItem(headlineContent = { Text("Settings") }, supportingContent = { Text("Providers, appearance & privacy") },
             leadingContent = { Icon(Icons.Outlined.Settings, null) }, modifier = Modifier.clickable(onClick = onSettings),
             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow))
+        Text("FreeLLM AI · ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            modifier = Modifier.padding(horizontal = Design.page, vertical = Design.small),
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     rename?.let { chat ->
         var title by remember(chat.id) { mutableStateOf(chat.title) }
