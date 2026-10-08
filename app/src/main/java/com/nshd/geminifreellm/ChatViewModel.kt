@@ -52,6 +52,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val chats = history.first.ifEmpty { listOf(Conversation()) }
                 mutable.value = State(loading = false, settings = settings, chats = chats,
                     activeId = history.second?.takeIf { id -> chats.any { it.id == id } } ?: chats.first().id)
+                if (settings.autoRouting) settings.profiles.filter { it.provider !in settings.autoExcluded }.forEach { loadCatalog(it.provider) }
             } catch (error: Exception) {
                 withContext(Dispatchers.IO) { diagnostics.record("Storage", error = error) }
                 // Never overwrite a history/credential file that could not be read.
@@ -120,9 +121,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun selectModel(provider: Provider, model: String): Boolean {
         val profile = mutable.value.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)
         FreeLlmApiClient.validate(profile.copy(model = model.trim()))?.let { notice(it); return false }
-        return updateSettings { current -> current.copy(selected = provider,
+        return updateSettings { current -> current.copy(selected = provider, autoRouting = false,
             profiles = current.profiles.filterNot { it.provider == provider } + profile.copy(model = model.trim())) }
     }
+
+    suspend fun selectAuto(): Boolean {
+        val saved = updateSettings { it.copy(autoRouting = true) }
+        if (saved) mutable.value.settings.profiles.filter { it.provider !in mutable.value.settings.autoExcluded }.forEach { loadCatalog(it.provider) }
+        return saved
+    }
+
+    suspend fun saveAgent(agent: AgentConfig): Boolean {
+        agent.validationError()?.let { notice(it); return false }
+        return updateSettings { it.copy(agent = agent) }
+    }
+
+    suspend fun setAutoProvider(provider: Provider, enabled: Boolean): Boolean = updateSettings {
+        it.copy(autoExcluded = if (enabled) it.autoExcluded - provider else (it.autoExcluded + provider).distinct())
+    }
+
+    private fun requestCandidates(value: State, history: List<ChatMessage>): List<ProviderProfile> =
+        if (value.settings.autoRouting) AutoRouter.candidates(value.settings, value.catalogs, value.access, history)
+        else listOf(value.settings.active)
 
     fun favorite(provider: Provider, model: String) {
         viewModelScope.launch {
@@ -217,16 +237,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val value = mutable.value
         val chat = value.active ?: return
         if (value.generatingId != null || value.preparing || value.storageBlocked || (chat.draft.isBlank() && chat.attachments.isEmpty())) return
-        FreeLlmApiClient.validate(value.settings.active)?.let { notice(it); return }
-        if (!value.settings.active.vision && chat.attachments.any { it.isImage }) {
+        if (!value.settings.autoRouting) FreeLlmApiClient.validate(value.settings.active)?.let { notice(it); return }
+        if (!value.settings.autoRouting && !value.settings.active.vision && chat.attachments.any { it.isImage }) {
             notice("Enable image input for a vision-capable model in settings before sending images."); return
         }
         val message = ChatMessage(text = chat.draft.trim(), role = ChatMessage.Role.USER, attachments = chat.attachments)
         val history = chat.messages + message
+        if (requestCandidates(value, history).isEmpty()) { notice("No eligible Auto models. Configure a provider, enable image input if needed, or wait for cooldown."); return }
         changeChat { it.copy(messages = history, draft = "", attachments = emptyList(),
             title = if (it.messages.isEmpty()) message.text.ifBlank { message.attachments.first().name }.take(60) else it.title,
             updatedAt = System.currentTimeMillis()) }
-        generate(chat.id, history, value.settings.active)
+        generate(chat.id, history, value)
     }
 
     fun continueReply() {
@@ -241,10 +262,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (value.generatingId != null) return
         val userIndex = chat.messages.indexOfLast { it.role == ChatMessage.Role.USER }
         if (userIndex < 0) return
-        FreeLlmApiClient.validate(value.settings.active)?.let { notice(it); return }
+        if (!value.settings.autoRouting) FreeLlmApiClient.validate(value.settings.active)?.let { notice(it); return }
         val history = chat.messages.take(userIndex + 1)
+        if (requestCandidates(value, history).isEmpty()) { notice("No eligible Auto models. Check provider settings or wait for cooldown."); return }
         changeChat { it.copy(messages = history) }
-        generate(chat.id, history, value.settings.active)
+        generate(chat.id, history, value)
     }
 
     /** The UI confirms replacement of the selected turn and its following replies. */
@@ -256,7 +278,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun generate(chatId: String, history: List<ChatMessage>, profile: ProviderProfile) {
+    private fun generate(chatId: String, history: List<ChatMessage>, snapshot: State) {
+        val candidates = requestCandidates(snapshot, history)
+        var profile = candidates.first()
+        val systemPrompt = snapshot.settings.agent.prompt()
         val assistant = ChatMessage(text = "", role = ChatMessage.Role.ASSISTANT, model = "${profile.provider.label} · ${profile.model}", interrupted = true)
         generationToken = assistant.id
         mutable.update { it.copy(generatingId = chatId) }
@@ -280,7 +305,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }
-                val text = try { client.generate(profile, history) { updates.trySend(it) } }
+                val text = try {
+                    if (snapshot.settings.autoRouting) AutoRouter.generate(candidates,
+                        onAttempt = { selected, attempt ->
+                            profile = selected
+                            changeChat(chatId, save = false) { chat -> chat.copy(messages = chat.messages.map {
+                                if (it.id == assistant.id) it.copy(model = "Auto · ${selected.provider.label} · ${selected.model}" + if (attempt > 1) " · fallback $attempt" else "") else it
+                            }) }
+                        }, onFailure = { failed, error ->
+                            markAccess(failed, (error as? ApiException)?.access ?: AccessState.ERROR)
+                            withContext(Dispatchers.IO) { diagnostics.record("Auto fallback", failed.provider, error) }
+                        }, request = { selected, emit -> client.generate(selected, history, systemPrompt, emit) },
+                        onText = { updates.trySend(it) }).second
+                    else client.generate(profile, history, systemPrompt) { updates.trySend(it) }
+                }
                     finally { updates.close(); collector.join() }
                 if (generationToken == assistant.id) {
                     markAccess(profile, AccessState.USABLE)

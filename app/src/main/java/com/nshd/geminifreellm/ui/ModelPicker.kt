@@ -53,6 +53,16 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
                 }
                 IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "Close model picker") }
             }
+            Card(Modifier.fillMaxWidth().padding(horizontal = Design.page, vertical = Design.small)) {
+                Column(Modifier.padding(Design.medium)) {
+                    TextButton(enabled = !selecting, onClick = { scope.launch {
+                        selecting = true
+                        if (vm.selectAuto()) onDismiss() else feedback = "Could not save Auto selection."
+                        selecting = false
+                    } }) { Text(if (state.settings.autoRouting) "✓ Auto · selected" else "Auto · choose for me") }
+                    Text("Ranks configured models using availability, favorites and task fit. Tries up to 6 models before any reply starts. Chat and agent context may go to multiple enabled providers; normal API charges apply.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = Design.page, vertical = Design.small),
                 placeholder = { Text("Search models in expanded provider") }, singleLine = true, shape = Design.card,
                 leadingIcon = { Icon(Icons.Outlined.Search, null) }, trailingIcon = {
@@ -80,7 +90,7 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
                                     Text(if (catalog.models.isNotEmpty()) "${catalog.models.size} models" else if (profile.apiKey.isNotBlank()) "Key configured" else "Configure or browse",
                                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                if (state.settings.selected == provider) Icon(Icons.Outlined.CheckCircleOutline, "Active provider", Modifier.padding(end = Design.small))
+                                if (!state.settings.autoRouting && state.settings.selected == provider) Icon(Icons.Outlined.CheckCircleOutline, "Active provider", Modifier.padding(end = Design.small))
                                 Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null)
                             }
                         }
@@ -88,6 +98,10 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
                     if (open) {
                         item(key = "controls/${provider.name}") {
                             Column {
+                                if (state.settings.profiles.any { it.provider == provider }) Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Allow in Auto", Modifier.weight(1f))
+                                    Switch(provider !in state.settings.autoExcluded, { enabled -> scope.launch { vm.setAutoProvider(provider, enabled) } })
+                                }
                                 Row(horizontalArrangement = Arrangement.spacedBy(Design.small)) {
                                     TextButton(onClick = { vm.loadCatalog(provider, true) }, enabled = !catalog.loading) { Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)); Text("Refresh") }
                                     TextButton(onClick = { onManage(provider) }) { Text("Connection settings") }
@@ -108,7 +122,7 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
                         if (!catalog.loading && listed.isEmpty()) item(key = "empty/${provider.name}") { Text("No matching models. Refresh, change the search or enter an ID.", style = MaterialTheme.typography.bodyMedium) }
                         items(listed, key = { "${provider.name}/${it.id}" }, contentType = { "model" }) { model ->
                             val key = modelKey(provider, model.id)
-                            val active = state.settings.selected == provider && profile.model == model.id
+                            val active = !state.settings.autoRouting && state.settings.selected == provider && profile.model == model.id
                             val access = state.access[key]
                             Surface(shape = Design.card, color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow) {
                                 Column(Modifier.fillMaxWidth().clickable(enabled = !selecting) { select(provider, model.id) }

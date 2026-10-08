@@ -75,7 +75,10 @@ data class AppSettings(
     val showTimestamps: Boolean = false,
     val compactSpacing: Boolean = false,
     val haptics: Boolean = true,
-    val favorites: List<String> = emptyList()
+    val favorites: List<String> = emptyList(),
+    val autoRouting: Boolean = false,
+    val autoExcluded: List<Provider> = emptyList(),
+    val agent: AgentConfig = AgentConfig()
 ) {
     val active: ProviderProfile get() = profiles.firstOrNull { it.provider == selected } ?: ProviderProfile(selected)
 }

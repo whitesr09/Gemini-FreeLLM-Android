@@ -87,6 +87,8 @@ class LocalStore(private val context: Context) {
 }
 
 internal fun settingsToJson(settings: AppSettings) = JSONObject().put("selected", settings.selected.name)
+    .put("autoRouting", settings.autoRouting).put("autoExcluded", JSONArray(settings.autoExcluded.map { it.name }))
+    .put("agent", agentToJson(settings.agent))
     .put("theme", settings.theme).put("reducedMotion", settings.reducedMotion)
     .put("showTimestamps", settings.showTimestamps).put("compactSpacing", settings.compactSpacing)
     .put("haptics", settings.haptics).put("favorites", JSONArray(settings.favorites)).put("profiles", JSONArray(settings.profiles.map {
@@ -95,6 +97,9 @@ internal fun settingsToJson(settings: AppSettings) = JSONObject().put("selected"
     }))
 
 internal fun settingsFromJson(json: JSONObject): AppSettings = AppSettings(
+    autoRouting = json.optBoolean("autoRouting"),
+    autoExcluded = json.optJSONArray("autoExcluded")?.let { a -> (0 until a.length()).mapNotNull { i -> runCatching { Provider.valueOf(a.getString(i)) }.getOrNull() } }.orEmpty(),
+    agent = agentFromJson(json.optJSONObject("agent") ?: JSONObject()),
     selected = Provider.valueOf(json.getString("selected")), theme = json.optString("theme", "SYSTEM"),
     reducedMotion = json.optBoolean("reducedMotion"), showTimestamps = json.optBoolean("showTimestamps"),
     compactSpacing = json.optBoolean("compactSpacing"), haptics = json.optBoolean("haptics", true),

@@ -28,6 +28,11 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import com.nshd.geminifreellm.model.CanvasDocument
+import com.nshd.geminifreellm.data.readPortableText
+import kotlinx.coroutines.CancellationException
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -43,6 +48,11 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     var wrap by rememberSaveable { mutableStateOf(true) }
     var query by rememberSaveable { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
+    var replacement by rememberSaveable { mutableStateOf("") }
+    var replaceOpen by rememberSaveable { mutableStateOf(false) }
+    var replaceConfirm by remember { mutableStateOf(false) }
+    var pendingImport by remember { mutableStateOf<String?>(null) }
+    var focus by rememberSaveable { mutableStateOf(false) }
     var clear by remember { mutableStateOf(false) }
     var undo by remember { mutableStateOf<List<String>>(emptyList()) }
     var redo by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -51,7 +61,30 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     fun snapshot() = CanvasDocument(title.ifBlank { "Untitled" }, language.ifBlank { "text" }, code)
+    fun changeCode(value: String) {
+        if (value.length > 120_000) { status = "Canvas limit is 120,000 characters"; return }
+        undo = (undo + code).takeLast(12); redo = emptyList(); code = value; status = "Autosave enabled"
+    }
+    val importFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            try {
+                val text = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.use { readPortableText(it, 120_000) } ?: error("Unreadable file") }
+                if (code.isEmpty()) changeCode(text) else pendingImport = text
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { status = "Choose a UTF-8 code file up to 120,000 characters" }
+        }
+    }
     fun leave() { onSave(snapshot()); onBack() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val latestDocument by rememberUpdatedState(snapshot())
+    val latestSave by rememberUpdatedState(onSave)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) latestSave(latestDocument)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(title, language, code) { delay(700); onSave(snapshot()) }
     val highlight = MaterialTheme.colorScheme.primaryContainer
     val highlightText = MaterialTheme.colorScheme.onPrimaryContainer
@@ -78,10 +111,10 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     }
     Scaffold(topBar = {
         TopAppBar(title = { Text("Canvas") }, navigationIcon = { IconButton(onClick = { leave() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Save and close canvas") } },
-            actions = { TextButton(onClick = { onSave(snapshot()); status = "Saved to this conversation" }) { Text("Save") } })
+            actions = { IconButton(onClick = { focus = !focus }) { Icon(if (focus) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen, "Toggle focus mode") }; TextButton(onClick = { onSave(snapshot()); status = "Save queued for this conversation" }) { Text("Save") } })
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = Design.medium), verticalArrangement = Arrangement.spacedBy(Design.small)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(Design.small)) {
+            if (!focus) Row(horizontalArrangement = Arrangement.spacedBy(Design.small)) {
                 OutlinedTextField(title, { title = it.take(80) }, Modifier.weight(1f), label = { Text("File name") }, singleLine = true)
                 OutlinedTextField(language, { language = it.take(30) }, Modifier.width(112.dp), label = { Text("Language") }, singleLine = true)
             }
@@ -90,15 +123,24 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                 IconButton(enabled = redo.isNotEmpty(), onClick = { undo = (undo + code).takeLast(12); code = redo.last(); redo = redo.dropLast(1) }) { Icon(Icons.AutoMirrored.Outlined.Redo, "Redo") }
                 IconButton(onClick = { clipboard.setText(AnnotatedString(code)); status = "Code copied" }) { Icon(Icons.Outlined.ContentCopy, "Copy canvas") }
                 IconButton(onClick = { export.launch(title.ifBlank { "code.txt" }) }) { Icon(Icons.Outlined.FileDownload, "Export canvas file") }
+                IconButton(onClick = { importFile.launch(arrayOf("*/*")) }) { Icon(Icons.Outlined.FileUpload, "Import canvas file") }
+                FilterChip(replaceOpen, { replaceOpen = !replaceOpen }, label = { Text("Find / replace") })
                 FilterChip(wrap, { wrap = !wrap }, label = { Text("Wrap lines") })
                 IconButton(enabled = code.isNotEmpty(), onClick = { clear = true }) { Icon(Icons.Outlined.DeleteOutline, "Clear canvas") }
             }
-            OutlinedTextField(query, { query = it.take(200) }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Find in code") },
-                supportingText = { if (query.isNotEmpty()) Text("${Regex(Regex.escape(query), RegexOption.IGNORE_CASE).findAll(code).count()} matches") })
+            if (replaceOpen) {
+                val matches = remember(code, query) { if (query.isBlank()) 0 else Regex(Regex.escape(query), RegexOption.IGNORE_CASE).findAll(code).count() }
+                OutlinedTextField(query, { query = it.take(200) }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Find in code") },
+                    supportingText = { Text("$matches matches · case insensitive") })
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(replacement, { replacement = it.take(2000) }, Modifier.weight(1f), singleLine = true, label = { Text("Replace with") })
+                    TextButton(enabled = matches > 0, onClick = { replaceConfirm = true }) { Text("Replace all") }
+                }
+            }
             OutlinedTextField(code, { value ->
                 if (value.length <= 120_000) {
                     val now = android.os.SystemClock.elapsedRealtime()
-                    if (now - lastUndo > 700 || kotlin.math.abs(value.length - code.length) > 1) { undo = (undo + code).takeLast(12); lastUndo = now }
+                    if (undo.isEmpty() || now - lastUndo > 700 || kotlin.math.abs(value.length - code.length) > 1) { undo = (undo + code).takeLast(12); lastUndo = now }
                     redo = emptyList(); code = value; status = "Autosave enabled"
                 } else status = "Canvas limit is 120,000 characters"
             }, modifier = Modifier.weight(1f).fillMaxWidth().then(if (wrap) Modifier else Modifier.horizontalScroll(rememberScrollState())),
@@ -108,13 +150,26 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
             Text(status ?: "${code.count { it == '\n' } + 1} lines · ${code.length} characters · Code is not executed",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Design.small)) {
-                listOf("Explain", "Review", "Fix", "Optimize").forEach { action ->
+                listOf("Explain", "Review", "Fix", "Optimize", "Add tests", "Document").forEach { action ->
                     OutlinedButton(enabled = code.isNotBlank(), onClick = { onAsk(snapshot(), action); onBack() }) { Text(action) }
                 }
             }
             Text("AI actions prepare a message for you to review and send.", style = MaterialTheme.typography.labelSmall)
         }
     }
+    if (replaceConfirm) AlertDialog(onDismissRequest = { replaceConfirm = false }, title = { Text("Replace all matches?") },
+        text = { Text("All case-insensitive matches will change. Undo can restore the previous code.") },
+        confirmButton = { TextButton(onClick = {
+            val regex = Regex(Regex.escape(query), RegexOption.IGNORE_CASE)
+            val count = regex.findAll(code).count()
+            if (code.length.toLong() + count.toLong() * (replacement.length - query.length) > 120_000) status = "Replacement exceeds canvas limit"
+            else changeCode(regex.replace(code) { replacement })
+            replaceConfirm = false
+        }) { Text("Replace") } }, dismissButton = { TextButton(onClick = { replaceConfirm = false }) { Text("Cancel") } })
+    pendingImport?.let { imported -> AlertDialog(onDismissRequest = { pendingImport = null }, title = { Text("Replace canvas with imported file?") },
+        text = { Text("Undo can restore your current code while the editor stays open.") },
+        confirmButton = { TextButton(onClick = { changeCode(imported); pendingImport = null }) { Text("Import") } },
+        dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("Cancel") } }) }
     if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("Clear canvas?") }, text = { Text("The current code will be removed. Undo can restore it while this editor stays open.") },
         confirmButton = { TextButton(onClick = { undo = (undo + code).takeLast(12); code = ""; redo = emptyList(); clear = false; status = "Autosave enabled" }) { Text("Clear") } },
         dismissButton = { TextButton(onClick = { clear = false }) { Text("Cancel") } })

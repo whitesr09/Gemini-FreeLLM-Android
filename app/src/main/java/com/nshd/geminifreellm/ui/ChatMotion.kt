@@ -26,14 +26,14 @@ fun ThinkingIndicator() {
     LaunchedEffect(Unit) { while (true) { delay(1000); seconds++ } }
     val phase = if (animate) {
         val transition = rememberInfiniteTransition(label = "Thinking dots")
-        transition.animateFloat(0f, 6.283185f, infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "Thinking wave").value
-    } else 0f
+        transition.animateFloat(0f, 6.283185f, infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "Thinking wave")
+    } else null
     val color = MaterialTheme.colorScheme.primary
     Row(Modifier.heightIn(min = 36.dp).clearAndSetSemantics { contentDescription = "Thinking"; liveRegion = LiveRegionMode.Polite },
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Design.medium)) {
         Canvas(Modifier.size(width = 32.dp, height = 20.dp)) {
             repeat(3) { index ->
-                val wave = if (animate) (sin(phase - index * 0.8f) + 1f) / 2f else 0.6f
+                val wave = if (animate) (sin((phase?.value ?: 0f) - index * 0.8f) + 1f) / 2f else 0.6f
                 drawCircle(color.copy(alpha = 0.4f + wave * 0.6f), 2.7.dp.toPx(),
                     Offset((5 + index * 11).dp.toPx(), size.height / 2 - wave * 3.dp.toPx()))
             }

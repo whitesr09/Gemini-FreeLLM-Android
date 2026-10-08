@@ -56,6 +56,16 @@ Open **Chat options → Coding canvas**, or use the canvas icon on a code block.
 
 Open **Chat options → Create image or video**. Images use Gemini's image-capable `generateContent` route or a compatible `/images/generations` endpoint. Videos use `/videos`, job polling and content download. Enter a media model ID with account access; the app confirms potentially billable submissions. This does not change your chat model. Video jobs can be resumed; stopping local waiting does not cancel remote generation or billing.
 
+## Auto and agent customization
+
+Choose **Auto · choose for me** in the model picker for ranked selection and fallback across configured providers. Expand a provider to control **Allow in Auto**. Auto may send chat history and agent context to several enabled providers; normal API charges apply. It uses recent access results and task/favorite hints, with up to six attempts and a 25-second first-text timeout. Availability and ranking are estimates, not guaranteed quota or model quality.
+
+Open **Chat options → Agent · skills & memory** for persistent persona, instructions, editable memory and prompt skills. Paste text, import UTF-8 files, or load direct HTTPS raw-text URLs, then review and save. Executable plugins and tool runtimes are not installed. Agent settings are encrypted locally and included in provider-native system instructions when enabled.
+
+Canvas now supports file import, find/replace with undo, focus mode and additional AI actions. Replies have safe interior padding, and supported displays receive a refresh-rate preference up to 120Hz. Device performance still depends on Android and hardware.
+
+See [2.2 changes and limits](docs/UPGRADE-2.2.md).
+
 ## Privacy
 
 Keys are encrypted with a device-bound Android Keystore key. Existing plaintext settings are migrated only after encrypted storage succeeds. Chat history and prepared attachments are stored in private app storage; Android backup is disabled. Settings prevent screenshots/recent-app captures while keys are being edited. Diagnostics record only structured error categories and app stack locations, with no prompt, key or raw response logging. Logs are local, capped at 100 events and retained for up to seven days. AI troubleshooting prepares a report draft for review before sending.
@@ -76,7 +86,7 @@ Release APK: `app/build/outputs/apk/release/app-release-unsigned.apk` (configure
 
 ### Identify the installed build
 
-Open the history drawer to see the app version at the bottom, or open **Settings → About** for the version, build number and build type. This source builds **2.1 (5)**. Android's **App info** also shows the installed version.
+Open the history drawer to see the app version at the bottom, or open **Settings → About** for the version, build number and build type. This source builds **2.2 (6)**. Android's **App info** also shows the installed version.
 
 Install the downloaded APK as an update and tap **Open** from the installer. Updates signed with the same key retain local chats and provider settings. If Android rejects the update, keep the existing installation and report the exact error; uninstalling or clearing storage deletes local data. APKs from an older GitHub workflow run do not include unpublished changes.
 

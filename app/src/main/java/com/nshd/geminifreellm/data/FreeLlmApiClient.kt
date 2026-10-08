@@ -27,10 +27,10 @@ class FreeLlmApiClient(
         .callTimeout(180, TimeUnit.SECONDS).retryOnConnectionFailure(false)
         .followRedirects(false).followSslRedirects(false).build()
 ) {
-    suspend fun generate(profile: ProviderProfile, messages: List<ChatMessage>, onText: (String) -> Unit): String =
+    suspend fun generate(profile: ProviderProfile, messages: List<ChatMessage>, systemPrompt: String = "", onText: (String) -> Unit): String =
         withContext(Dispatchers.IO) {
             validate(profile)?.let { throw ApiException(it) }
-            val request = buildRequest(profile, messages)
+            val request = buildRequest(profile, messages, systemPrompt)
             // The continuation stays active for the entire response body, including an SSE stream.
             suspendCancellableCoroutine { continuation ->
                 val call = client.newCall(request)
@@ -153,7 +153,7 @@ class FreeLlmApiClient(
         }
     }
 
-    internal fun buildRequest(profile: ProviderProfile, messages: List<ChatMessage>): Request {
+    internal fun buildRequest(profile: ProviderProfile, messages: List<ChatMessage>, systemPrompt: String = ""): Request {
         val protocol = profile.provider.protocol
         val history = continuationHistory(messages)
         val textSize = history.sumOf { message -> message.text.length.toLong() + message.attachments.sumOf { it.text.length.toLong() } }
@@ -162,16 +162,19 @@ class FreeLlmApiClient(
         if (!profile.vision && history.any { message -> message.attachments.any { it.isImage } }) {
             throw ApiException("This chat includes images. Enable image input for a vision-capable model in settings.")
         }
+        require(systemPrompt.length <= 48_000) { "Agent instructions exceed 48,000 characters." }
         val payload = JSONObject()
         val path = when (protocol) {
             ApiProtocol.OPENAI -> {
                 payload.put("model", profile.model).put("stream", profile.stream)
-                payload.put("messages", JSONArray(history.map { message ->
-                    JSONObject().put("role", role(message)).put("content", openAiContent(message))
-                }))
+                payload.put("messages", JSONArray().apply {
+                    if (systemPrompt.isNotBlank()) put(JSONObject().put("role", "system").put("content", systemPrompt))
+                    history.forEach { message -> put(JSONObject().put("role", role(message)).put("content", openAiContent(message))) }
+                })
                 "chat/completions"
             }
             ApiProtocol.ANTHROPIC -> {
+                if (systemPrompt.isNotBlank()) payload.put("system", systemPrompt)
                 payload.put("model", profile.model).put("max_tokens", 4096).put("stream", profile.stream)
                 payload.put("messages", JSONArray(history.map { message ->
                     JSONObject().put("role", role(message)).put("content", JSONArray().apply {
@@ -185,6 +188,7 @@ class FreeLlmApiClient(
                 "messages"
             }
             ApiProtocol.GEMINI -> {
+                if (systemPrompt.isNotBlank()) payload.put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
                 if (profile.fastReplies && supportsFastReplies(profile.model)) {
                     payload.put("generationConfig", JSONObject().put("thinkingConfig", fastThinkingConfig(profile.model)))
                 }

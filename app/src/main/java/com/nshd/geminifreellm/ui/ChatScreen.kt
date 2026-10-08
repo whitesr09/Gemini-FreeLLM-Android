@@ -81,6 +81,8 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
     val chat = state.active ?: return
     var canvas by rememberSaveable { mutableStateOf(false) }
     var pendingCanvas by remember { mutableStateOf<CanvasDocument?>(null) }
+    var agent by rememberSaveable { mutableStateOf(false) }
+    if (agent) { AgentScreen(state.settings.agent, vm::saveAgent, { agent = false }); return }
     var media by rememberSaveable { mutableStateOf(false) }
     if (canvas) { CanvasScreen(chat.canvas, vm::saveCanvas, vm::askAboutCanvas, { canvas = false }); return }
     if (media) { MediaScreen(state.settings, { media = false }); return }
@@ -114,7 +116,7 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
                 TextButton(onClick = { models = true }, contentPadding = PaddingValues(horizontal = Design.small)) {
                     Column(Modifier.weight(1f, fill = false), horizontalAlignment = Alignment.Start) {
                         Text("FreeLLM AI", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                        Text(state.settings.active.model.ifBlank { "Choose a model" }, style = MaterialTheme.typography.labelSmall,
+                        Text(if (state.settings.autoRouting) "Auto · best available" else state.settings.active.model.ifBlank { "Choose a model" }, style = MaterialTheme.typography.labelSmall,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Icon(Icons.Outlined.KeyboardArrowDown, "Choose AI model")
@@ -127,6 +129,7 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
                 Box {
                     IconButton(onClick = { overflow = true }) { Icon(Icons.Outlined.MoreHoriz, "Chat options") }
                     DropdownMenu(overflow, { overflow = false }) {
+                        DropdownMenuItem(text = { Text("Agent · skills & memory") }, onClick = { overflow = false; agent = true }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) })
                         DropdownMenuItem(text = { Text("Coding canvas") }, onClick = { overflow = false; canvas = true }, leadingIcon = { Icon(Icons.Outlined.Code, null) })
                         DropdownMenuItem(text = { Text("Create image or video") }, onClick = { overflow = false; media = true }, leadingIcon = { Icon(Icons.Outlined.Palette, null) })
                         DropdownMenuItem(text = { Text("Settings") }, onClick = { overflow = false; onSettings() }, leadingIcon = { Icon(Icons.Outlined.Settings, null) })
@@ -350,7 +353,7 @@ private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Bool
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = Design.small))
         Surface(color = when { error -> MaterialTheme.colorScheme.errorContainer; user -> MaterialTheme.colorScheme.surfaceContainer; else -> MaterialTheme.colorScheme.surface },
             shape = Design.card, modifier = if (user) Modifier.widthIn(max = 580.dp) else Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(if (user || error) Design.medium else 0.dp), verticalArrangement = Arrangement.spacedBy(Design.small)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(Design.small)) {
                 message.attachments.forEach { file -> AttachmentLabel(file) }
                 when {
                     error -> Text(message.text, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })

@@ -13,8 +13,6 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.nshd.geminifreellm.MainActivity
 import org.junit.*
-import org.junit.rules.ExternalResource
-import org.robolectric.RuntimeEnvironment
 import com.nshd.geminifreellm.FreeLlmApplication
 import com.nshd.geminifreellm.MediaViewModel
 import java.util.Base64
@@ -49,7 +47,7 @@ class WorkspaceUiTest {
         compose.onNodeWithContentDescription("Message").assertExists()
         compose.onNodeWithContentDescription("Open chat history").performClick()
         compose.onNodeWithText("Search your chats").assertExists()
-        compose.onNodeWithText("FreeLLM AI · 2.1 (5)").assertExists()
+        compose.onNodeWithText("FreeLLM AI · 2.2 (6)").assertExists()
         capture("drawer")
     }
     @Test fun modelPickerExpandsProviderAndAllowsManualId() {
@@ -67,6 +65,75 @@ class WorkspaceUiTest {
         compose.onNodeWithText("Write code here, or open a code block from a reply.").performTextInput("fun main() = println(42)")
         compose.onNodeWithText("Review", useUnmergedTree = true).performClick()
         compose.onNodeWithContentDescription("Message").assertTextContains("Review this text code.", substring = true)
+    }
+
+    @Test fun autoFallbackKeepsContextAndPaddedReplyRenders() {
+        val first = MockWebServer(); val second = MockWebServer(); first.start(); second.start()
+        try {
+            ready()
+            lateinit var vm: ChatViewModel
+            compose.runOnIdle {
+                vm = ViewModelProvider(compose.activity)[ChatViewModel::class.java]
+                runBlocking { vm.saveSettings(AppSettings(profiles = listOf(
+                    ProviderProfile(Provider.OPENAI, first.url("/v1").toString(), "synthetic", "primary", stream = false),
+                    ProviderProfile(Provider.CUSTOM, second.url("/v1").toString(), "synthetic", "fallback", stream = false)),
+                    selected = Provider.OPENAI, autoRouting = true, reducedMotion = true,
+                    agent = AgentConfig(persona = "Careful teacher", memory = "My project uses Kotlin"))) }
+                vm.draft("Help with my project")
+            }
+            first.enqueue(MockResponse().setResponseCode(503).setBody("{}"))
+            second.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"Hello! This reply has room around every edge.\n\nThe last line stays fully visible."}}]}"""))
+            compose.onNodeWithContentDescription("Send message").performClick()
+            compose.waitUntil(10_000) { compose.waitForIdle(); vm.state.value.generatingId == null && vm.state.value.active!!.messages.size == 2 }
+            compose.onAllNodesWithText("The last line stays fully visible.").onFirst().assertIsDisplayed()
+            capture("padded-auto-reply")
+            val request = org.json.JSONObject(second.takeRequest().body.readUtf8())
+            Assert.assertTrue(request.getJSONArray("messages").getJSONObject(0).getString("content").contains("My project uses Kotlin"))
+            Assert.assertEquals("Help with my project", request.getJSONArray("messages").getJSONObject(1).getString("content"))
+            compose.runOnIdle { Assert.assertTrue(vm.state.value.active!!.messages.last().model.contains("fallback")); vm.draft("Continue") }
+            second.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"Continuing with your previous context."}}]}"""))
+            compose.onNodeWithContentDescription("Send message").performClick()
+            compose.waitUntil(10_000) { compose.waitForIdle(); vm.state.value.generatingId == null && vm.state.value.active!!.messages.size == 4 }
+            val next = org.json.JSONObject(second.takeRequest().body.readUtf8()).getJSONArray("messages")
+            Assert.assertEquals(4, next.length())
+            Assert.assertEquals("assistant", next.getJSONObject(2).getString("role"))
+            Assert.assertEquals(1, first.requestCount)
+        } finally { first.shutdown(); second.shutdown() }
+    }
+    @Test fun agentStudioSavesPersonaMemoryAndSkill() {
+        ready()
+        compose.onNodeWithContentDescription("Chat options").performClick()
+        compose.onNodeWithText("Agent · skills & memory").performClick()
+        compose.onNodeWithText("Persona").performTextInput("Patient teacher")
+        compose.onNodeWithText("Memory").performTextInput("I use Kotlin")
+        compose.onNodeWithText("Add skill").performScrollTo().performClick()
+        compose.onNodeWithText("Skill name").performTextInput("Code review")
+        compose.onNodeWithText("Skill instructions").performTextInput("Explain bugs and suggest tests")
+        capture("agent-skill")
+        compose.onNodeWithText("Keep skill").performClick()
+        compose.onNodeWithText("Save agent").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Message").fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnIdle {
+            val agent = ViewModelProvider(compose.activity)[ChatViewModel::class.java].state.value.settings.agent
+            Assert.assertEquals("Patient teacher", agent.persona)
+            Assert.assertEquals("I use Kotlin", agent.memory)
+            Assert.assertEquals("Code review", agent.skills.single().name)
+            Assert.assertEquals(agent, com.nshd.geminifreellm.data.LocalStore(compose.activity).loadSettings().agent)
+        }
+    }
+    @Test fun canvasReplaceIsLiteralAndUndoRestoresCode() {
+        ready()
+        compose.onNodeWithContentDescription("Chat options").performClick()
+        compose.onNodeWithText("Coding canvas").performClick()
+        compose.onNodeWithText("Write code here, or open a code block from a reply.").performTextInput("val one = 1\nprintln(one)")
+        compose.onNodeWithText("Find / replace").performClick()
+        compose.onNodeWithText("Find in code").performTextInput("one")
+        compose.onNodeWithText("Replace with").performTextInput("two")
+        compose.onNodeWithText("Replace all").performClick()
+        compose.onNodeWithText("Replace", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("val two = 1\nprintln(two)").assertExists()
+        compose.onNodeWithContentDescription("Undo").performClick()
+        compose.onNodeWithText("val one = 1\nprintln(one)").assertExists()
     }
 
     private fun capture(name: String) {
