@@ -1,3 +1,98 @@
 package com.nshd.geminifreellm.model
 
-data class ChatMessage(val id: Long, val text: String, val role: Role, val timestamp: Long = System.currentTimeMillis()) { enum class Role { USER, ASSISTANT, ERROR } }
+import java.util.UUID
+
+fun newId(): String = UUID.randomUUID().toString()
+
+data class Attachment(
+    val id: String = newId(),
+    val name: String,
+    val mimeType: String,
+    val size: Long,
+    val localPath: String = "",
+    val text: String = ""
+) {
+    val isImage: Boolean get() = mimeType.startsWith("image/")
+}
+
+data class ChatMessage(
+    val id: String = newId(),
+    val text: String,
+    val role: Role,
+    val timestamp: Long = System.currentTimeMillis(),
+    val attachments: List<Attachment> = emptyList(),
+    val model: String = "",
+    val interrupted: Boolean = false,
+    val elapsedMs: Long = 0,
+    val firstTokenMs: Long = 0
+) {
+    enum class Role { USER, ASSISTANT, ERROR }
+}
+
+data class Conversation(
+    val id: String = newId(),
+    val title: String = "New chat",
+    val messages: List<ChatMessage> = emptyList(),
+    val draft: String = "",
+    val attachments: List<Attachment> = emptyList(),
+    val pinned: Boolean = false,
+    val archived: Boolean = false,
+    val updatedAt: Long = System.currentTimeMillis(),
+    val canvas: CanvasDocument = CanvasDocument()
+)
+
+enum class ApiProtocol { OPENAI, GEMINI, ANTHROPIC }
+
+enum class Provider(val label: String, val endpoint: String, val defaultModel: String, val protocol: ApiProtocol) {
+    FREELLM("FreeLLMAPI", "http://127.0.0.1:3001/v1", "auto", ApiProtocol.OPENAI),
+    OPENAI("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini", ApiProtocol.OPENAI),
+    GEMINI("Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "gemini-2.5-flash", ApiProtocol.GEMINI),
+    ANTHROPIC("Anthropic", "https://api.anthropic.com/v1", "claude-sonnet-4-5", ApiProtocol.ANTHROPIC),
+    OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1", "openrouter/free", ApiProtocol.OPENAI),
+    GROQ("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", ApiProtocol.OPENAI),
+    DEEPSEEK("DeepSeek", "https://api.deepseek.com", "deepseek-flash", ApiProtocol.OPENAI),
+    MISTRAL("Mistral", "https://api.mistral.ai/v1", "mistral-small-latest", ApiProtocol.OPENAI),
+    XAI("xAI", "https://api.x.ai/v1", "grok-3-mini", ApiProtocol.OPENAI),
+    OLLAMA("Ollama / local", "http://10.0.2.2:11434/v1", "", ApiProtocol.OPENAI),
+    CUSTOM("OpenAI-compatible / unified", "", "", ApiProtocol.OPENAI)
+}
+
+data class ProviderProfile(
+    val provider: Provider = Provider.FREELLM,
+    val baseUrl: String = provider.endpoint,
+    val apiKey: String = "",
+    val model: String = provider.defaultModel,
+    val stream: Boolean = true,
+    val vision: Boolean = false,
+    val fastReplies: Boolean = false
+)
+
+data class AppSettings(
+    val profiles: List<ProviderProfile> = listOf(ProviderProfile()),
+    val selected: Provider = Provider.FREELLM,
+    val theme: String = "SYSTEM",
+    val reducedMotion: Boolean = false,
+    val showTimestamps: Boolean = false,
+    val compactSpacing: Boolean = false,
+    val haptics: Boolean = true,
+    val favorites: List<String> = emptyList(),
+    val autoRouting: Boolean = false,
+    val autoExcluded: List<Provider> = emptyList(),
+    val agent: AgentConfig = AgentConfig()
+) {
+    val active: ProviderProfile get() = profiles.firstOrNull { it.provider == selected } ?: ProviderProfile(selected)
+}
+
+
+data class CanvasDocument(val title: String = "Untitled", val language: String = "text", val code: String = "")
+
+data class ModelInfo(val id: String, val name: String = id, val contextTokens: Long? = null, val freePricing: Boolean? = null)
+
+enum class AccessState(val label: String) {
+    MODEL_REJECTED("Model access rejected"), UNKNOWN("Access unverified"), USABLE("Last request succeeded"), AUTH("Key / access rejected"),
+    QUOTA("Quota / balance exhausted"), RATE_LIMITED("Rate limited"), UNAVAILABLE("Model / endpoint unavailable"), ERROR("Last request failed")
+}
+data class ModelAccess(val state: AccessState = AccessState.UNKNOWN, val checkedAt: Long = System.currentTimeMillis(), val latencyMs: Long = 0)
+data class ModelCatalog(val models: List<ModelInfo> = emptyList(), val loading: Boolean = false,
+    val error: String? = null, val fetchedAt: Long = 0)
+fun modelKey(provider: Provider, model: String) = "${provider.name}/$model"

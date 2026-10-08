@@ -1,36 +1,103 @@
-# Gemini FreeLLM Android
+# FreeLLM AI for Android
 
-A modern, lightweight Android chat client for a self-hosted [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) server.
+A native Android AI chat workspace with a calm, ChatGPT-inspired layout and your choice of provider. Built with Kotlin and Jetpack Compose. No subscription to this app is required; each provider controls its own availability, pricing and quotas.
 
-**Android app → FreeLLMAPI → configured provider (for example Google AI Studio/Gemini)**
+## Included
 
-## Features
+- Searchable local chat history, pinned/archived chats, rename and confirmed deletion
+- Persistent drafts and conversations; generation survives screen rotation
+- Streaming replies, stop, retry, regenerate and edit previous messages
+- Selectable text, Markdown headings/lists/links, horizontally scrolling code blocks with copy
+- Image and document attachments, bounded local processing and removable attachment cards
+- Speech dictation using an installed Android speech-recognition activity (not a live voice call)
+- System, light, dark and AMOLED themes; keyboard and system-bar insets; 48dp controls
+- Separate provider settings, encrypted API keys, model discovery and connection checks
+- Text conversation sharing with a privacy confirmation
+- Expandable provider/model catalogs, search, favorites and last-request access indicators
+- DeepSeek, Mistral, xAI and local Ollama presets
+- Animated thinking and streaming, reduced motion, optional timestamps and compact spacing
+- Editable coding canvas with undo/redo, search, export and AI review prompts
+- Sanitized error/crash log and user-reviewed AI troubleshooting
+- Compatible image generation and asynchronous video jobs, local preview/playback and export
 
-- Clean Material 3 interface with light, dark, and system themes
-- Dynamic Android 12+ colors when available
-- Responsive chat layout with keyboard/navigation-bar handling
-- Safe, non-blocking network requests
-- Useful connection and HTTP error messages
-- Reuses a single OkHttp client with sensible timeouts/retry behavior
-- API key and server URL are stored locally on the device
-- No API keys are committed to the repository
-- GitHub Actions builds a debug APK automatically
+## Connect an AI
 
-## Local FreeLLMAPI setup
+Open **Settings**, choose a provider, enter its API key and exact model ID, then **Save**. **Test connection & find models** calls the provider's model catalog; it does not send a chat. If discovery is unavailable, enter the model ID manually.
 
-Default Base URL:
+| Connection | Base URL | Key |
+| --- | --- | --- |
+| FreeLLMAPI | `http://127.0.0.1:3001/v1` or your server address | Your server's unified key |
+| OpenAI | `https://api.openai.com/v1` | OpenAI API key |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | Google AI Studio API key |
+| Anthropic | `https://api.anthropic.com/v1` | Anthropic API key |
+| OpenRouter | `https://openrouter.ai/api/v1` | OpenRouter unified key |
+| Groq | `https://api.groq.com/openai/v1` | Groq API key |
+| DeepSeek | `https://api.deepseek.com` | DeepSeek API key |
+| Mistral | `https://api.mistral.ai/v1` | Mistral API key |
+| xAI | `https://api.x.ai/v1` | xAI API key |
+| Ollama | `http://10.0.2.2:11434/v1` (emulator) or your LAN address | Usually empty; follow server configuration |
+| Other / local | Provider's OpenAI-compatible API base URL | Provider key, or empty if server permits |
 
-`http://127.0.0.1:3001/v1`
+OpenAI-compatible gateways must support `/chat/completions`; model discovery additionally needs `/models`. Gemini and Anthropic use their native protocols. Proprietary protocols require a dedicated adapter. OpenAI Responses-only models are not supported by the chat-completions adapter.
 
-Enter the **FreeLLMAPI Unified API Key** in Settings. Do not put your Google AI Studio key into this app; keep provider keys inside FreeLLMAPI.
+For FreeLLMAPI, keep upstream provider keys on your server and enter its **unified** key in the app. For a direct connection, enter that provider's key in its profile. FreeLLMAPI and custom servers may permit an empty key; the app allows this without claiming the server will accept it.
 
-## Security note
+On a phone, `127.0.0.1` means the phone itself. For a computer on your network, use its LAN address. The Android emulator can reach a host service through `10.0.2.2`. Prefer HTTPS for remote endpoints. The app warns for unencrypted HTTP and never forwards credentials across redirects.
 
-The app stores the Unified API key locally for convenience. This repository intentionally contains no real API keys. For a public production release, use a secure Android credential store and preferably put the API behind HTTPS/authentication rather than exposing an unsecured local HTTP endpoint.
+Enable **Image input** only for a vision-capable model. Switching to a text-only profile will require a new chat or re-enabling vision if the conversation contains images. Turn **Stream responses** off for servers that only support complete JSON replies.
 
-## Build
+## Models, canvas and media
 
-Pushes to `main` trigger GitHub Actions. The generated debug APK is uploaded as the `Gemini-FreeLLM-debug` workflow artifact.
+Tap the model name in chat, expand a provider, then select a catalog model or enter its exact ID. Favorites persist. Catalog-listed pricing is separate from account access. **Check access** sends a short, potentially billable prompt after confirmation; badges reflect the last request in this session. Remaining quota and free-tier expiry are unknown unless the provider exposes them. Conversation text is retained when switching providers.
 
+For DeepSeek, use its preset and a direct DeepSeek API key. A FreeLLMAPI/OpenRouter key belongs in that gateway's profile. Fetch current model IDs instead of guessing. HTTP 402 means insufficient provider balance; 429 can mean rate or quota limits.
 
-<!-- signing probe: 2026-10-05 -->
+Open **Chat options → Coding canvas**, or use the canvas icon on a code block. Code is saved per conversation. Explain/Review/Fix/Optimize prepare a draft for you to inspect and send. Code is never executed locally.
+
+Open **Chat options → Create image or video**. Images use Gemini's image-capable `generateContent` route or a compatible `/images/generations` endpoint. Videos use `/videos`, job polling and content download. Enter a media model ID with account access; the app confirms potentially billable submissions. This does not change your chat model. Video jobs can be resumed; stopping local waiting does not cancel remote generation or billing.
+
+## Auto and agent customization
+
+Open **Auto · all providers** in the model picker and turn on the single **Auto** switch. It discovers configured providers, checks ranked candidates and selects one that responds. The combined model pool shows availability and provider inclusion controls. Auto may send chat history and agent context to several enabled providers; normal API charges apply. It uses recent access results, measured latency and task/favorite hints, with up to six attempts and a 25-second chat first-text timeout. Interrupted partial replies are preserved, with automatic continuation in a separate model-labeled reply. Availability and ranking are estimates, not guaranteed quota or model quality.
+
+Open **Chat options → Agent · skills & memory** for persistent persona, instructions, editable memory and prompt skills. Paste text, import UTF-8 files, or load direct HTTPS raw-text URLs, then review and save. Executable plugins and tool runtimes are not installed. Agent settings are encrypted locally and included in provider-native system instructions when enabled.
+
+Canvas now supports file import, find/replace with undo, focus mode and additional AI actions. Replies have safe interior padding, and supported displays receive a refresh-rate preference up to 120Hz. Device performance still depends on Android and hardware.
+
+See [the global Auto design](docs/AUTO-MODE-DESIGN.md), [2.2.1 changes](docs/UPGRADE-2.2.1.md), and [earlier 2.2 features](docs/UPGRADE-2.2.md).
+
+## Privacy
+
+Keys are encrypted with a device-bound Android Keystore key. Existing plaintext settings are migrated only after encrypted storage succeeds. Chat history and prepared attachments are stored in private app storage; Android backup is disabled. Settings prevent screenshots/recent-app captures while keys are being edited. Diagnostics record only structured error categories and app stack locations, with no prompt, key or raw response logging. Logs are local, capped at 100 events and retained for up to seven days. AI troubleshooting prepares a report draft for review before sending.
+
+Messages and attachments are sent to the selected API server. History is not end-to-end encrypted; the app's local files rely on Android's storage protection. Sharing exports message/document text but excludes credentials and image files. Clearing app data or uninstalling removes local history and keys.
+
+## Build & validate
+
+Requirements: JDK 17, Android SDK 35 and build tools 35.0.0. Gradle 8.13 is pinned by the wrapper.
+
+```sh
+export ANDROID_HOME=/path/to/android/sdk
+./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease
+```
+
+Debug APK: `app/build/outputs/apk/debug/app-debug.apk`.
+Release APK: `app/build/outputs/apk/release/app-release-unsigned.apk` (configure your own signing for distribution).
+
+### Identify the installed build
+
+Open the history drawer to see the app version at the bottom, or open **Settings → About** for the version, build number and build type. This source builds **2.2.1 (7)**. Android's **App info** also shows the installed version.
+
+Install the downloaded APK as an update and tap **Open** from the installer. Updates signed with the same key retain local chats and provider settings. If Android rejects the update, keep the existing installation and report the exact error; uninstalling or clearing storage deletes local data. APKs from an older GitHub workflow run do not include unpublished changes.
+
+Tests use synthetic HTTP responses and cover all three protocols, streaming completion, cancellation, safe failures, model discovery, credential/header routing, document context, serialization and archive limits. They do not verify live account entitlements or third-party service availability.
+
+## Boundaries
+
+- Projects, scheduled jobs and live voice calls are not implemented. Media adapters require provider support; Gemini Veo and proprietary gateway video protocols are not implemented.
+- Up to four attachments per message, 8 MB per input file; image preparation reduces resolution to at most 1600px. Document text is limited to 120,000 characters, and spreadsheets to 400 rows per sheet.
+- PDF support is limited to readable text in simple PDFs; scanned/encrypted/complex PDFs require conversion to text. Office extraction reads DOCX/PPTX/XLSX text, not full document formatting.
+- Markdown is a lightweight renderer, not a complete CommonMark implementation or syntax highlighter.
+- History search is local and in memory. Database-backed pagination, import, advanced performance profiling and a full TalkBack/device matrix remain follow-up work.
+
+See the [2.1 improvement checklist](docs/UPGRADE-2.1.md) for new features and the earlier [redesign audit and coverage](docs/REDESIGN.md) for implementation decisions and remaining verification.
