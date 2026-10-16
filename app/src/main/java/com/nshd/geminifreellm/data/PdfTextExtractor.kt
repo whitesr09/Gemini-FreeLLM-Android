@@ -25,22 +25,23 @@ object PdfTextExtractor {
         }
 
         return out.toString()
-            .replace(Regex("\\s+"), " ")
+            .replace(Regex("\s+"), " ")
             .trim()
             .take(MAX_CHARS)
     }
 
     private fun decodeLiteral(value: String): String =
-        value.replace("""\n""", "\n")
-            .replace("""\r""", "\r")
-            .replace("""\t""", "\t")
+        value.replace("""\n""", "
+")
+            .replace("""\r""", "
+")
+            .replace("""\t""", "	")
             .replace("""\(""", "(")
             .replace("""\)""", ")")
-            .replace("""\\""", "\\")
+            .replace("""\\ """.trim(), "\\")
 
     private fun decodeHex(hex: String): String {
-        val clean = hex.replace(Regex("\\s+"), "")
-        if (clean.length % 2 != 0) return ""
+        val clean = hex.replace(Regex("\s+"), "")
         val bytes = ByteArray(clean.length / 2)
         for (i in bytes.indices) {
             bytes[i] = clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()

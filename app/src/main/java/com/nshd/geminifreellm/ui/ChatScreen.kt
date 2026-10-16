@@ -1,8 +1,5 @@
 package com.nshd.geminifreellm.ui
 
-import android.widget.Toast
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.*
@@ -15,43 +12,28 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.nshd.geminifreellm.model.ChatMessage
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     messages: List<ChatMessage>,
     busy: Boolean,
     input: String,
     onInputChange: (String) -> Unit,
-    onSend: (String) -> Unit,
-    onSuggestion: (String) -> Unit,
+    onSend: () -> Unit,
     onSettings: () -> Unit,
     onClear: () -> Unit
 ) {
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
-    // Only auto-scroll when the user is already near the bottom, so reading
-    // older messages is never yanked away by an incoming reply.
-    val nearBottom by remember {
-        derivedStateOf {
-            val info = listState.layoutInfo
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
-            lastVisible == null || lastVisible >= info.totalItemsCount - 2
-        }
-    }
     LaunchedEffect(messages.size, busy) {
-        if (messages.isNotEmpty() && nearBottom) {
-            // When busy, the last item is the typing indicator.
-            listState.animateScrollToItem(if (busy) messages.size else messages.lastIndex)
+        if (messages.isNotEmpty()) {
+            scope.launch { listState.animateScrollToItem(messages.lastIndex) }
         }
     }
 
@@ -61,11 +43,7 @@ fun ChatScreen(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Gemini FreeLLM", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "FreeLLMAPI",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Text("FreeLLMAPI", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     }
                 },
                 navigationIcon = {
@@ -81,11 +59,11 @@ fun ChatScreen(
             )
         },
         bottomBar = {
-            MessageComposer(input, busy, onInputChange, { onSend(input) })
+            MessageComposer(input, busy, onInputChange, onSend)
         }
     ) { padding ->
-        if (messages.isEmpty() && !busy) {
-            WelcomeState(Modifier.fillMaxSize().padding(padding), onSuggestion)
+        if (messages.isEmpty()) {
+            WelcomeState(Modifier.fillMaxSize().padding(padding))
         } else {
             LazyColumn(
                 state = listState,
@@ -100,15 +78,8 @@ fun ChatScreen(
     }
 }
 
-private val Suggestions = listOf(
-    "Explain a tricky concept simply",
-    "Write a short poem",
-    "Help me draft a polite message",
-    "Give me quick study tips"
-)
-
 @Composable
-private fun WelcomeState(modifier: Modifier, onSuggestion: (String) -> Unit) {
+private fun WelcomeState(modifier: Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Column(
             Modifier.padding(28.dp),
@@ -140,35 +111,12 @@ private fun WelcomeState(modifier: Modifier, onSuggestion: (String) -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
-            Spacer(Modifier.height(4.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Suggestions.forEach { suggestion ->
-                    SuggestionChip(
-                        onClick = { onSuggestion(suggestion) },
-                        label = { Text(suggestion) }
-                    )
-                }
-            }
-            Text(
-                "Long-press any message to copy it.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(message: ChatMessage) {
-    val clipboard = LocalClipboardManager.current
-    val context = LocalContext.current
-    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-
     val user = message.role == ChatMessage.Role.USER
     val error = message.role == ChatMessage.Role.ERROR
     val color = when {
@@ -188,15 +136,7 @@ private fun MessageBubble(message: ChatMessage) {
                 if (user) 6.dp else 22.dp,
                 if (user) 22.dp else 6.dp
             ),
-            modifier = Modifier
-                .fillMaxWidth(if (user) .86f else .94f)
-                .combinedClickable(
-                    onClick = {},
-                    onLongClick = {
-                        clipboard.setText(AnnotatedString(message.text))
-                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                    }
-                )
+            modifier = Modifier.fillMaxWidth(if (user) .86f else .94f)
         ) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
                 Text(
@@ -209,18 +149,7 @@ private fun MessageBubble(message: ChatMessage) {
                     color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                 )
                 Spacer(Modifier.height(5.dp))
-                if (!user && !error) {
-                    MarkdownText(message.text)
-                } else {
-                    Text(message.text, style = MaterialTheme.typography.bodyLarge)
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    timeFormat.format(Date(message.timestamp)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(if (user) Alignment.End else Alignment.Start)
-                )
+                Text(message.text, style = MaterialTheme.typography.bodyLarge)
             }
         }
     }
