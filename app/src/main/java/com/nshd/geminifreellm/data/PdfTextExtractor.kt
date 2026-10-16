@@ -33,8 +33,7 @@ object PdfTextExtractor {
     private fun decodeLiteral(value: String): String =
         value.replace("""\n""", "
 ")
-            .replace("""\r""", "
-")
+            .replace("""\r""", "")
             .replace("""\t""", "	")
             .replace("""\(""", "(")
             .replace("""\)""", ")")
