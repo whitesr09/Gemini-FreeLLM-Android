@@ -2,8 +2,17 @@ package com.nshd.geminifreellm.data
 
 import java.util.concurrent.atomic.AtomicInteger
 
+data class ModelInfo(
+    val id: String,
+    val label: String,
+    val available: Boolean = true,
+    val provider: String = "",
+    val supportsVision: Boolean = false
+)
+
 /**
  * Deterministic fake transport used by JVM tests. It never opens a socket.
+ * Error copy comes from [ApiErrorMapper] so tests assert the same strings users see.
  */
 class FakeFreeLlmApi(
     private val statusCode: Int = 200,
@@ -14,7 +23,7 @@ class FakeFreeLlmApi(
     fun chat(): Result<List<String>> {
         calls.incrementAndGet()
         return if (statusCode in 200..299) Result.success(chunks) else Result.failure(
-            IllegalStateException(ApiErrorMapper.fromHttp(statusCode, "fake error").message)
+            IllegalStateException(ApiErrorMapper.fromHttp(statusCode))
         )
     }
 
