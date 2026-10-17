@@ -9,6 +9,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Preview
 import androidx.compose.material.icons.outlined.WrapText
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,7 +22,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.nshd.geminifreellm.data.CodeRunner
+import com.nshd.geminifreellm.data.JsRunResult
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal data class MarkdownBlock(val text: String, val language: String? = null)
 
@@ -107,26 +115,58 @@ private fun inlineMarkdown(value: String): AnnotatedString {
 @Composable
 private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) {
     val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
     var wrap by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
+    var running by remember { mutableStateOf(false) }
+    var runResult by remember { mutableStateOf<JsRunResult?>(null) }
+    var preview by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
+    val language = block.language.orEmpty()
+    fun run() {
+        running = true; runResult = null
+        val snapshot = block.text
+        scope.launch(Dispatchers.Default) {
+            val result = CodeRunner.runJs(snapshot)
+            withContext(Dispatchers.Main) { running = false; runResult = result }
+        }
+    }
     Surface(shape = Design.card, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Column {
             Row(Modifier.fillMaxWidth().padding(start = Design.medium), verticalAlignment = Alignment.CenterVertically) {
-                Text(block.language.orEmpty().ifBlank { "Code" }, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                Text(language.ifBlank { "Code" }, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                if (CodeRunner.isRunnable(language)) IconButton(onClick = ::run, enabled = !running) {
+                    if (running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Outlined.PlayArrow, "Run JavaScript on this device")
+                }
+                if (CodeRunner.isPreviewable(language)) IconButton(onClick = { preview = true }) {
+                    Icon(Icons.Outlined.Preview, "Preview HTML on this device")
+                }
                 IconButton(onClick = { wrap = !wrap }) { Icon(Icons.Outlined.WrapText, if (wrap) "Disable code wrapping" else "Wrap code lines", Modifier.size(20.dp)) }
-                IconButton(onClick = { onCanvas(block.text, block.language.orEmpty()) }, enabled = block.text.length <= 120_000) { Icon(Icons.Outlined.Code, "Open code in canvas", Modifier.size(20.dp)) }
+                IconButton(onClick = { onCanvas(block.text, language) }, enabled = block.text.length <= 120_000) { Icon(Icons.Outlined.Code, "Open code in canvas", Modifier.size(20.dp)) }
                 TextButton(onClick = { clipboard.setText(AnnotatedString(block.text)); copied = true }) {
                     Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(Design.small)); Text(if (copied) "Copied" else "Copy code")
                 }
             }
-            SelectionContainer {
-                Text(block.text, Modifier.fillMaxWidth().then(if (wrap) Modifier else Modifier.horizontalScroll(rememberScrollState())).padding(Design.medium),
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace), softWrap = wrap)
+            if (running || runResult != null) RunConsole(running, runResult, Modifier.fillMaxWidth().padding(horizontal = Design.medium)) { runResult = null }
+            Row(Modifier.fillMaxWidth()) {
+                // Line-number gutter: excluded from selection and the horizontal scroll.
+                val gutterStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
+                Column(Modifier.padding(vertical = Design.medium).padding(start = Design.medium)) {
+                    repeat(block.text.lines().size) { index ->
+                        Text("%4d".format(Locale.US, index + 1), style = gutterStyle,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f))
+                    }
+                }
+                SelectionContainer(Modifier.weight(1f)) {
+                    Text(block.text, Modifier.horizontalScroll(rememberScrollState()).padding(Design.medium),
+                        style = gutterStyle, softWrap = wrap)
+                }
             }
         }
     }
+    if (preview) HtmlPreviewDialog(block.text) { preview = false }
 }
 
 
