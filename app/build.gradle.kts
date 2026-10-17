@@ -53,6 +53,26 @@ android {
     }
 }
 
+// App icon artwork is stored base64-encoded (app/icon-src/ic_logo.b64) because it
+// cannot be pushed as a binary file with the current tooling; it decodes to the
+// identical PNG at build time. To replace it with a directly-committed file,
+// drop the real PNG at app/src/main/res/drawable-nodpi/ic_logo.png and delete
+// this task plus the icon-src directory.
+val decodeAppIcon = tasks.register("decodeAppIcon") {
+    val encoded = file("icon-src/ic_logo.b64")
+    val outDir = layout.buildDirectory.dir("generated/res/appIcon")
+    inputs.file(encoded)
+    outputs.dir(outDir)
+    doLast {
+        // If the real PNG was committed directly, prefer it and skip decoding.
+        if (file("src/main/res/drawable-nodpi/ic_logo.png").exists()) return@doLast
+        val target = outDir.get().asFile.resolve("drawable-nodpi").apply { mkdirs() }
+        target.resolve("ic_logo.png").writeBytes(java.util.Base64.getDecoder().decode(encoded.readText().trim()))
+    }
+}
+android.sourceSets.getByName("main").res.srcDir(decodeAppIcon.map { layout.buildDirectory.dir("generated/res/appIcon") })
+tasks.matching { it.name.matches(Regex("merge.*Resources")) }.configureEach { dependsOn(decodeAppIcon) }
+
 kotlin {
     jvmToolchain(17)
 }
@@ -76,5 +96,6 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("net.sf.kxml:kxml2:2.3.0")
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
+    implementation("org.mozilla:rhino:1.7.15") // on-device JavaScript runner (pure Java, no native libs)
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
