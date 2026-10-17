@@ -1,6 +1,7 @@
 package com.nshd.geminifreellm.ui
 
 import androidx.compose.foundation.text.BasicText as FoundationBasicText
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -14,7 +15,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun BasicText(
     text: String,
-    color: Color = LocalAppColors.current.text,
+    color: Color = MaterialTheme.colorScheme.onSurface,
     fontSize: TextUnit = 14.sp,
     fontWeight: FontWeight? = null,
     fontFamily: FontFamily? = null,
