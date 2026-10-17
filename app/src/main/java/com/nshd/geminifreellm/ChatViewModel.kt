@@ -48,25 +48,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var generation: Job? = null
     private var attachmentJob: Job? = null
     private var generationToken: String? = null
-    private val saves = Channel<Pair<List<Conversation>, String>>(Channel.CONFLATED)
+    private val saves = Channel<Triple<Int, List<Conversation>, String>>(Channel.CONFLATED)
+    private var persistEpoch = 0
 
     init {
+        reload()
         viewModelScope.launch {
-            try {
-                val (settings, history) = withContext(Dispatchers.IO) { store.loadSettings() to store.loadHistory() }
-                val chats = history.first.ifEmpty { listOf(Conversation()) }
-                mutable.value = State(loading = false, settings = settings, chats = chats,
-                    activeId = history.second?.takeIf { id -> chats.any { it.id == id } } ?: chats.first().id)
-                if (settings.autoRouting) settings.profiles.filter { it.provider !in settings.autoExcluded }.forEach { loadCatalog(it.provider) }
-            } catch (error: Exception) {
-                withContext(Dispatchers.IO) { diagnostics.record("Storage", error = error) }
-                // Never overwrite a history/credential file that could not be read.
-                mutable.value = State(loading = false, storageBlocked = true,
-                    notice = "Local data could not be opened. Restart the app to retry; existing files have been preserved.")
-            }
-        }
-        viewModelScope.launch {
-            for ((chats, active) in saves) {
+            for ((epoch, chats, active) in saves) {
+                // A restore bumps the epoch; stale queued saves must not overwrite it.
+                if (epoch != persistEpoch) continue
                 try { withContext(Dispatchers.IO) { store.saveHistory(chats, active) } }
                 catch (error: Exception) {
                     withContext(Dispatchers.IO) { diagnostics.record("Storage", error = error) }
@@ -76,9 +66,31 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** (Re)loads settings and history from disk; used at startup and after a backup restore. */
+    fun reload() {
+        persistEpoch++
+        generation?.cancel(); generation = null
+        viewModelScope.launch {
+            mutable.update { it.copy(loading = true) }
+            try {
+                val (settings, history) = withContext(Dispatchers.IO) { store.loadSettings() to store.loadHistory() }
+                val chats = history.first.ifEmpty { listOf(Conversation()) }
+                mutable.update { it.copy(loading = false, settings = settings, chats = chats,
+                    activeId = history.second?.takeIf { id -> chats.any { it.id == id } } ?: chats.first().id,
+                    generatingId = null, storageBlocked = false) }
+                if (settings.autoRouting) settings.profiles.filter { it.provider !in settings.autoExcluded }.forEach { loadCatalog(it.provider) }
+            } catch (error: Exception) {
+                withContext(Dispatchers.IO) { diagnostics.record("Storage", error = error) }
+                // Never overwrite a history/credential file that could not be read.
+                mutable.update { it.copy(loading = false, storageBlocked = true,
+                    notice = "Local data could not be opened. Restart the app to retry; existing files have been preserved.") }
+            }
+        }
+    }
+
     private fun persist() {
         val value = mutable.value
-        if (!value.loading && !value.storageBlocked) saves.trySend(value.chats to value.activeId)
+        if (!value.loading && !value.storageBlocked) saves.trySend(Triple(persistEpoch, value.chats, value.activeId))
     }
 
     private fun changeChat(id: String = mutable.value.activeId, save: Boolean = true, update: (Conversation) -> Conversation) {
@@ -174,24 +186,32 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val snapshot = mutable.value
                 val history = snapshot.active?.messages.orEmpty() + ChatMessage(text = snapshot.active?.draft.orEmpty(), role = ChatMessage.Role.USER,
                     attachments = snapshot.active?.attachments.orEmpty())
-                val candidates = AutoRouter.candidates(snapshot.settings, snapshot.catalogs, snapshot.access, history)
-                var started = 0L
-                val (profile, _) = AutoRouter.generate(candidates, firstTokenTimeoutMs = 15_000,
-                    onAttempt = { selected, attempt ->
-                        started = android.os.SystemClock.elapsedRealtime()
-                        mutable.update { it.copy(checking = setOf(modelKey(selected.provider, selected.model)),
-                            autoStatus = "Checking $attempt/${minOf(6, candidates.size)} · ${selected.provider.label} · ${selected.model}") }
-                    }, onFailure = { failed, error ->
-                        markAccess(failed, (error as? ApiException)?.access ?: AccessState.ERROR)
-                        withContext(Dispatchers.IO) { diagnostics.record("Auto access check", failed.provider, error) }
-                    }, request = { selected, emit ->
-                        withTimeoutOrNull(15_000) {
-                            client.generate(selected, listOf(ChatMessage(text = "Reply with OK only.", role = ChatMessage.Role.USER)), onText = emit)
-                        } ?: throw ApiException("Access check timed out.", AccessState.UNAVAILABLE)
-                    }, onText = {})
-                markAccess(profile, AccessState.USABLE, android.os.SystemClock.elapsedRealtime() - started)
-                mutable.update { it.copy(autoChoice = "${profile.provider.label} · ${profile.model}",
-                    autoStatus = "Ready. Auto re-evaluates for each message and switches when a model fails.") }
+                val candidates = AutoRouter.candidates(snapshot.settings, snapshot.catalogs, snapshot.access, history).take(8)
+                if (candidates.isEmpty()) {
+                    mutable.update { it.copy(autoStatus = "Auto found no eligible model. Open Auto to check provider connections and cooldowns.") }
+                } else {
+                    // All candidates probe concurrently; a slow probe stays eligible (marked slow, not broken).
+                    mutable.update { it.copy(checking = candidates.map { modelKey(it.provider, it.model) }.toSet(),
+                        autoStatus = "Checking ${candidates.size} models in parallel…") }
+                    val results = AutoRouter.probe(candidates, request = { selected, emit ->
+                        client.generate(selected, listOf(ChatMessage(text = "Reply with OK only.", role = ChatMessage.Role.USER)), onText = emit)
+                    })
+                    var usable = 0
+                    var best: AutoRouter.ProbeResult? = null
+                    results.forEach { result ->
+                        if (result.state == AccessState.USABLE) {
+                            usable++
+                            if (best == null) best = result
+                            markAccess(result.profile, AccessState.USABLE, result.latencyMs)
+                        } else {
+                            markAccess(result.profile, result.state)
+                            result.error?.let { error -> withContext(Dispatchers.IO) { diagnostics.record("Auto access check", result.profile.provider, error) } }
+                        }
+                    }
+                    mutable.update { it.copy(autoChoice = best?.let { "${it.profile.provider.label} · ${it.profile.model}" },
+                        autoStatus = if (usable > 0) "Ready · $usable/${results.size} models responding. Auto re-evaluates for each message and switches when a model fails."
+                        else "No model responded. Check provider connections, or wait out rate-limit cooldowns.") }
+                }
             } catch (cancelled: CancellationException) {
                 mutable.update { it.copy(autoStatus = "Check stopped. Completed results are kept.") }; throw cancelled
             } catch (error: Exception) {
@@ -279,6 +299,31 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun saveSettings(settings: AppSettings): Boolean = updateSettings { settings }
+
+    fun exportBackup(uri: Uri) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { BackupManager.export(getApplication(), uri) }
+                notice("Backup saved.")
+            } catch (error: Exception) {
+                withContext(Dispatchers.IO) { diagnostics.record("Backup", error = error) }
+                notice(if (error is BackupException) error.message ?: "Export failed." else "Could not write the backup file.")
+            }
+        }
+    }
+
+    fun importBackup(uri: Uri) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { BackupManager.import(getApplication(), uri) }
+                reload()
+                notice("Backup restored.")
+            } catch (error: Exception) {
+                withContext(Dispatchers.IO) { diagnostics.record("Backup", error = error) }
+                notice(if (error is BackupException) error.message ?: "Could not read the backup file." else "Restore failed.")
+            }
+        }
+    }
 
     private suspend fun updateSettings(transform: (AppSettings) -> AppSettings): Boolean = settingsMutex.withLock {
         if (mutable.value.storageBlocked) return@withLock false
@@ -386,30 +431,36 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 val text = try {
-                    if (snapshot.settings.autoRouting) AutoRouter.generate(candidates,
-                        onAttempt = { selected, attempt ->
-                            profile = selected
-                            started = android.os.SystemClock.elapsedRealtime(); firstToken = 0L
-                            changeChat(chatId, save = false) { chat -> chat.copy(messages = chat.messages.map {
-                                if (it.id == replyId) it.copy(model = "Auto · ${selected.provider.label} · ${selected.model}" + if (attempt > 1) " · fallback $attempt" else "") else it
-                            }) }
-                        }, onFailure = { failed, error ->
-                            markAccess(failed, (error as? ApiException)?.access ?: AccessState.ERROR)
-                            withContext(Dispatchers.IO) { diagnostics.record("Auto fallback", failed.provider, error) }
-                        }, request = { selected, emit ->
-                            val id = replyId
-                            client.generate(selected, requestHistory, systemPrompt) { partial -> updates.trySend(id to partial); emit(partial) }
-                        }, onText = {}, onPartialFailure = { partial ->
-                            // Persist the completed portion under its original model before starting a new bubble.
-                            val previousId = replyId
-                            val next = ChatMessage(text = "", role = ChatMessage.Role.ASSISTANT, model = "Auto · finding a model to continue…", interrupted = true)
-                            replyId = next.id
-                            changeChat(chatId) { chat -> chat.copy(messages = chat.messages.map {
-                                if (it.id == previousId) it.copy(text = partial, interrupted = true) else it
-                            } + next) }
-                            requestHistory = requestHistory + ChatMessage(text = partial, role = ChatMessage.Role.ASSISTANT) +
-                                ChatMessage(text = "The previous reply was interrupted. Continue from its last unfinished point, preserve the user's requirements, and avoid repeating completed content.", role = ChatMessage.Role.USER)
-                        }).second
+                    if (snapshot.settings.autoRouting) {
+                        var continuationPrefix = ""
+                        val (winner, reply) = AutoRouter.generate(candidates,
+                            onAttempt = { selected, attempt ->
+                                profile = selected
+                                started = android.os.SystemClock.elapsedRealtime(); firstToken = 0L
+                                changeChat(chatId, save = false) { chat -> chat.copy(messages = chat.messages.map {
+                                    if (it.id == replyId) it.copy(model = "Auto · ${selected.provider.label} · ${selected.model}" +
+                                        if (continuationPrefix.isNotEmpty()) " · continued" else if (attempt > 1) " · fallback $attempt" else "") else it
+                                }) }
+                            }, onFailure = { failed, error ->
+                                markAccess(failed, (error as? ApiException)?.access ?: AccessState.ERROR)
+                                withContext(Dispatchers.IO) { diagnostics.record("Auto fallback", failed.provider, error) }
+                            }, onSlow = { slow, latencyMs ->
+                                // Slow is not broken: stays eligible, just ranked lower next time.
+                                markAccess(slow, AccessState.USABLE, latencyMs)
+                            }, request = { selected, emit ->
+                                val prefix = continuationPrefix
+                                client.generate(selected, requestHistory, systemPrompt) { partial -> emit(prefix + partial) }
+                            }, onText = { chunk -> updates.trySend(replyId to chunk) }, onPartialFailure = { partial ->
+                                // Seamless: the same bubble keeps streaming; the next attempt's
+                                // chunks are appended after the preserved prefix, with a
+                                // continuation instruction in the request history.
+                                continuationPrefix = partial
+                                requestHistory = requestHistory + ChatMessage(text = partial, role = ChatMessage.Role.ASSISTANT) +
+                                    ChatMessage(text = "The previous reply was interrupted. Continue from its last unfinished point, preserve the user's requirements, and avoid repeating completed content.", role = ChatMessage.Role.USER)
+                            })
+                        profile = winner
+                        reply
+                    }
                     else client.generate(profile, history, systemPrompt) { updates.trySend(replyId to it) }
                 } finally { updates.close(); collector.join() }
                 if (generationToken == token) {
