@@ -3,6 +3,7 @@ package com.nshd.geminifreellm.ui
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -28,7 +29,10 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import com.nshd.geminifreellm.model.CanvasDocument
+import com.nshd.geminifreellm.data.CodeRunner
+import com.nshd.geminifreellm.data.JsRunResult
 import com.nshd.geminifreellm.data.readPortableText
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -57,6 +61,9 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     var undo by remember { mutableStateOf<List<String>>(emptyList()) }
     var redo by remember { mutableStateOf<List<String>>(emptyList()) }
     var lastUndo by remember { mutableLongStateOf(0L) }
+    var running by remember { mutableStateOf(false) }
+    var runResult by remember { mutableStateOf<JsRunResult?>(null) }
+    var preview by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -75,6 +82,20 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
         }
     }
     fun leave() { onSave(snapshot()); onBack() }
+    fun runCode() {
+        running = true; runResult = null
+        val snapshotCode = code
+        scope.launch(Dispatchers.Default) {
+            val result = CodeRunner.runJs(snapshotCode)
+            withContext(Dispatchers.Main) {
+                running = false; runResult = result
+                status = when (result) {
+                    is JsRunResult.Success -> "Run finished"
+                    is JsRunResult.Failure -> "Run failed" + if (result.line > 0) " at line ${result.line}" else ""
+                }
+            }
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestDocument by rememberUpdatedState(snapshot())
     val latestSave by rememberUpdatedState(onSave)
@@ -88,14 +109,51 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     LaunchedEffect(title, language, code) { delay(700); onSave(snapshot()) }
     val highlight = MaterialTheme.colorScheme.primaryContainer
     val highlightText = MaterialTheme.colorScheme.onPrimaryContainer
-    val transform = remember(query, highlight, highlightText) { VisualTransformation { original ->
+    val gutterColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    // Line numbers are baked into the visual transformation (fixed-width prefix per
+    // line, so cursor mapping stays exact); search highlighting shifts with them.
+    val transform = remember(query, highlight, highlightText, gutterColor) { VisualTransformation { original ->
+        val text = original.text
+        val prefixLen = 7 // "%4d │ " is always 7 chars; numbers past 9999 are truncated
+        fun prefix(n: Int) = "%4d │ ".format(Locale.US, n).takeLast(prefixLen)
+        // Original offsets where each line starts, for the offset mapping.
+        val lineStarts = ArrayList<Int>(text.length / 40 + 2).apply {
+            add(0); text.forEachIndexed { i, c -> if (c == '\n') add(i + 1) }
+        }
+        fun lineOf(offset: Int): Int {
+            val o = offset.coerceIn(0, text.length)
+            val idx = lineStarts.binarySearch(o)
+            return (if (idx >= 0) idx else -idx - 2).coerceAtLeast(0)
+        }
         val result = buildAnnotatedString {
-            append(original)
-            if (query.isNotEmpty()) Regex(Regex.escape(query), RegexOption.IGNORE_CASE).findAll(original.text).forEach {
-                addStyle(SpanStyle(background = highlight, color = highlightText), it.range.first, it.range.last + 1)
+            val lines = if (text.isEmpty()) listOf("") else text.split('\n')
+            lines.forEachIndexed { index, line ->
+                val p = prefix(index + 1)
+                val start = length
+                append(p); addStyle(SpanStyle(color = gutterColor), start, start + p.length)
+                append(line)
+                if (index != lines.lastIndex) append('\n')
+            }
+            if (query.isNotEmpty()) Regex(Regex.escape(query), RegexOption.IGNORE_CASE).findAll(text).forEach { match ->
+                val shift = lineOf(match.range.first) * prefixLen
+                addStyle(SpanStyle(background = highlight, color = highlightText), match.range.first + shift, match.range.last + 1 + shift)
             }
         }
-        TransformedText(result, OffsetMapping.Identity)
+        TransformedText(result, object : OffsetMapping {
+            override fun originalToTransformed(offset: Int) = offset.coerceIn(0, text.length) + lineOf(offset) * prefixLen
+            override fun transformedToOriginal(offset: Int): Int {
+                val t = offset.coerceIn(0, result.length)
+                var lo = 0; var hi = lineStarts.size - 1; var line = 0
+                while (lo <= hi) {
+                    val mid = (lo + hi) ushr 1
+                    if (lineStarts[mid] + mid * prefixLen <= t) { line = mid; lo = mid + 1 } else hi = mid - 1
+                }
+                val lineStartT = lineStarts[line] + line * prefixLen
+                // Taps inside the gutter land at the line start.
+                return if (t - lineStartT < prefixLen) lineStarts[line]
+                else (t - line * prefixLen).coerceIn(lineStarts[line], text.length)
+            }
+        })
     } }
     BackHandler { leave() }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
@@ -121,6 +179,13 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(enabled = undo.isNotEmpty(), onClick = { redo = (redo + code).takeLast(12); code = undo.last(); undo = undo.dropLast(1) }) { Icon(Icons.AutoMirrored.Outlined.Undo, "Undo") }
                 IconButton(enabled = redo.isNotEmpty(), onClick = { undo = (undo + code).takeLast(12); code = redo.last(); redo = redo.dropLast(1) }) { Icon(Icons.AutoMirrored.Outlined.Redo, "Redo") }
+                if (CodeRunner.isRunnable(language)) IconButton(onClick = ::runCode, enabled = code.isNotBlank() && !running) {
+                    if (running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Outlined.PlayArrow, "Run JavaScript on this device")
+                }
+                if (CodeRunner.isPreviewable(language)) IconButton(onClick = { preview = true }, enabled = code.isNotBlank()) {
+                    Icon(Icons.Outlined.Preview, "Preview HTML on this device")
+                }
                 IconButton(onClick = { clipboard.setText(AnnotatedString(code)); status = "Code copied" }) { Icon(Icons.Outlined.ContentCopy, "Copy canvas") }
                 IconButton(onClick = { export.launch(title.ifBlank { "code.txt" }) }) { Icon(Icons.Outlined.FileDownload, "Export canvas file") }
                 IconButton(onClick = { importFile.launch(arrayOf("*/*")) }) { Icon(Icons.Outlined.FileUpload, "Import canvas file") }
@@ -147,8 +212,11 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                 visualTransformation = transform, textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false),
                 placeholder = { Text("Write code here, or open a code block from a reply.") })
-            Text(status ?: "${code.count { it == '\n' } + 1} lines · ${code.length} characters · Code is not executed",
+            Text(status ?: "${code.count { it == '\n' } + 1} lines · ${code.length} characters · JavaScript runs on-device · HTML previews in-app",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            AnimatedVisibility(visible = running || runResult != null) {
+                RunConsole(running, runResult, Modifier.fillMaxWidth().heightIn(max = 200.dp)) { runResult = null }
+            }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Design.small)) {
                 listOf("Explain", "Review", "Fix", "Optimize", "Add tests", "Document").forEach { action ->
                     OutlinedButton(enabled = code.isNotBlank(), onClick = { onAsk(snapshot(), action); onBack() }) { Text(action) }
@@ -173,4 +241,5 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("Clear canvas?") }, text = { Text("The current code will be removed. Undo can restore it while this editor stays open.") },
         confirmButton = { TextButton(onClick = { undo = (undo + code).takeLast(12); code = ""; redo = emptyList(); clear = false; status = "Autosave enabled" }) { Text("Clear") } },
         dismissButton = { TextButton(onClick = { clear = false }) { Text("Cancel") } })
+    if (preview) HtmlPreviewDialog(code) { preview = false }
 }
