@@ -40,7 +40,7 @@ object CodeRunner {
             override fun makeContext(): Context = super.makeContext().apply {
                 // Interpreted mode is required on Android (no JIT classloading).
                 optimizationLevel = -1
-                instructionThreshold = 20_000
+                setInstructionObserverThreshold(20_000)
                 maximumInterpreterStackDepth = 256
             }
         }
@@ -65,7 +65,7 @@ object CodeRunner {
             }
             JsRunResult.Success(output.toString().trimEnd(), returned)
         } catch (e: RhinoException) {
-            JsRunResult.Failure((e.message() ?: "Script error").take(500), e.lineNumber())
+            JsRunResult.Failure((e.message ?: "Script error").take(500), e.lineNumber())
         } catch (e: JsTimeoutException) {
             JsRunResult.Failure(e.message ?: "Timed out", 0)
         } catch (e: CancellationException) {
