@@ -220,11 +220,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    suspend fun saveAgent(agent: AgentConfig): Boolean {
-        agent.validationError()?.let { notice(it); return false }
-        return updateSettings { it.copy(agent = agent) }
-    }
-
     suspend fun setAutoProvider(provider: Provider, enabled: Boolean): Boolean = updateSettings {
         it.copy(autoExcluded = if (enabled) it.autoExcluded - provider else (it.autoExcluded + provider).distinct())
     }
@@ -358,13 +353,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (!value.settings.autoRouting && !value.settings.active.vision && chat.attachments.any { it.isImage }) {
             notice("Enable image input for a vision-capable model in settings before sending images."); return
         }
+        // "/SkillName …" invokes a saved skill for this message only. The bubble keeps
+        // the token so the invocation stays visible; the API sees clean text plus
+        // the skill in the system prompt.
+        val (invokedSkill, cleanDraft) = AgentConfig.parseInvocation(chat.draft, value.settings.agent)
         val message = ChatMessage(text = chat.draft.trim(), role = ChatMessage.Role.USER, attachments = chat.attachments)
         val history = chat.messages + message
+        val apiHistory = if (invokedSkill != null) chat.messages + message.copy(text = cleanDraft.trim()) else history
 
         changeChat { it.copy(messages = history, draft = "", attachments = emptyList(),
             title = if (it.messages.isEmpty()) message.text.ifBlank { message.attachments.first().name }.take(60) else it.title,
             updatedAt = System.currentTimeMillis()) }
-        generate(chat.id, history, value)
+        generate(chat.id, history, value, invokedSkill, apiHistory)
     }
 
     fun continueReply() {
@@ -395,10 +395,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun generate(chatId: String, history: List<ChatMessage>, snapshot: State) {
+    private fun generate(chatId: String, history: List<ChatMessage>, snapshot: State, invokedSkill: AgentSkill? = null,
+                         apiHistory: List<ChatMessage>? = null) {
         stopAutoCheck()
         var profile = snapshot.settings.active
-        val systemPrompt = snapshot.settings.agent.prompt()
+        val systemPrompt = snapshot.settings.agent.promptFor(invokedSkill)
+        // apiHistory strips the "/SkillName" token so the model never sees it;
+        // the chat bubble keeps it so the invocation stays visible.
+        val request = apiHistory ?: history
         val assistant = ChatMessage(text = "", role = ChatMessage.Role.ASSISTANT,
             model = if (snapshot.settings.autoRouting) "Auto · discovering available models…" else "${profile.provider.label} · ${profile.model}", interrupted = true)
         val token = assistant.id
@@ -407,11 +411,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         changeChat(chatId) { it.copy(messages = history + assistant) }
         generation = viewModelScope.launch {
             var replyId = assistant.id
-            var requestHistory = history
+            var requestHistory = request
             try {
                 autoCheckJob?.join()
                 if (snapshot.settings.autoRouting) awaitAutoCatalogs()
-                val candidates = requestCandidates(snapshot.copy(catalogs = mutable.value.catalogs, access = mutable.value.access), history)
+                val candidates = requestCandidates(snapshot.copy(catalogs = mutable.value.catalogs, access = mutable.value.access), request)
                 if (candidates.isEmpty()) throw ApiException("Auto found no eligible model. Open Auto to check provider connections and cooldowns.")
                 var started = android.os.SystemClock.elapsedRealtime()
                 var firstToken = 0L
