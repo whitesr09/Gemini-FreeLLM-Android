@@ -162,7 +162,7 @@ class FreeLlmApiClient(
         if (!profile.vision && history.any { message -> message.attachments.any { it.isImage } }) {
             throw ApiException("This chat includes images. Enable image input for a vision-capable model in settings.")
         }
-        require(systemPrompt.length <= 48_000) { "Agent instructions exceed 48,000 characters." }
+        if (systemPrompt.length > 48_000) throw ApiException("Agent instructions exceed 48,000 characters.")
         val payload = JSONObject()
         val path = when (protocol) {
             ApiProtocol.OPENAI -> {
