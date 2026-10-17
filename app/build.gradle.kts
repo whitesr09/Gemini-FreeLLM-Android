@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -69,7 +71,7 @@ val decodeAppIcon = tasks.register("decodeAppIcon") {
         val encoded = iconSrcDir.listFiles { f -> f.name.matches(Regex("ic_logo\\.part\\d+\\.b64")) }!!
             .sortedBy { it.name }.joinToString("") { it.readText().trim() }
         val target = outDir.get().asFile.resolve("drawable-nodpi").apply { mkdirs() }
-        target.resolve("ic_logo.png").writeBytes(java.util.Base64.getDecoder().decode(encoded))
+        target.resolve("ic_logo.png").writeBytes(Base64.getDecoder().decode(encoded))
     }
 }
 android.sourceSets.getByName("main").res.srcDir(decodeAppIcon.map { layout.buildDirectory.dir("generated/res/appIcon") })
