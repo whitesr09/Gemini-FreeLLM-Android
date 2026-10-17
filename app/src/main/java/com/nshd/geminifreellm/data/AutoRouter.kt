@@ -21,7 +21,7 @@ object AutoRouter {
         val coding = Regex("\\b(code|coding|debug|function|refactor|program|kotlin|python|javascript)\\b", RegexOption.IGNORE_CASE)
             .containsMatchIn(history.lastOrNull { it.role == ChatMessage.Role.USER }?.text.orEmpty())
         val ranked = models(settings, catalogs).filter { profile ->
-            profile.provider !in settings.autoExcluded && (!images || (profile.vision && profile.model == settings.profiles.first { it.provider == profile.provider }.model)) && access.none { (key, value) ->
+            profile.provider !in settings.autoExcluded && (!images || (profile.vision && profile.model == settings.profiles.firstOrNull { it.provider == profile.provider }?.model)) && access.none { (key, value) ->
                 key.startsWith("${profile.provider.name}/") && value.state in listOf(AccessState.AUTH, AccessState.QUOTA) && now - value.checkedAt < cooldown(value.state)
             }
             }.filter { profile ->
@@ -74,7 +74,7 @@ object AutoRouter {
                         val ready = withTimeoutOrNull(firstTokenTimeoutMs) {
                             select<Boolean> { first.onAwait { true }; result.onAwait { true } }
                         }
-                        if (ready == null) throw ApiException("No reply within 25 seconds; trying another model.", AccessState.UNAVAILABLE)
+                        if (ready == null) throw ApiException("No reply within ${firstTokenTimeoutMs / 1000} seconds; trying another model.", AccessState.UNAVAILABLE)
                         result.await()
                     } finally { result.cancel() }
                 }
