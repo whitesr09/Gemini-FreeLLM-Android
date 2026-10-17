@@ -49,9 +49,9 @@ data class AgentConfig(
             // Longest name first so "My Skill" matches before "My".
             val skill = agent.invokableSkills()
                 .sortedByDescending { it.name.length }
-                .firstOrNull { name ->
-                    after.startsWith(name, ignoreCase = true) &&
-                        (after.length == name.length || after[name.length].isWhitespace())
+                .firstOrNull { candidate ->
+                    after.startsWith(candidate.name, ignoreCase = true) &&
+                        (after.length == candidate.name.length || after[candidate.name.length].isWhitespace())
                 } ?: return null to draft
             val rest = after.drop(skill.name.length).trimStart()
             return skill to rest
