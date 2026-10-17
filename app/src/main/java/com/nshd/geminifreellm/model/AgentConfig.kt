@@ -52,7 +52,11 @@ data class AgentConfig(
                 .firstOrNull { candidate ->
                     after.startsWith(candidate.name, ignoreCase = true) &&
                         (after.length == candidate.name.length || after[candidate.name.length].isWhitespace())
-                } ?: return null to draft
+                } ?: run {
+                    // Unknown skill — strip the "/attempt" and return the remaining message.
+                    val rest = after.substringAfter(' ', "").trimStart()
+                    return null to rest
+                }
             val rest = after.drop(skill.name.length).trimStart()
             return skill to rest
         }
