@@ -23,6 +23,30 @@ android {
 
     testOptions.unitTests.isIncludeAndroidResources = true
 
+    // Permanent CI signing: when the release keystore is present (decoded from
+    // the CI_KEYSTORE_BASE64 secret by the workflow), both debug and release
+    // APKs are signed with the SAME key, so updates install over the old
+    // version without uninstalling. Local builds fall back to the default
+    // debug key when the keystore file is absent.
+    val ciKeystoreFile = file("ci-signing.keystore")
+    val hasCiKeystore = ciKeystoreFile.exists()
+    signingConfigs {
+        create("ci") {
+            storeFile = ciKeystoreFile
+            storePassword = System.getenv("CI_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("CI_KEY_ALIAS")
+            keyPassword = System.getenv("CI_KEY_PASSWORD")
+        }
+    }
+    buildTypes {
+        debug {
+            if (hasCiKeystore) signingConfig = signingConfigs.getByName("ci")
+        }
+        release {
+            if (hasCiKeystore) signingConfig = signingConfigs.getByName("ci")
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
