@@ -1,8 +1,10 @@
 package com.nshd.geminifreellm.ui
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.speech.RecognizerIntent
+import androidx.core.net.toUri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -68,7 +70,8 @@ fun FreeLlmApp(vm: ChatViewModel) {
             }
             diagnostics -> DiagnosticsScreen(vm.diagnostics, onAsk = { vm.diagnose(it); diagnostics = false; settings = false }, onBack = { diagnostics = false })
             settings -> SettingsScreen(state.settings, vm.client, vm::saveSettings, { settings = false },
-                initialProvider = settingsProvider?.let(Provider::valueOf) ?: state.settings.selected, onDiagnostics = { diagnostics = true })
+                initialProvider = settingsProvider?.let(Provider::valueOf) ?: state.settings.selected, onDiagnostics = { diagnostics = true },
+                onExportBackup = vm::exportBackup, onImportBackup = vm::importBackup)
             else -> ChatWorkspace(state, vm, onSettings = { settingsProvider = null; settings = true },
                 onProviderSettings = { settingsProvider = it.name; settings = true })
         }
@@ -81,8 +84,6 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
     val chat = state.active ?: return
     var canvas by rememberSaveable { mutableStateOf(false) }
     var pendingCanvas by remember { mutableStateOf<CanvasDocument?>(null) }
-    var agent by rememberSaveable { mutableStateOf(false) }
-    if (agent) { AgentScreen(state.settings.agent, vm::saveAgent, { agent = false }); return }
     var media by rememberSaveable { mutableStateOf(false) }
     if (canvas) { CanvasScreen(chat.canvas, vm::saveCanvas, vm::askAboutCanvas, { canvas = false }); return }
     if (media) { MediaScreen(state.settings, { media = false }); return }
@@ -129,7 +130,6 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
                 Box {
                     IconButton(onClick = { overflow = true }) { Icon(Icons.Outlined.MoreHoriz, "Chat options") }
                     DropdownMenu(overflow, { overflow = false }) {
-                        DropdownMenuItem(text = { Text("Agent · skills & memory") }, onClick = { overflow = false; agent = true }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) })
                         DropdownMenuItem(text = { Text("Coding canvas") }, onClick = { overflow = false; canvas = true }, leadingIcon = { Icon(Icons.Outlined.Code, null) })
                         DropdownMenuItem(text = { Text("Create image or video") }, onClick = { overflow = false; media = true }, leadingIcon = { Icon(Icons.Outlined.Palette, null) })
                         DropdownMenuItem(text = { Text("Settings") }, onClick = { overflow = false; onSettings() }, leadingIcon = { Icon(Icons.Outlined.Settings, null) })
@@ -141,6 +141,7 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
         }, bottomBar = {
             Box(Modifier.fillMaxWidth().imePadding().navigationBarsPadding(), contentAlignment = Alignment.Center) {
                 Composer(chat, busy, state.preparing, vm::draft, { if (state.settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); vm.send() }, vm::stop,
+                    skills = state.settings.agent.invokableSkills(),
                     onAttach = { attachmentPicker.launch(arrayOf("image/*", "text/*", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/json")) },
                     onVoice = {
                         try { voice.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
@@ -225,6 +226,24 @@ private fun HistoryDrawer(state: ChatViewModel.State, vm: ChatViewModel, onClose
         ListItem(headlineContent = { Text("Settings") }, supportingContent = { Text("Providers, appearance & privacy") },
             leadingContent = { Icon(Icons.Outlined.Settings, null) }, modifier = Modifier.clickable(onClick = onSettings),
             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow))
+        Text("Developer", Modifier.padding(start = Design.page, top = Design.medium), style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth().padding(horizontal = Design.small, vertical = Design.tiny),
+            horizontalArrangement = Arrangement.spacedBy(Design.tiny, Alignment.CenterHorizontally)) {
+            val context = LocalContext.current
+            listOf(
+                Triple(Icons.Outlined.PhotoCamera, "Instagram", "https://www.instagram.com/__nshd.__?stkn=emExd3hxZndzN21o"),
+                Triple(Icons.Outlined.ChatBubbleOutline, "WhatsApp", "https://wa.me/+918590455801"),
+                Triple(Icons.Outlined.Send, "Telegram", "https://t.me/nshd_0"),
+                Triple(Icons.Outlined.Email, "Email", "mailto:nishadahammed081@gmail.com"),
+                Triple(Icons.Outlined.Phone, "Phone", "tel:+918590455801")
+            ).forEach { (icon, label, url) ->
+                IconButton(onClick = {
+                    try { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    catch (_: ActivityNotFoundException) { vm.notice("No app can open this link.") }
+                }) { Icon(icon, label, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        }
         Text("FreeLLM AI · ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             modifier = Modifier.padding(horizontal = Design.page, vertical = Design.small),
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -287,11 +306,20 @@ private fun WelcomeState(onPrompt: (String) -> Unit, onSettings: () -> Unit, nee
             Triple(Icons.AutoMirrored.Outlined.Article, "Make it simple", "Explain this in simple terms: "),
             Triple(Icons.Outlined.Code, "Build something", "Help me debug this code: ")
         )
-        suggestions.forEach { (icon, label, prompt) ->
-            Surface(onClick = { onPrompt(prompt) }, shape = Design.card, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(Design.medium).heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(label, Modifier.padding(start = Design.medium), style = MaterialTheme.typography.bodyLarge)
+        // One orchestrated entrance for the suggestion cards; static when motion is reduced.
+        var entered by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { entered = true }
+        val staggerMs = if (motionEnabled()) 70 else 0
+        suggestions.forEachIndexed { index, (icon, label, prompt) ->
+            AnimatedVisibility(visible = entered,
+                enter = fadeIn(tween(280, delayMillis = index * staggerMs)) +
+                    slideInVertically(tween(280, delayMillis = index * staggerMs)) { it / 5 },
+                exit = fadeOut()) {
+                Surface(onClick = { onPrompt(prompt) }, shape = Design.card, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(Design.medium).heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(label, Modifier.padding(start = Design.medium), style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
             }
         }
@@ -351,14 +379,15 @@ private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Bool
     val error = message.role == ChatMessage.Role.ERROR
     LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
-        if (!user && !error) Text(message.model.ifBlank { "Assistant" }, style = MaterialTheme.typography.labelSmall,
+        // ChatGPT-like restraint: only name the model when we actually know it.
+        if (!user && !error && message.model.isNotBlank()) Text(message.model, style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = Design.small))
-        Surface(color = when { error -> MaterialTheme.colorScheme.errorContainer; user -> MaterialTheme.colorScheme.surfaceContainer; else -> MaterialTheme.colorScheme.surface },
+        Surface(color = when { error -> MaterialTheme.colorScheme.surfaceContainerLow; user -> MaterialTheme.colorScheme.surfaceContainer; else -> MaterialTheme.colorScheme.surface },
             shape = Design.card, modifier = if (user) Modifier.widthIn(max = 580.dp) else Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(Design.small)) {
                 message.attachments.forEach { file -> AttachmentLabel(file) }
                 when {
-                    error -> Text(message.text, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    error -> Text(message.text, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     message.text.isEmpty() && generating -> ThinkingIndicator()
                     user -> SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge) }
                     else -> StreamingContent(message.text, generating, onCanvas)
@@ -367,13 +396,13 @@ private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Bool
             }
         }
         if (!generating) Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { clipboard.setText(AnnotatedString(message.text)); copied = true }) {
+            IconButton(onClick = { clipboard.setText(AnnotatedString(splitThink(message.text).first)); copied = true }) {
                 Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, if (copied) "Copied" else "Copy message", Modifier.size(20.dp))
             }
             if (user && canEdit) IconButton(onClick = { edit = true }) { Icon(Icons.Outlined.Edit, "Edit message", Modifier.size(20.dp)) }
             if (canRetry) IconButton(onClick = onRetry) { Icon(Icons.Outlined.Refresh, if (error) "Retry reply" else "Regenerate reply", Modifier.size(20.dp)) }
             if (message.interrupted && canRetry) TextButton(onClick = onContinue) { Text("Continue") }
-            if (error) TextButton(onClick = onSettings) { Text("Settings") }
+            if (error) IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(20.dp)) }
             if (showTimestamps) Text(remember(message.timestamp, message.elapsedMs) {
                 DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.timestamp)) +
                     if (message.elapsedMs > 0) " · %.1fs".format(message.elapsedMs / 1000.0) else ""
@@ -407,12 +436,31 @@ private fun AttachmentLabel(file: Attachment, onRemove: (() -> Unit)? = null) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Composer(chat: Conversation, busy: Boolean, preparing: Boolean, onChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit,
-                     onAttach: () -> Unit, onVoice: () -> Unit, onRemove: (String) -> Unit) {
+                     onAttach: () -> Unit, onVoice: () -> Unit, onRemove: (String) -> Unit, skills: List<AgentSkill> = emptyList()) {
     Column(Modifier.widthIn(max = Design.readingWidth).fillMaxWidth().padding(horizontal = Design.medium, vertical = Design.small), verticalArrangement = Arrangement.spacedBy(Design.small)) {
         if (chat.attachments.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(Design.small)) {
             items(chat.attachments, key = { it.id }) { file -> Box(Modifier.width(240.dp)) { AttachmentLabel(file) { onRemove(file.id) } } }
         }
         if (preparing) Text("Preparing attachment…", Modifier.padding(horizontal = Design.small).semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.labelMedium)
+        // "/" skill invocation: list matching enabled skills just above the text box.
+        val slashQuery = remember(chat.draft) { AgentConfig.slashTrigger(chat.draft) }
+        val skillMatches = remember(slashQuery, skills) {
+            if (slashQuery == null) emptyList()
+            else skills.filter { it.name.contains(slashQuery, ignoreCase = true) }.take(5)
+        }
+        if (skillMatches.isNotEmpty() && !busy) {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+                Column(Modifier.padding(vertical = Design.tiny)) {
+                    skillMatches.forEach { skill ->
+                        TextButton(onClick = { onChange(AgentConfig.applySkill(chat.draft, skill.name)) }, modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = Design.medium, vertical = Design.small)) {
+                            Text("/" + skill.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                            Icon(Icons.Outlined.AutoAwesome, "Use skill ${skill.name}", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+        }
         Surface(shape = Design.composer, color = MaterialTheme.colorScheme.surfaceContainer, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
             Row(Modifier.padding(Design.tiny), verticalAlignment = Alignment.Bottom) {
                 IconButton(onClick = onAttach, enabled = !busy && !preparing) { Icon(Icons.Outlined.Add, "Attach a file") }
