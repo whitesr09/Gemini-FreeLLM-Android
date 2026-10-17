@@ -59,23 +59,22 @@ android {
 // because it cannot be pushed as a binary file with the current tooling; the parts
 // decode to the identical PNG at build time. To replace it with a directly-committed
 // file, drop the real PNG at app/src/main/res/drawable-nodpi/ic_logo.png and delete
-// this task plus the icon-src directory.
-val decodeAppIcon = tasks.register("decodeAppIcon") {
+// this block plus the icon-src directory.
+// Decoded at configuration time (the parts are static) so no task-dependency wiring is needed.
+run {
     val iconSrcDir = file("icon-src")
-    val outDir = layout.buildDirectory.dir("generated/res/appIcon")
-    inputs.dir(iconSrcDir)
-    outputs.dir(outDir)
-    doLast {
-        // If the real PNG was committed directly, prefer it and skip decoding.
-        if (file("src/main/res/drawable-nodpi/ic_logo.png").exists()) return@doLast
-        val encoded = iconSrcDir.listFiles { f -> f.name.matches(Regex("ic_logo\\.part\\d+\\.b64")) }!!
-            .sortedBy { it.name }.joinToString("") { it.readText().trim() }
-        val target = outDir.get().asFile.resolve("drawable-nodpi").apply { mkdirs() }
-        target.resolve("ic_logo.png").writeBytes(Base64.getDecoder().decode(encoded))
+    val generatedIconDir = layout.buildDirectory.dir("generated/res/appIcon").get().asFile.resolve("drawable-nodpi")
+    if (!file("src/main/res/drawable-nodpi/ic_logo.png").exists() && iconSrcDir.isDirectory) {
+        val parts = iconSrcDir.listFiles { f -> f.name.matches(Regex("ic_logo\\.part\\d+\\.b64")) }
+            ?.sortedBy { it.name }.orEmpty()
+        if (parts.isNotEmpty()) {
+            val encoded = parts.joinToString("") { it.readText().trim() }
+            generatedIconDir.mkdirs()
+            generatedIconDir.resolve("ic_logo.png").writeBytes(Base64.getDecoder().decode(encoded))
+        }
     }
 }
-android.sourceSets.getByName("main").res.srcDir(decodeAppIcon.map { layout.buildDirectory.dir("generated/res/appIcon") })
-tasks.matching { it.name.matches(Regex("merge.*Resources")) }.configureEach { dependsOn(decodeAppIcon) }
+android.sourceSets.getByName("main").res.srcDir(layout.buildDirectory.dir("generated/res/appIcon"))
 
 kotlin {
     jvmToolchain(17)
