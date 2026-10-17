@@ -143,7 +143,7 @@ private object SkillHttp {
             override fun onFailure(call: okhttp3.Call, e: java.io.IOException) { if (continuation.isActive) continuation.resumeWithException(e) }
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                 try {
-                    val text = response.use { require(it.isSuccessful); it.body!!.byteStream().use { stream -> readPortableText(stream) } }
+                    val text = response.use { require(it.isSuccessful); (it.body ?: error("Empty response body")).byteStream().use { stream -> readPortableText(stream) } }
                     if (continuation.isActive) continuation.resume(text)
                 } catch (error: Exception) { if (continuation.isActive) continuation.resumeWithException(error) }
             }
