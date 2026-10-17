@@ -462,7 +462,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         attachmentJob = viewModelScope.launch {
             try {
                 val attachment = AttachmentReader.read(getApplication(), uri)
-                changeChat(chat.id) { it.copy(attachments = it.attachments + attachment) }
+                // Re-resolve the active chat: the user may have switched chats
+                // while the file was being prepared.
+                val targetId = mutable.value.active?.id ?: return@launch
+                changeChat(targetId) { it.copy(attachments = it.attachments + attachment) }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 withContext(Dispatchers.IO) { diagnostics.record("Attachment", error = error) }
