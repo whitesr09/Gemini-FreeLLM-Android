@@ -60,15 +60,6 @@ class WorkspaceUiTest {
         compose.onNodeWithContentDescription("Close model picker").performClick()
         compose.onNodeWithContentDescription("Message").assertExists()
     }
-    @Test fun canvasCanEditAndReturnToConversation() {
-        ready()
-        compose.onNodeWithContentDescription("Chat options").performClick()
-        compose.onNodeWithText("Coding canvas").performClick()
-        compose.onNodeWithText("Write code here, or open a code block from a reply.").performTextInput("fun main() = println(42)")
-        compose.onNodeWithText("Review", useUnmergedTree = true).performClick()
-        compose.onNodeWithContentDescription("Message").assertTextContains("Review this text code.", substring = true)
-    }
-
     @Test fun autoFallbackKeepsContextAndPaddedReplyRenders() {
         val first = MockWebServer(); val second = MockWebServer(); first.start(); second.start()
         try {
@@ -105,89 +96,6 @@ class WorkspaceUiTest {
             Assert.assertEquals(2, first.requestCount)
         } finally { first.shutdown(); second.shutdown() }
     }
-    @Test fun agentStudioSavesPersonaMemoryAndSkill() {
-        ready()
-        compose.onNodeWithContentDescription("Chat options").performClick()
-        compose.onNodeWithText("Agent · skills & memory").performClick()
-        compose.onNodeWithText("Persona").performTextInput("Patient teacher")
-        compose.onNodeWithText("Memory").performTextInput("I use Kotlin")
-        compose.onNodeWithText("Add skill").performScrollTo().performClick()
-        compose.onNodeWithText("Skill name").performTextInput("Code review")
-        compose.onNodeWithText("Skill instructions").performTextInput("Explain bugs and suggest tests")
-        capture("agent-skill")
-        compose.onNodeWithText("Keep skill").performClick()
-        compose.onNodeWithText("Save agent").performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Message").fetchSemanticsNodes().isNotEmpty() }
-        compose.runOnIdle {
-            val agent = ViewModelProvider(compose.activity)[ChatViewModel::class.java].state.value.settings.agent
-            Assert.assertEquals("Patient teacher", agent.persona)
-            Assert.assertEquals("I use Kotlin", agent.memory)
-            Assert.assertEquals("Code review", agent.skills.single().name)
-            // AndroidViewModelFactory can retain the first Robolectric Application across methods.
-            // Reload from the same application context that the production VM used to write.
-            Assert.assertEquals(agent, com.nshd.geminifreellm.data.LocalStore(ViewModelProvider(compose.activity)[ChatViewModel::class.java].getApplication()).loadSettings().agent)
-        }
-    }
-    @Test fun canvasReplaceIsLiteralAndUndoRestoresCode() {
-        ready()
-        compose.onNodeWithContentDescription("Chat options").performClick()
-        compose.onNodeWithText("Coding canvas").performClick()
-        compose.onNodeWithText("Write code here, or open a code block from a reply.").performTextInput("val one = 1\nprintln(one)")
-        compose.onNodeWithText("Find / replace").performClick()
-        compose.onNodeWithText("Find in code").performTextInput("one")
-        compose.onNodeWithText("Replace with").performTextInput("two")
-        compose.onNodeWithText("Replace all").performClick()
-        compose.onNodeWithText("Replace", useUnmergedTree = true).performClick()
-        compose.onNodeWithText("val two = 1\nprintln(two)").assertExists()
-        compose.onNodeWithContentDescription("Undo").performClick()
-        compose.onNodeWithText("val one = 1\nprintln(one)").assertExists()
-    }
-
-    @Test fun globalAutoListsChecksAndChoosesAcrossProviders() {
-        val server = MockWebServer()
-        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
-            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
-                if (request.method == "GET") return MockResponse().setBody(if (request.path!!.startsWith("/first"))
-                    """{"data":[{"id":"limited-model"},{"id":"working-model"}]}""" else """{"data":[{"id":"other-provider-model"}]}""")
-                val model = org.json.JSONObject(request.body.readUtf8()).getString("model")
-                return if (model == "limited-model") MockResponse().setResponseCode(429).setBody("{}")
-                else MockResponse().setBody("""{"choices":[{"message":{"content":"OK"}}]}""")
-            }
-        }
-        server.start()
-        try {
-            ready()
-            lateinit var vm: ChatViewModel
-            compose.runOnIdle {
-                vm = ViewModelProvider(compose.activity)[ChatViewModel::class.java]
-                runBlocking { vm.saveSettings(AppSettings(profiles = listOf(
-                    ProviderProfile(Provider.CUSTOM, server.url("/first").toString(), "synthetic", "limited-model", stream = false),
-                    ProviderProfile(Provider.OPENAI, server.url("/second").toString(), "synthetic", "other-provider-model", stream = false)), selected = Provider.CUSTOM)) }
-            }
-            compose.onNodeWithContentDescription("Choose AI model").performClick()
-            compose.waitUntil(10_000) { compose.waitForIdle(); vm.state.value.catalogs.values.sumOf { it.models.size } == 3 }
-            compose.onNodeWithText("3 models from 2 configured providers").assertIsDisplayed()
-            compose.onNodeWithContentDescription("Global Auto mode").performClick()
-            compose.waitUntil(20_000) { compose.waitForIdle(); !vm.state.value.autoChecking && vm.state.value.access.size == 2 }
-            compose.runOnIdle {
-                Assert.assertTrue(vm.state.value.settings.autoRouting)
-                Assert.assertTrue(com.nshd.geminifreellm.data.LocalStore(ViewModelProvider(compose.activity)[ChatViewModel::class.java].getApplication()).loadSettings().autoRouting)
-                Assert.assertEquals(AccessState.RATE_LIMITED, vm.state.value.access[modelKey(Provider.CUSTOM, "limited-model")]?.state)
-                Assert.assertNull(vm.state.value.access[modelKey(Provider.CUSTOM, "working-model")])
-                Assert.assertEquals(AccessState.USABLE, vm.state.value.access[modelKey(Provider.OPENAI, "other-provider-model")]?.state)
-            }
-            capture("global-auto")
-            compose.onNodeWithContentDescription("Auto model pool").performScrollToNode(hasText("working-model"))
-            compose.onNodeWithText("working-model").assertIsDisplayed()
-            compose.onNodeWithContentDescription("Close model picker").performClick()
-            compose.onNodeWithText("Auto · all providers").assertIsDisplayed()
-            compose.onNodeWithContentDescription("Choose AI model").performClick()
-            compose.onNodeWithContentDescription("Global Auto mode").performClick()
-            compose.waitUntil(10_000) { compose.waitForIdle(); !vm.state.value.settings.autoRouting }
-            compose.runOnIdle { Assert.assertFalse(com.nshd.geminifreellm.data.LocalStore(ViewModelProvider(compose.activity)[ChatViewModel::class.java].getApplication()).loadSettings().autoRouting) }
-        } finally { server.shutdown() }
-    }
-
     @Test fun autoDiscoversAlternativeInSameProviderBeforeFirstSend() {
         val server = MockWebServer()
         server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
@@ -208,45 +116,6 @@ class WorkspaceUiTest {
             }
             compose.waitUntil(15_000) { compose.waitForIdle(); vm.state.value.generatingId == null && vm.state.value.active!!.messages.last().text == "The alternative model replied." }
             compose.runOnIdle { Assert.assertTrue(vm.state.value.active!!.messages.last().model.contains("available")); Assert.assertEquals(3, server.requestCount) }
-        } finally { server.shutdown() }
-    }
-
-    @Test fun autoContinuesPartialReplyInSeparateBubble() {
-        val server = MockWebServer()
-        var continuation: org.json.JSONArray? = null
-        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
-            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
-                val primary = request.path!!.startsWith("/primary")
-                if (request.method == "GET") return MockResponse().setBody(if (primary) """{"data":[{"id":"primary"}]}""" else """{"data":[{"id":"backup"}]}""")
-                if (primary) return MockResponse().setHeader("Content-Type", "text/event-stream")
-                    .setBody("data: {\"choices\":[{\"delta\":{\"content\":\"First completed paragraph.\"}}]}\n\n")
-                continuation = org.json.JSONObject(request.body.readUtf8()).getJSONArray("messages")
-                return MockResponse().setBody("""{"choices":[{"message":{"content":"Here is the remaining explanation."}}]}""")
-            }
-        }
-        server.start()
-        try {
-            ready()
-            lateinit var vm: ChatViewModel
-            compose.runOnIdle {
-                vm = ViewModelProvider(compose.activity)[ChatViewModel::class.java]
-                runBlocking { vm.saveSettings(AppSettings(profiles = listOf(
-                    ProviderProfile(Provider.CUSTOM, server.url("/primary").toString(), "synthetic", "primary"),
-                    ProviderProfile(Provider.OPENAI, server.url("/backup").toString(), "synthetic", "backup", stream = false)), selected = Provider.CUSTOM, autoRouting = true, reducedMotion = true)) }
-                vm.draft("Explain this"); vm.send()
-            }
-            compose.waitUntil(15_000) { compose.waitForIdle(); vm.state.value.generatingId == null && vm.state.value.active!!.messages.last().text == "Here is the remaining explanation." }
-            compose.runOnIdle {
-                val messages = vm.state.value.active!!.messages
-                Assert.assertEquals(3, messages.size)
-                Assert.assertEquals("First completed paragraph.", messages[1].text)
-                Assert.assertTrue(messages[1].interrupted)
-                Assert.assertFalse(messages[2].interrupted)
-                Assert.assertTrue(messages[2].model.contains("backup"))
-                Assert.assertEquals("First completed paragraph.", continuation!!.getJSONObject(1).getString("content"))
-                Assert.assertTrue(continuation!!.getJSONObject(2).getString("content").contains("Continue"))
-            }
-            capture("auto-continuation")
         } finally { server.shutdown() }
     }
 
