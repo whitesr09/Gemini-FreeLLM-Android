@@ -145,7 +145,7 @@ class AutoAgentTest {
         assertEquals("UI&UX", skill?.name); assertEquals("design a screen", rest)
         assertTrue(agent.promptFor(skill).contains("Design help"))
         assertEquals("hello", AgentConfig.parseInvocation("/unknown hello", agent).second)
-        assertEquals("", AgentConfig.slashTrigger("/des"))
+        assertEquals("des", AgentConfig.slashTrigger("/des"))
         assertNull(AgentConfig.slashTrigger("no trigger here"))
     }
 }
