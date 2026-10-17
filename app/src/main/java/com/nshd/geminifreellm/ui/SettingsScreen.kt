@@ -1,7 +1,10 @@
 package com.nshd.geminifreellm.ui
 
+import android.net.Uri
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -27,6 +30,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nshd.geminifreellm.data.ApiException
+import com.nshd.geminifreellm.data.BackupManager
 import com.nshd.geminifreellm.BuildConfig
 import com.nshd.geminifreellm.data.FreeLlmApiClient
 import com.nshd.geminifreellm.model.*
@@ -37,7 +41,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: suspend (AppSettings) -> Boolean, onBack: () -> Unit, initialProvider: Provider = settings.selected, onDiagnostics: () -> Unit = {}) {
+fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: suspend (AppSettings) -> Boolean, onBack: () -> Unit, initialProvider: Provider = settings.selected, onDiagnostics: () -> Unit = {},
+    onExportBackup: (Uri) -> Unit = {}, onImportBackup: (Uri) -> Unit = {}) {
     var profiles by remember { mutableStateOf(settings.profiles) }
     var selected by remember { mutableStateOf(initialProvider) }
     var profile by remember { mutableStateOf(settings.profiles.firstOrNull { it.provider == initialProvider } ?: ProviderProfile(initialProvider)) }
@@ -46,6 +51,7 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
     var timestamps by remember { mutableStateOf(settings.showTimestamps) }
     var compact by remember { mutableStateOf(settings.compactSpacing) }
     var haptics by remember { mutableStateOf(settings.haptics) }
+    var agent by remember { mutableStateOf(settings.agent) }
     var providerMenu by remember { mutableStateOf(false) }
     var models by remember { mutableStateOf<List<String>?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
@@ -55,6 +61,7 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
     var discard by rememberSaveable { mutableStateOf(false) }
     var openDiagnosticsAfterDiscard by remember { mutableStateOf(false) }
     var probe by remember { mutableStateOf<Job?>(null) }
+    var pendingImport by remember { mutableStateOf<Uri?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val activity = LocalActivity.current
@@ -65,7 +72,7 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
     }
     fun snapshot() = settings.copy(profiles = profiles.map { if (it.provider == selected) profile else it } +
         (if (profiles.none { it.provider == selected }) listOf(profile) else emptyList()), selected = selected, theme = theme,
-        reducedMotion = reducedMotion, showTimestamps = timestamps, compactSpacing = compact, haptics = haptics)
+        reducedMotion = reducedMotion, showTimestamps = timestamps, compactSpacing = compact, haptics = haptics, agent = agent)
     fun leave() { if (!saving) { if (snapshot() != settings) discard = true else onBack() } }
     fun update(value: ProviderProfile) {
         probe?.cancel(); working = false; status = null; models = null; profile = value
@@ -88,7 +95,7 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
         }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState())
                 .padding(horizontal = Design.page, vertical = Design.medium), verticalArrangement = Arrangement.spacedBy(Design.medium)) {
-                SectionTitle("AI connection")
+                SectionTitle("Connection")
                 Text("Use a provider key or connect a unified API gateway. Each provider keeps its own settings.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Box {
@@ -123,22 +130,45 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
                     visualTransformation = PasswordVisualTransformation(), singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                     supportingText = { Text("Encrypted on this device with Android Keystore. Leave empty only for a server that allows it.") })
-                SectionTitle("Model & capabilities")
                 OutlinedTextField(profile.model, { update(profile.copy(model = it)) }, Modifier.fillMaxWidth(), label = { Text("Model ID") },
                     singleLine = true, supportingText = { Text("Use the exact ID from your provider. Free tiers and quotas depend on the provider.") })
                 OutlinedButton(enabled = !working && FreeLlmApiClient.validate(profile, false) == null, onClick = {
                     probe = scope.launch {
                         working = true; status = null; error = false
                         try {
-                            models = client.models(profile)
-                            status = if (models.isNullOrEmpty()) "Connected, but no models were returned. Enter a model ID manually."
-                                else "Connected · ${models!!.size} models returned. Select one below."
+                            // Stage 1: prove the API key works with a tiny real request. Listing
+                            // /models alone is not a connection test — many gateways serve it
+                            // without ever checking the key.
+                            var keyNote: String? = null
+                            val probeProfile = profile.copy(model = profile.model.ifBlank { selected.defaultModel })
+                            try {
+                                client.generate(probeProfile, listOf(ChatMessage(text = "Reply with OK only.", role = ChatMessage.Role.USER))) {}
+                            } catch (auth: ApiException) {
+                                when (auth.access) {
+                                    AccessState.AUTH, AccessState.MODEL_REJECTED ->
+                                        throw ApiException("The API key was rejected. Check the key for ${selected.label}.", auth.access, auth.statusCode)
+                                    AccessState.QUOTA ->
+                                        throw ApiException("The key works, but this provider's quota or balance is exhausted.", auth.access, auth.statusCode)
+                                    AccessState.UNAVAILABLE ->
+                                        keyNote = "Key looks OK, but the model \"${probeProfile.model}\" was not found — check the model ID and base URL."
+                                    AccessState.RATE_LIMITED ->
+                                        keyNote = "Key accepted, but the provider is rate-limiting right now."
+                                    else -> throw auth
+                                }
+                            }
+                            // Stage 2: model discovery is best-effort — its absence is not a failure.
+                            models = try { client.models(profile) } catch (_: Exception) { null }
+                            status = buildString {
+                                append(if (keyNote == null) "Connected · API key verified" else "Connected · $keyNote")
+                                if (models.isNullOrEmpty()) append(" · no model catalog here; enter a model ID manually.")
+                                else append(" · ${models!!.size} models returned. Select one below.")
+                            }
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (failure: Exception) { error = true; status = (failure as? ApiException)?.message ?: "Connection test failed." }
                         finally { working = false }
                     }
                 }, modifier = Modifier.fillMaxWidth()) { Text(if (working) "Checking connection…" else "Test connection & find models") }
-                Text("Checks the model catalog without sending a chat. Some gateways do not provide model discovery.",
+                Text("Sends a tiny test message to verify your API key, then loads the model catalog. Some gateways do not provide model discovery.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 status?.let { Text(it, color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodyMedium) }
@@ -166,6 +196,8 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
                 SettingSwitch("Stream responses", "Turn off if your gateway only returns complete replies.", profile.stream) { update(profile.copy(stream = it)) }
                 SettingSwitch("Image input", "Enable only when the selected model supports vision.", profile.vision) { update(profile.copy(vision = it)) }
                 if (selected == Provider.GEMINI) SettingSwitch("Faster Gemini replies", "Uses low thinking for Gemini 3 Flash/Pro, or disables it for 2.5 Flash/Flash-Lite. Other IDs keep provider defaults. May reduce reasoning quality.", profile.fastReplies) { update(profile.copy(fastReplies = it)) }
+                SectionTitle("Personalization")
+                PersonalizationSection(agent, { agent = it })
                 SectionTitle("Appearance")
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Design.small)) {
                     ThemeMode.entries.forEach { mode ->
@@ -182,6 +214,21 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
                 SectionTitle("Privacy & storage")
                 Text("Chats and attachments are saved in this app's private storage. Sending a message shares the conversation with the selected server. Chat exports include message and document text, never API keys. Device backup is disabled.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SectionTitle("Backup & restore")
+                Text("Save all chats, settings and attachments to a file you keep, and restore it on this or another device.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(BackupManager.MIME_TYPE)) { uri ->
+                    uri?.let(onExportBackup)
+                }
+                val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    uri?.let { pendingImport = it }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Design.small)) {
+                    OutlinedButton(onClick = { exportLauncher.launch(BackupManager.suggestedName()) }, modifier = Modifier.weight(1f)) { Text("Export backup") }
+                    OutlinedButton(onClick = { importLauncher.launch(arrayOf(BackupManager.MIME_TYPE, "application/octet-stream")) }, modifier = Modifier.weight(1f)) { Text("Import backup") }
+                }
+                Text("API keys are encrypted for this device: after restoring on a new device, re-enter them in the Connection section.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 SectionTitle("About")
                 Text("FreeLLM AI · Your models, one space", style = MaterialTheme.typography.bodyLarge)
                 Text("Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.BUILD_TYPE}",
@@ -192,8 +239,14 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
                 Spacer(Modifier.height(Design.large))
             }
         }
+        pendingImport?.let { uri ->
+            AlertDialog(onDismissRequest = { pendingImport = null }, title = { Text("Restore backup?") },
+                text = { Text("This replaces all current chats, settings and attachments on this device.") },
+                confirmButton = { TextButton(onClick = { pendingImport = null; onImportBackup(uri); onBack() }) { Text("Restore") } },
+                dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("Cancel") } })
+        }
         if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard settings changes?") },
-            text = { Text("Your saved connection and appearance will be kept.") },
+            text = { Text("Your saved connection, personalization and appearance will be kept.") },
             confirmButton = { TextButton(onClick = { if (openDiagnosticsAfterDiscard) onDiagnostics() else onBack() }) { Text("Discard") } },
             dismissButton = { TextButton(onClick = { discard = false; openDiagnosticsAfterDiscard = false }) { Text("Keep editing") } })
     }
