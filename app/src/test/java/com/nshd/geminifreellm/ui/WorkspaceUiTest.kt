@@ -11,6 +11,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import com.nshd.geminifreellm.BuildConfig
 import com.nshd.geminifreellm.MainActivity
 import org.junit.*
 import com.nshd.geminifreellm.FreeLlmApplication
@@ -47,7 +48,7 @@ class WorkspaceUiTest {
         compose.onNodeWithContentDescription("Message").assertExists()
         compose.onNodeWithContentDescription("Open chat history").performClick()
         compose.onNodeWithText("Search your chats").assertExists()
-        compose.onNodeWithText("FreeLLM AI · 2.2.1 (7)").assertExists()
+        compose.onNodeWithText("FreeLLM AI · ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})").assertExists()
         capture("drawer")
     }
     @Test fun modelPickerExpandsProviderAndAllowsManualId() {
