@@ -16,6 +16,8 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** Credential ciphertext is device-bound; history and attachments stay in private app storage. */
+private const val MAX_STORED_MESSAGES_PER_CHAT = 1000
+
 class LocalStore(private val context: Context) {
     private val credentials = AtomicFile(File(context.filesDir, "providers.enc"))
     private val history = AtomicFile(File(context.filesDir, "conversations.json"))
@@ -99,15 +101,20 @@ internal fun settingsToJson(settings: AppSettings) = JSONObject().put("selected"
 internal fun settingsFromJson(json: JSONObject): AppSettings = AppSettings(
     autoRouting = json.optBoolean("autoRouting"),
     autoExcluded = json.optJSONArray("autoExcluded")?.let { a -> (0 until a.length()).mapNotNull { i -> runCatching { Provider.valueOf(a.getString(i)) }.getOrNull() } }.orEmpty(),
-    agent = agentFromJson(json.optJSONObject("agent") ?: JSONObject()),
-    selected = Provider.valueOf(json.getString("selected")), theme = json.optString("theme", "SYSTEM"),
+    agent = runCatching { agentFromJson(json.optJSONObject("agent") ?: JSONObject()) }.getOrNull() ?: AgentConfig(),
+    // Unknown/missing enum names fall back to defaults instead of bricking the whole load.
+    selected = runCatching { Provider.valueOf(json.getString("selected")) }.getOrNull() ?: Provider.FREELLM,
+    theme = json.optString("theme", "SYSTEM"),
     reducedMotion = json.optBoolean("reducedMotion"), showTimestamps = json.optBoolean("showTimestamps"),
     compactSpacing = json.optBoolean("compactSpacing"), haptics = json.optBoolean("haptics", true),
-    favorites = json.optJSONArray("favorites")?.let { array -> (0 until array.length()).map { array.getString(it) } }.orEmpty(),
-    profiles = json.getJSONArray("profiles").objects().map {
-        ProviderProfile(Provider.valueOf(it.getString("provider")), it.getString("baseUrl"), it.optString("apiKey"),
-            it.getString("model"), it.optBoolean("stream", true), it.optBoolean("vision", false), it.optBoolean("fastReplies", false))
-    }
+    favorites = runCatching { json.optJSONArray("favorites")?.let { array -> (0 until array.length()).map { array.getString(it) } } }.getOrNull().orEmpty(),
+    profiles = runCatching { json.getJSONArray("profiles") }.getOrNull()?.objects()?.mapNotNull { obj ->
+        runCatching {
+            val provider = Provider.valueOf(obj.getString("provider"))
+            ProviderProfile(provider, obj.getString("baseUrl"), obj.optString("apiKey"),
+                obj.getString("model"), obj.optBoolean("stream", true), obj.optBoolean("vision", false), obj.optBoolean("fastReplies", false))
+        }.getOrNull()
+    }.orEmpty().ifEmpty { listOf(ProviderProfile()) }
 )
 
 internal fun conversationsToJson(chats: List<Conversation>) = JSONObject().put("version", 1)
@@ -115,27 +122,52 @@ internal fun conversationsToJson(chats: List<Conversation>) = JSONObject().put("
         JSONObject().put("id", chat.id).put("title", chat.title).put("draft", chat.draft)
             .put("pinned", chat.pinned).put("archived", chat.archived).put("updatedAt", chat.updatedAt)
             .put("canvas", JSONObject().put("title", chat.canvas.title).put("language", chat.canvas.language).put("code", chat.canvas.code))
-            .put("attachments", attachmentsJson(chat.attachments)).put("messages", JSONArray(chat.messages.map {
+            // Bound stored history: full serialization runs on every save, so cap
+            // per-chat messages to keep writes small and bounded.
+            .put("attachments", attachmentsJson(chat.attachments)).put("messages", JSONArray(chat.messages.takeLast(MAX_STORED_MESSAGES_PER_CHAT).map {
                 JSONObject().put("id", it.id).put("text", it.text).put("role", it.role.name)
                     .put("timestamp", it.timestamp).put("model", it.model).put("interrupted", it.interrupted).put("elapsedMs", it.elapsedMs).put("firstTokenMs", it.firstTokenMs)
                     .put("attachments", attachmentsJson(it.attachments))
             }))
     }))
 
-internal fun conversationsFromJson(json: JSONObject): List<Conversation> = json.getJSONArray("chats").objects().map { chat ->
-    Conversation(chat.getString("id"), chat.getString("title"), chat.getJSONArray("messages").objects().map {
-        ChatMessage(it.getString("id"), it.getString("text"), ChatMessage.Role.valueOf(it.getString("role")),
-            it.getLong("timestamp"), attachmentsFromJson(it.optJSONArray("attachments")), it.optString("model"), it.optBoolean("interrupted"), it.optLong("elapsedMs"), it.optLong("firstTokenMs"))
-    }, chat.optString("draft"), attachmentsFromJson(chat.optJSONArray("attachments")), chat.optBoolean("pinned"),
-        chat.optBoolean("archived"), chat.getLong("updatedAt"),
-        chat.optJSONObject("canvas")?.let { CanvasDocument(it.optString("title", "Untitled"), it.optString("language", "text"), it.optString("code").take(120_000)) } ?: CanvasDocument())
-}
+// Corrupt entries are skipped (not fatal): one bad chat/message must never
+// brick the whole history load.
+internal fun conversationsFromJson(json: JSONObject): List<Conversation> =
+    runCatching { json.getJSONArray("chats") }.getOrNull()?.objects()?.mapNotNull { chat ->
+        runCatching {
+            val messages = runCatching { chat.getJSONArray("messages") }.getOrNull()
+                ?.objects()?.mapNotNull { m ->
+                    runCatching {
+                        ChatMessage(
+                            m.getString("id"), m.getString("text"),
+                            runCatching { ChatMessage.Role.valueOf(m.getString("role")) }.getOrNull() ?: ChatMessage.Role.USER,
+                            m.optLong("timestamp", System.currentTimeMillis()),
+                            attachmentsFromJson(m.optJSONArray("attachments")),
+                            m.optString("model"), m.optBoolean("interrupted"),
+                            m.optLong("elapsedMs"), m.optLong("firstTokenMs")
+                        )
+                    }.getOrNull()
+                }.orEmpty()
+            Conversation(
+                chat.getString("id"), chat.optString("title", "New chat"), messages,
+                chat.optString("draft"), attachmentsFromJson(chat.optJSONArray("attachments")),
+                chat.optBoolean("pinned"), chat.optBoolean("archived"),
+                chat.optLong("updatedAt", System.currentTimeMillis()),
+                chat.optJSONObject("canvas")?.let {
+                    CanvasDocument(it.optString("title", "Untitled"), it.optString("language", "text"), it.optString("code").take(120_000))
+                } ?: CanvasDocument()
+            )
+        }.getOrNull()
+    }.orEmpty()
 
 private fun attachmentsJson(attachments: List<Attachment>) = JSONArray(attachments.map {
     JSONObject().put("id", it.id).put("name", it.name).put("mimeType", it.mimeType).put("size", it.size)
         .put("localPath", it.localPath).put("text", it.text)
 })
-private fun attachmentsFromJson(array: JSONArray?): List<Attachment> = array?.objects()?.map {
-    Attachment(it.getString("id"), it.getString("name"), it.getString("mimeType"), it.getLong("size"), it.optString("localPath"), it.optString("text"))
+private fun attachmentsFromJson(array: JSONArray?): List<Attachment> = array?.objects()?.mapNotNull {
+    runCatching {
+        Attachment(it.getString("id"), it.getString("name"), it.getString("mimeType"), it.getLong("size"), it.optString("localPath"), it.optString("text"))
+    }.getOrNull()
 }.orEmpty()
 private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
