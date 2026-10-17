@@ -38,5 +38,6 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.3")
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
+    implementation("org.mozilla:rhino:1.7.15")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
