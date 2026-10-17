@@ -229,11 +229,13 @@ private fun HistoryDrawer(state: ChatViewModel.State, vm: ChatViewModel, onClose
             modifier = Modifier.padding(horizontal = Design.page, vertical = Design.small),
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+    // Hoisted above the conditional: remember() inside ?.let is unsupported.
+    // Keyed by the rename target so switching chats still resets the field.
+    var renameTitle by remember(rename?.id) { mutableStateOf(rename?.title ?: "") }
     rename?.let { chat ->
-        var title by remember(chat.id) { mutableStateOf(chat.title) }
         AlertDialog(onDismissRequest = { rename = null }, title = { Text("Rename chat") }, text = {
-            OutlinedTextField(title, { title = it.take(100) }, label = { Text("Chat title") }, singleLine = true)
-        }, confirmButton = { TextButton(onClick = { vm.rename(chat.id, title); rename = null }, enabled = title.isNotBlank()) { Text("Save") } },
+            OutlinedTextField(renameTitle, { renameTitle = it.take(100) }, label = { Text("Chat title") }, singleLine = true)
+        }, confirmButton = { TextButton(onClick = { vm.rename(chat.id, renameTitle); rename = null }, enabled = renameTitle.isNotBlank()) { Text("Save") } },
             dismissButton = { TextButton(onClick = { rename = null }) { Text("Cancel") } })
     }
     delete?.let { chat ->
