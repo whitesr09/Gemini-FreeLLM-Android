@@ -7,7 +7,9 @@ object PdfTextExtractor {
     private const val MAX_CHARS = 120_000
 
     fun extract(file: File): String {
-        val bytes = runCatching { file.inputStream().use { it.readNBytes(8 * 1024 * 1024) } }.getOrNull() ?: return ""
+        val bytes = runCatching {
+            file.inputStream().use { it.readNBytes(8 * 1024 * 1024) }
+        }.getOrNull() ?: return ""
         val raw = String(bytes, StandardCharsets.ISO_8859_1)
         val out = StringBuilder()
 
@@ -25,22 +27,22 @@ object PdfTextExtractor {
         }
 
         return out.toString()
-            .replace(Regex("\s+"), " ")
+            .replace(Regex("\\s+"), " ")
             .trim()
             .take(MAX_CHARS)
     }
 
     private fun decodeLiteral(value: String): String =
-        value.replace("""\n""", "
-")
-            .replace("""\r""", "")
-            .replace("""\t""", "	")
-            .replace("""\(""", "(")
-            .replace("""\)""", ")")
-            .replace("""\\ """.trim(), "\\")
+        value
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace("\\t", "\t")
+            .replace("\\(", "(")
+            .replace("\\)", ")")
+            .replace("\\\\", "\\")
 
     private fun decodeHex(hex: String): String {
-        val clean = hex.replace(Regex("\s+"), "")
+        val clean = hex.replace(Regex("\\s+"), "")
         val bytes = ByteArray(clean.length / 2)
         for (i in bytes.indices) {
             bytes[i] = clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()
