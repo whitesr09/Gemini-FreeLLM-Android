@@ -142,9 +142,11 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 status?.let { Text(it, color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodyMedium) }
+                // Hoisted above the conditional: remember() inside ?.let is unsupported
+                // and can bind state to the wrong slot when the condition flips.
+                var showModels by remember { mutableStateOf(false) }
+                var query by remember { mutableStateOf("") }
                 models?.takeIf { it.isNotEmpty() }?.let { catalog ->
-                    var showModels by remember { mutableStateOf(false) }
-                    var query by remember { mutableStateOf("") }
                     OutlinedButton(onClick = { showModels = true }) { Text("Choose from catalog") }
                     if (showModels) AlertDialog(onDismissRequest = { showModels = false }, title = { Text("Choose model") }, text = {
                         Column {
