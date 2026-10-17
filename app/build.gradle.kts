@@ -53,21 +53,23 @@ android {
     }
 }
 
-// App icon artwork is stored base64-encoded (app/icon-src/ic_logo.b64) because it
-// cannot be pushed as a binary file with the current tooling; it decodes to the
-// identical PNG at build time. To replace it with a directly-committed file,
-// drop the real PNG at app/src/main/res/drawable-nodpi/ic_logo.png and delete
+// App icon artwork is stored base64-encoded in 5 parts (app/icon-src/ic_logo.part*.b64)
+// because it cannot be pushed as a binary file with the current tooling; the parts
+// decode to the identical PNG at build time. To replace it with a directly-committed
+// file, drop the real PNG at app/src/main/res/drawable-nodpi/ic_logo.png and delete
 // this task plus the icon-src directory.
 val decodeAppIcon = tasks.register("decodeAppIcon") {
-    val encoded = file("icon-src/ic_logo.b64")
+    val iconSrcDir = file("icon-src")
     val outDir = layout.buildDirectory.dir("generated/res/appIcon")
-    inputs.file(encoded)
+    inputs.dir(iconSrcDir)
     outputs.dir(outDir)
     doLast {
         // If the real PNG was committed directly, prefer it and skip decoding.
         if (file("src/main/res/drawable-nodpi/ic_logo.png").exists()) return@doLast
+        val encoded = iconSrcDir.listFiles { f -> f.name.matches(Regex("ic_logo\\.part\\d+\\.b64")) }!!
+            .sortedBy { it.name }.joinToString("") { it.readText().trim() }
         val target = outDir.get().asFile.resolve("drawable-nodpi").apply { mkdirs() }
-        target.resolve("ic_logo.png").writeBytes(java.util.Base64.getDecoder().decode(encoded.readText().trim()))
+        target.resolve("ic_logo.png").writeBytes(java.util.Base64.getDecoder().decode(encoded))
     }
 }
 android.sourceSets.getByName("main").res.srcDir(decodeAppIcon.map { layout.buildDirectory.dir("generated/res/appIcon") })
