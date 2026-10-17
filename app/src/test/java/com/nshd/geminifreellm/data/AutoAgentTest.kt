@@ -15,13 +15,13 @@ class AutoAgentTest {
     @Test fun oldSettingsDefaultToManualAndEmptyAgent() {
         val json = settingsToJson(AppSettings()).apply { remove("agent"); remove("autoRouting"); remove("autoExcluded") }
         val result = settingsFromJson(json)
-        assertFalse(result.autoRouting); assertEquals("", result.agent.prompt())
+        assertFalse(result.autoRouting); assertEquals("", result.agent.promptFor())
     }
     @Test fun agentAndRoutingRoundTrip() {
         val settings = AppSettings(autoRouting = true, autoExcluded = listOf(Provider.OPENAI), agent = AgentConfig(persona = "Teacher", memory = "Kotlin", skills = listOf(AgentSkill(name = "Test", content = "Write tests"))))
         assertEquals(settings, settingsFromJson(settingsToJson(settings)))
-        assertFalse(settings.agent.copy(enabled = false).prompt().contains("Teacher"))
-        assertFalse(settings.agent.copy(skills = settings.agent.skills.map { it.copy(enabled = false) }).prompt().contains("Write tests"))
+        assertFalse(settings.agent.copy(enabled = false).promptFor().contains("Teacher"))
+        assertFalse(settings.agent.copy(skills = settings.agent.skills.map { it.copy(enabled = false) }).promptFor().contains("Write tests"))
     }
     @Test fun sendsNativeSystemInstructionsForEveryProtocol() {
         val client = FreeLlmApiClient()
@@ -136,6 +136,16 @@ class AutoAgentTest {
         listOf("a".repeat(16_001), "bad\u0000data", "<!DOCTYPE html><html>page</html>").forEach { value ->
             assertThrows(IllegalArgumentException::class.java) { readPortableText(value.byteInputStream()) }
         }
-        assertNotNull(AgentConfig(skills = List(4) { AgentSkill(name = "Skill", content = "x".repeat(16_000)) }).validationError())
+        // No character limits on saved skills — long content is valid.
+        assertNull(AgentConfig(skills = List(4) { AgentSkill(name = "Skill", content = "x".repeat(16_000)) }).validationError())
+        // Skill invocation: "/" lists enabled skills and attaches one to a message.
+        val agent = AgentConfig(skills = listOf(AgentSkill(name = "UI&UX", content = "Design help"), AgentSkill(name = "Code", content = "Code help", enabled = false)))
+        assertEquals(listOf("UI&UX"), agent.invokableSkills().map { it.name })
+        val (skill, rest) = AgentConfig.parseInvocation("/ui&ux design a screen", agent)
+        assertEquals("UI&UX", skill?.name); assertEquals("design a screen", rest)
+        assertTrue(agent.promptFor(skill).contains("Design help"))
+        assertEquals("hello", AgentConfig.parseInvocation("/unknown hello", agent).second)
+        assertEquals("", AgentConfig.slashTrigger("/des"))
+        assertNull(AgentConfig.slashTrigger("no trigger here"))
     }
 }
