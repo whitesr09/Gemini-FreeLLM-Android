@@ -72,7 +72,7 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
             }
             feedback?.let { Text(it, Modifier.padding(horizontal = Design.page), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             LazyColumn(Modifier.weight(1f).semantics { contentDescription = "Provider model list" }, contentPadding = PaddingValues(Design.page), verticalArrangement = Arrangement.spacedBy(Design.small)) {
-                item { Text("Access reflects your last request. Free-tier expiry and remaining quota are unknown unless the provider reports them. Sending shares this chat with the chosen provider.",
+                item { Text("Sending shares this chat with the chosen provider.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 providers.forEach { provider ->
                     val open = expanded == provider.name
