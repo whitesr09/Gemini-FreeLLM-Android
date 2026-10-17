@@ -9,6 +9,7 @@ import com.nshd.geminifreellm.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -129,7 +130,9 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
             save()
         }
     }
-    private fun update(id: String, transform: (JobItem) -> JobItem) { mutable.value = mutable.value.copy(jobs = mutable.value.jobs.map { if (it.id == id) transform(it) else it }) }
+    // Atomic update: called from the video-poll coroutine and the main thread;
+    // read-modify-write could persist a stale status.
+    private fun update(id: String, transform: (JobItem) -> JobItem) { mutable.update { it.copy(jobs = it.jobs.map { job -> if (job.id == id) transform(job) else job }) } }
     private suspend fun save() = saveMutex.withLock {
         val snapshot = mutable.value.jobs
         val success = withContext(Dispatchers.IO) { runCatching {
