@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+data class ConnectionTestResult(val models: List<String>?, val message: String, val error: Boolean)
+
 /** Owns requests across rotation. Requests are bound to a conversation and a unique generation ID. */
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     data class State(
@@ -238,6 +240,47 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val key = modelKey(provider, model)
             updateSettings { settings -> settings.copy(favorites = if (key in settings.favorites) settings.favorites - key else (settings.favorites + key).takeLast(100)) }
+        }
+    }
+
+    suspend fun testConnection(profile: ProviderProfile): ConnectionTestResult {
+        try {
+            var keyNote: String? = null
+            val probeProfile = profile.copy(model = profile.model.ifBlank { profile.provider.defaultModel })
+            try {
+                client.generate(probeProfile, listOf(ChatMessage(text = "Reply with OK only.", role = ChatMessage.Role.USER))) {}
+            } catch (auth: ApiException) {
+                when (auth.access) {
+                    AccessState.AUTH -> throw ApiException("The API key was rejected. Check the key for ${profile.provider.label}.", auth.access, auth.statusCode)
+                    AccessState.MODEL_REJECTED -> throw ApiException(
+                        "The key may be valid, but this account or model is not permitted. Check model access and provider permissions.",
+                        auth.access, auth.statusCode)
+                    AccessState.QUOTA -> throw ApiException(
+                        "The key works, but this provider's quota or balance is exhausted.", auth.access, auth.statusCode)
+                    AccessState.UNAVAILABLE -> keyNote =
+                        "Key looks OK, but the model \"${probeProfile.model}\" was not found — check the model ID and base URL."
+                    AccessState.RATE_LIMITED -> keyNote = "Key accepted, but the provider is rate-limiting right now."
+                    else -> throw auth
+                }
+            }
+            val models = try {
+                client.models(profile)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            val message = buildString {
+                append(if (keyNote == null) "Connected · API key verified" else "Connected · $keyNote")
+                if (models.isNullOrEmpty()) append(" · no model catalog here; enter a model ID manually.")
+                else append(" · ${models.size} models returned. Select one below.")
+            }
+            return ConnectionTestResult(models, message, false)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            withContext(Dispatchers.IO) { diagnostics.record("Connection test", profile.provider, failure) }
+            return ConnectionTestResult(null, (failure as? ApiException)?.message ?: "Connection test failed.", true)
         }
     }
 
