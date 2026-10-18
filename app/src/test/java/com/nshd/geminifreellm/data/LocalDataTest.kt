@@ -94,4 +94,12 @@ class LocalDataTest {
             assertThrows(IllegalArgumentException::class.java) { OfficeDocumentParser.extract(file) }
         } finally { file.delete() }
     }
+    @Test fun oversizedNonTextPdfLiteralDoesNotRejectLaterReadableText() {
+        val file = File.createTempFile("test", ".pdf")
+        try {
+            file.writeText("%PDF-1.4\\n(" + "x".repeat(120_001) + ") Q\\n(hello) Tj")
+            assertEquals("hello", PdfTextExtractor.extract(file))
+        } finally { file.delete() }
+    }
+
 }
