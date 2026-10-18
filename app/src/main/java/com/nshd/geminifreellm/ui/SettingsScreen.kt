@@ -104,7 +104,8 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
         onDispose { if (!wasSecure) activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
     fun snapshot() = settings.copy(
-        profiles = (profiles.filterNot { it.id == profile.id } + profile).distinctBy { it.id },
+        profiles = profiles.map { if (it.id == profile.id) profile else it } +
+            (if (profiles.none { it.id == profile.id }) listOf(profile) else emptyList()),
         selected = selected, activeProfileId = profile.id, theme = theme,
         reducedMotion = reducedMotion, showTimestamps = timestamps, compactSpacing = compact, haptics = haptics, agent = agent)
     fun leave() { if (!saving) { if (snapshot() != initialDraft) discard = true else onBack() } }
@@ -408,8 +409,8 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                 confirmButton = {
                     TextButton(onClick = {
                         val removedActive = profile.id == deletingId
-                        val remaining = (profiles.filterNot { it.id == deletingId } +
-                            if (profile.id != deletingId && profile.provider == Provider.CUSTOM) listOf(profile) else emptyList())
+                        val remaining = (profiles.filterNot { it.id == deletingId || it.id == profile.id } +
+                            if (profile.id != deletingId) listOf(profile) else emptyList())
                             .distinctBy { it.id }
                         profiles = remaining
                         if (removedActive) {
