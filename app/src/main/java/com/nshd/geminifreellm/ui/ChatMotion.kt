@@ -124,11 +124,30 @@ fun StreamingContent(text: String, streaming: Boolean, onCanvas: (String, String
 
 /** Splits "<think>…</think>" reasoning out of assistant text. Returns (body, think, thinkStillOpen). */
 internal fun splitThink(text: String): Triple<String, String, Boolean> {
-    val start = text.indexOf("<think>")
-    if (start < 0) return Triple(text, "", false)
-    val end = text.indexOf("</think>", start)
-    return if (end < 0) Triple(text.substring(0, start), text.substring(start + 7).trimStart(), true)
-    else Triple((text.substring(0, start) + text.substring(end + 8)).trim(), text.substring(start + 7, end).trim(), false)
+    val body = StringBuilder()
+    val thoughts = StringBuilder()
+    var cursor = 0
+    var stillOpen = false
+    while (true) {
+        val start = text.indexOf("<think>", cursor)
+        if (start < 0) {
+            body.append(text.substring(cursor))
+            break
+        }
+        body.append(text.substring(cursor, start))
+        val contentStart = start + "<think>".length
+        val end = text.indexOf("</think>", contentStart)
+        if (end < 0) {
+            if (thoughts.isNotEmpty()) thoughts.append('\n')
+            thoughts.append(text.substring(contentStart).trimStart())
+            stillOpen = true
+            break
+        }
+        if (thoughts.isNotEmpty()) thoughts.append('\n')
+        thoughts.append(text.substring(contentStart, end).trim())
+        cursor = end + "</think>".length
+    }
+    return Triple(body.toString().trim(), thoughts.toString(), stillOpen)
 }
 
 @Composable
