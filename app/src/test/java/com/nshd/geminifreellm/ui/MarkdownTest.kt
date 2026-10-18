@@ -28,5 +28,13 @@ class MarkdownTest {
         assertEquals(listOf(MarkdownBlock("val a = 1", "kotlin"), MarkdownBlock("After")),
             markdownBlocks("~~~kotlin\nval a = 1\n~~~\nAfter"))
     }
+    @Test fun multipleThinkBlocksAreRemovedFromVisibleReply() {
+        assertEquals(Triple("Hello world", "plan\ncheck", false),
+            splitThink("Hello <think>plan</think> world <think>check</think>"))
+    }
+    @Test fun unfinishedThinkBlockKeepsOnlyItsContentInReasoning() {
+        assertEquals(Triple("Visible text", "still thinking", true),
+            splitThink("Visible text<think>still thinking"))
+    }
 
 }
