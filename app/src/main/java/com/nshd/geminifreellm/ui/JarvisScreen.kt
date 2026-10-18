@@ -146,7 +146,7 @@ fun JarvisScreen(
     }
     val startVoice = {
         if (isListening) {
-            voiceController.stopListening()
+            voiceController.cancelListening()
             voiceStatus = "Voice input cancelled"
         } else if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
             voiceController.startListening()
