@@ -26,7 +26,7 @@ Open **Settings**, choose a provider, enter its API key and exact model ID, then
 
 | Connection | Base URL | Key |
 | --- | --- | --- |
-| FreeLLMAPI | `http://127.0.0.1:3001/v1` or your server address | Your server's unified key |
+| FreeLLMAPI | `http://127.0.0.1:3001/v1` locally or an HTTPS server URL | Your server's unified key |
 | OpenAI | `https://api.openai.com/v1` | OpenAI API key |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | Google AI Studio API key |
 | Anthropic | `https://api.anthropic.com/v1` | Anthropic API key |
@@ -42,7 +42,7 @@ OpenAI-compatible gateways must support `/chat/completions`; model discovery add
 
 For FreeLLMAPI, keep upstream provider keys on your server and enter its **unified** key in the app. For a direct connection, enter that provider's key in its profile. FreeLLMAPI and custom servers may permit an empty key; the app allows this without claiming the server will accept it.
 
-On a phone, `127.0.0.1` means the phone itself. For a computer on your network, use its LAN address. The Android emulator can reach a host service through `10.0.2.2`. Prefer HTTPS for remote endpoints. The app warns for unencrypted HTTP and never forwards credentials across redirects.
+On a phone, `127.0.0.1` means the phone itself. For a computer on your network, use its LAN address. The Android emulator can reach a host service through `10.0.2.2`. Remote HTTP endpoints are rejected when an API key is configured, preventing credentials from being sent in cleartext. Localhost HTTP and keyless HTTP endpoints remain allowed; use HTTPS for remote authenticated APIs. The app never forwards credentials across redirects.
 
 Enable **Image input** only for a vision-capable model. Switching to a text-only profile will require a new chat or re-enabling vision if the conversation contains images. Turn **Stream responses** off for servers that only support complete JSON replies.
 
