@@ -43,6 +43,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val historyMutex = Mutex()
     private val catalogJobs = mutableMapOf<Provider, Job>()
     private val catalogTokens = mutableMapOf<Provider, String>()
+    /** Catalog cache validity depends on the concrete endpoint, not just its provider kind. */
+    private val catalogProfileIds = mutableMapOf<Provider, String>()
     private var draftSave: Job? = null
     private var autoCheckJob: Job? = null
     val client = FreeLlmApiClient()
@@ -130,7 +132,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             ?: current.settings.profiles.firstOrNull { it.provider == provider }
             ?: ProviderProfile(provider)
         val cached = current.catalogs[provider]
-        if (catalogJobs[provider]?.isActive == true || (!force && cached?.fetchedAt != null && cached.fetchedAt > System.currentTimeMillis() - 300_000)) return
+        val sameEndpoint = catalogProfileIds[provider] == profile.id
+        if (catalogJobs[provider]?.isActive == true && sameEndpoint) return
+        if (catalogJobs[provider]?.isActive == true && !sameEndpoint) catalogJobs[provider]?.cancel()
+        if (!force && sameEndpoint && cached != null && cached.fetchedAt > System.currentTimeMillis() - 300_000) return
+        catalogProfileIds[provider] = profile.id
         mutable.update { it.copy(catalogs = it.catalogs + (provider to (cached ?: ModelCatalog()).copy(loading = true, error = null))) }
         val token = newId()
         catalogTokens[provider] = token
@@ -419,7 +425,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 it.apiKey != profile.apiKey || it.baseUrl != profile.baseUrl
             } ?: true }.map { it.provider }.toSet()
             if (changed.isNotEmpty() || old.autoExcluded != settings.autoExcluded || (old.autoRouting && !settings.autoRouting)) stopAutoCheck()
-            changed.forEach { catalogTokens.remove(it); catalogJobs.remove(it)?.cancel() }
+            changed.forEach {
+                catalogTokens.remove(it)
+                catalogProfileIds.remove(it)
+                catalogJobs.remove(it)?.cancel()
+            }
             mutable.update { value -> value.copy(settings = settings,
                 autoChoice = if (changed.isNotEmpty() || old.autoExcluded != settings.autoExcluded) null else value.autoChoice,
                 catalogs = value.catalogs.filterKeys { it !in changed },
