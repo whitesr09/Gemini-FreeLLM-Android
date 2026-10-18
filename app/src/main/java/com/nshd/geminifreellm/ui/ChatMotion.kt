@@ -156,7 +156,10 @@ internal fun splitThink(text: String): Triple<String, String, Boolean> {
         thoughts.append(text.substring(contentStart, end).trim())
         cursor = end + "</think>".length
     }
-    return Triple(body.toString().trim(), thoughts.toString(), stillOpen)
+    // Removing inline reasoning can leave whitespace on both sides of the removed block.
+    // Collapse horizontal runs without changing intentional paragraph/newline boundaries.
+    val visibleBody = body.toString().replace(Regex("[ \\t]{2,}"), " ").trim()
+    return Triple(visibleBody, thoughts.toString(), stillOpen)
 }
 
 @Composable
