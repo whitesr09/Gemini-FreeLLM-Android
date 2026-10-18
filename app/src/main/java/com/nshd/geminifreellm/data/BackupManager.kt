@@ -39,26 +39,44 @@ object BackupManager {
     /** Writes credentials, history and attachments into [uri]. */
     suspend fun export(context: Context, uri: Uri) = withContext(Dispatchers.IO) {
         val filesDir = context.filesDir
+        val manifestBytes = JSONObject().put("version", BACKUP_VERSION).put("app", context.packageName)
+            .put("createdAt", System.currentTimeMillis()).toString().toByteArray()
+        val historyFile = File(filesDir, HISTORY)
+        val historyBytes = if (historyFile.isFile) historyFile.readBytes()
+            else conversationsToJson(emptyList()).put("active", "").toString().toByteArray(Charsets.UTF_8)
+        val credentialsFile = File(filesDir, CREDENTIALS).takeIf { it.isFile }
+        val attachmentFiles = File(filesDir, ATTACHMENTS).listFiles()?.filter { it.isFile }.orEmpty()
+        val entrySizes = buildList {
+            add(MANIFEST to manifestBytes.size.toLong())
+            add(HISTORY to historyBytes.size.toLong())
+            credentialsFile?.let { add(CREDENTIALS to it.length()) }
+            attachmentFiles.forEach { add("$ATTACHMENTS/${it.name}" to it.length()) }
+        }
+        validateExportLimits(entrySizes)
+
         context.contentResolver.openOutputStream(uri)?.use { raw ->
             ZipOutputStream(raw.buffered()).use { zip ->
                 zip.putNextEntry(ZipEntry(MANIFEST))
-                zip.write(JSONObject().put("version", BACKUP_VERSION).put("app", context.packageName)
-                    .put("createdAt", System.currentTimeMillis()).toString().toByteArray())
+                zip.write(manifestBytes)
                 zip.closeEntry()
-                zip.addFile(File(filesDir, CREDENTIALS), CREDENTIALS)
-                val historyFile = File(filesDir, HISTORY)
-                // Snapshot once and always write the required entry; don't silently skip it
-                // if the live file disappears between an existence check and the ZIP copy.
-                val historyBytes = if (historyFile.isFile) historyFile.readBytes()
-                    else conversationsToJson(emptyList()).put("active", "").toString().toByteArray(Charsets.UTF_8)
+                credentialsFile?.let { zip.addFile(it, CREDENTIALS) }
                 zip.putNextEntry(ZipEntry(HISTORY))
                 zip.write(historyBytes)
                 zip.closeEntry()
-                File(filesDir, ATTACHMENTS).listFiles()?.forEach { file ->
-                    if (file.isFile) zip.addFile(file, "$ATTACHMENTS/${file.name}")
-                }
+                attachmentFiles.forEach { file -> zip.addFile(file, "$ATTACHMENTS/${file.name}") }
             }
         } ?: throw BackupException("Could not open the destination.")
+    }
+
+    internal fun validateExportLimits(entrySizes: List<Pair<String, Long>>) {
+        if (entrySizes.size > MAX_ENTRIES) throw BackupException("Backup contains too many files.")
+        var totalBytes = 0L
+        entrySizes.forEach { (name, size) ->
+            val limit = if (name == MANIFEST) MAX_MANIFEST_BYTES else MAX_ENTRY_BYTES
+            if (size < 0 || size > limit) throw BackupException("Backup exceeds the safe export size limit.")
+            totalBytes += size
+            if (totalBytes > MAX_TOTAL_UNCOMPRESSED_BYTES) throw BackupException("Backup exceeds the safe export size limit.")
+        }
     }
 
     private fun ZipOutputStream.addFile(file: File, entryName: String) {
