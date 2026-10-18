@@ -19,23 +19,27 @@ object PdfTextExtractor {
             if (raw[index] != '(') { index++; continue }
             index++
             var depth = 1
+            var oversized = false
             val literal = StringBuilder()
+            fun appendBounded(value: Char) {
+                if (literal.length < MAX_CHARS) literal.append(value) else oversized = true
+            }
             while (index < raw.length && depth > 0) {
                 val char = raw[index++]
                 when (char) {
                     '\\' -> if (index < raw.length) {
                         val escaped = raw[index++]
-                        literal.append(when (escaped) { 'n' -> '\n'; 'r' -> '\r'; 't' -> '\t'; else -> escaped })
+                        appendBounded(when (escaped) { 'n' -> '\n'; 'r' -> '\r'; 't' -> '\t'; else -> escaped })
                     }
-                    '(' -> { depth++; literal.append(char) }
-                    ')' -> { depth--; if (depth > 0) literal.append(char) }
-                    else -> literal.append(char)
+                    '(' -> { depth++; appendBounded(char) }
+                    ')' -> { depth--; if (depth > 0) appendBounded(char) }
+                    else -> appendBounded(char)
                 }
-                require(literal.length <= MAX_CHARS) { "The PDF contains too much text. Attach a shorter excerpt." }
             }
             var operator = index
             while (operator < raw.length && raw[operator].isWhitespace()) operator++
             if (depth == 0 && raw.startsWith("Tj", operator)) {
+                require(!oversized) { "The PDF contains too much text. Attach a shorter excerpt." }
                 output.append(literal).append(' ')
                 require(output.length <= MAX_CHARS) { "The PDF contains too much text. Attach a shorter excerpt." }
             }
