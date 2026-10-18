@@ -86,7 +86,7 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     var title by rememberSaveable { mutableStateOf(initial.title) }
     var language by rememberSaveable { mutableStateOf(initial.language) }
     var code by rememberSaveable { mutableStateOf(initial.code) }
-    var wrap by rememberSaveable { mutableStateOf(true) }
+    var wrap by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
     var replacement by rememberSaveable { mutableStateOf("") }
@@ -156,7 +156,18 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
         fun prefix(n: Int) = "%${numberWidth}d │ ".format(Locale.US, n)
         val mapping = CanvasOffsetMapping(text, prefixLen)
         val result = buildAnnotatedString {
-            val lines = if (text.isEmpty()) listOf("") else text.split('\n')
+            // Keep the trailing empty line when code ends with a newline. The
+            // gutter is generated from logical lines, so its count must match the editor.
+            val lines = buildList {
+                var start = 0
+                text.forEachIndexed { index, character ->
+                    if (character == '\n') {
+                        add(text.substring(start, index))
+                        start = index + 1
+                    }
+                }
+                add(text.substring(start))
+            }
             lines.forEachIndexed { index, line ->
                 val p = prefix(index + 1)
                 val start = length
@@ -185,7 +196,7 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     }
     Scaffold(topBar = {
         TopAppBar(title = { Text("Canvas") }, navigationIcon = { IconButton(onClick = { leave() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Save and close canvas") } },
-            actions = { IconButton(onClick = { focus = !focus }) { Icon(if (focus) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen, "Toggle focus mode") }; TextButton(onClick = { onSave(snapshot()); status = "Save queued for this conversation" }) { Text("Save") } })
+            actions = { IconButton(onClick = { focus = !focus }) { Icon(if (focus) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen, if (focus) "Collapse editor" else "Expand editor") }; TextButton(onClick = { onSave(snapshot()); status = "Save queued for this conversation" }) { Text("Save") } })
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = Design.medium), verticalArrangement = Arrangement.spacedBy(Design.small)) {
             if (!focus) Row(horizontalArrangement = Arrangement.spacedBy(Design.small)) {
@@ -224,7 +235,8 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                     if (undo.isEmpty() || now - lastUndo > 700 || kotlin.math.abs(value.length - code.length) > 1) { undo = (undo + code).takeLast(12); lastUndo = now }
                     redo = emptyList(); code = value; status = "Autosave enabled"
                 } else status = "Canvas limit is 120,000 characters"
-            }, modifier = Modifier.weight(1f).fillMaxWidth().then(if (wrap) Modifier else Modifier.horizontalScroll(rememberScrollState())),
+            }, modifier = (if (focus) Modifier.weight(1f) else Modifier.height(280.dp))
+                    .fillMaxWidth().then(if (wrap) Modifier else Modifier.horizontalScroll(rememberScrollState())),
                 visualTransformation = transform, textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false),
                 placeholder = { Text("Write code here, or open a code block from a reply.") })
