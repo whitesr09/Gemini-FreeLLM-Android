@@ -145,4 +145,13 @@ class ProviderClientTest {
         val attachment = Attachment(name = "photo.jpg", mimeType = "image/jpeg", size = 5)
         assertThrows(ApiException::class.java) { client.buildRequest(profile(), listOf(prompt.first().copy(attachments = listOf(attachment)))) }
     }
+    @Test fun remoteHttpCannotReceiveApiKeysButLocalAndKeylessEndpointsRemainAllowed() {
+        assertNotNull(FreeLlmApiClient.validate(ProviderProfile(
+            Provider.CUSTOM, "http://api.example.com/v1", "synthetic-key", "test-model")))
+        assertNull(FreeLlmApiClient.validate(ProviderProfile(
+            Provider.CUSTOM, "http://127.0.0.1:3001/v1", "synthetic-key", "test-model")))
+        assertNull(FreeLlmApiClient.validate(ProviderProfile(
+            Provider.CUSTOM, "http://api.example.com/v1", "", "test-model")))
+    }
+
 }
