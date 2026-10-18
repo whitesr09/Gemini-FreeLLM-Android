@@ -33,6 +33,7 @@ object CodeRunner {
     fun runJs(code: String): JsRunResult {
         if (code.length > MAX_CHARS) return JsRunResult.Failure("Code exceeds $MAX_CHARS characters", 0)
         val output = StringBuilder()
+        var outputTruncated = false
         val start = System.currentTimeMillis()
         val factory = object : ContextFactory() {
             override fun observeInstructionCount(cx: Context, instructionCount: Int) {
@@ -56,6 +57,9 @@ object CodeRunner {
                             val line = args.joinToString(" ") { Context.toString(it) } + "\n"
                             val remaining = MAX_OUTPUT_CHARS - output.length
                             output.append(line.take(remaining))
+                            if (line.length > remaining) outputTruncated = true
+                        } else {
+                            outputTruncated = true
                         }
                         return Context.getUndefinedValue()
                     }
@@ -70,7 +74,7 @@ object CodeRunner {
                 null
             }
             val text = output.toString().trimEnd()
-            JsRunResult.Success(if (text.length == MAX_OUTPUT_CHARS) "$text\\n[Output truncated at $MAX_OUTPUT_CHARS characters]" else text, returned)
+            JsRunResult.Success(if (outputTruncated) "$text\n[Output truncated at $MAX_OUTPUT_CHARS characters]" else text, returned)
         } catch (e: RhinoException) {
             JsRunResult.Failure((e.message ?: "Script error").take(500), e.lineNumber())
         } catch (e: JsTimeoutException) {
