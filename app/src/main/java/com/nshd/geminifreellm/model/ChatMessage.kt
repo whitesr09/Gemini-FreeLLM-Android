@@ -70,7 +70,7 @@ data class ProviderProfile(
 data class AppSettings(
     val profiles: List<ProviderProfile> = listOf(ProviderProfile()),
     val selected: Provider = Provider.FREELLM,
-    val theme: String = "SYSTEM",
+    val theme: String = "LIGHT",
     val reducedMotion: Boolean = false,
     val showTimestamps: Boolean = false,
     val compactSpacing: Boolean = false,
