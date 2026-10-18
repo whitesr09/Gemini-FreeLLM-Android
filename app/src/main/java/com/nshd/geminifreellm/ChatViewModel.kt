@@ -493,7 +493,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         profile = winner
                         continuationPrefix + reply
                     }
-                    else client.generate(profile, history, systemPrompt) { updates.trySend(replyId to it) }
+                    else client.generate(profile, requestHistory, systemPrompt) { updates.trySend(replyId to it) }
                 } finally { updates.close(); collector.join() }
                 if (generationToken == token) {
                     val elapsed = android.os.SystemClock.elapsedRealtime() - started
