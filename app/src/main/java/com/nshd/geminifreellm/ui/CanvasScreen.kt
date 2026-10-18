@@ -102,7 +102,6 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     var title by rememberSaveable { mutableStateOf(initial.title) }
     var language by rememberSaveable { mutableStateOf(initial.language) }
     var code by rememberSaveable { mutableStateOf(initial.code) }
-    var wrap by rememberSaveable(initial.code) { mutableStateOf(false) }
     var editorExpanded by rememberSaveable(initial.title, initial.language, initial.code) { mutableStateOf(initial.code.isBlank()) }
     var query by rememberSaveable { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
@@ -234,7 +233,6 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                 IconButton(onClick = { export.launch(title.ifBlank { "code.txt" }) }) { Icon(Icons.Outlined.FileDownload, "Export canvas file") }
                 IconButton(onClick = { importFile.launch(arrayOf("*/*")) }) { Icon(Icons.Outlined.FileUpload, "Import canvas file") }
                 FilterChip(replaceOpen, { replaceOpen = !replaceOpen }, label = { Text("Find / replace") })
-                FilterChip(wrap, { wrap = !wrap }, label = { Text("Wrap lines") })
                 IconButton(enabled = code.isNotEmpty(), onClick = { clear = true }) { Icon(Icons.Outlined.DeleteOutline, "Clear canvas") }
             }
             }
@@ -254,7 +252,7 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                     if (undo.isEmpty() || now - lastUndo > 700 || kotlin.math.abs(value.length - code.length) > 1) { undo = (undo + code).takeLast(12); lastUndo = now }
                     redo = emptyList(); code = value; status = "Autosave enabled"
                 } else status = "Canvas limit is 120,000 characters"
-            }, modifier = Modifier.weight(1f).fillMaxWidth().then(if (wrap) Modifier else Modifier.horizontalScroll(rememberScrollState())),
+            }, modifier = Modifier.weight(1f).fillMaxWidth().horizontalScroll(rememberScrollState()),
                 visualTransformation = transform, textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false),
                 placeholder = { Text("Write code here, or open a code block from a reply.") })
