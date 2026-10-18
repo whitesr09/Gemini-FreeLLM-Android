@@ -44,8 +44,10 @@ object BackupManager {
         val historyFile = File(filesDir, HISTORY)
         val historyBytes = if (historyFile.isFile) historyFile.readBytes()
             else conversationsToJson(emptyList()).put("active", "").toString().toByteArray(Charsets.UTF_8)
+        validateExportHistory(historyBytes)
         val credentialsFile = File(filesDir, CREDENTIALS).takeIf { it.isFile }
         val attachmentFiles = File(filesDir, ATTACHMENTS).listFiles()?.filter { it.isFile }.orEmpty()
+        validateExportAttachmentNames(attachmentFiles.map { it.name })
         val entrySizes = buildList {
             add(MANIFEST to manifestBytes.size.toLong())
             add(HISTORY to historyBytes.size.toLong())
@@ -76,6 +78,23 @@ object BackupManager {
                 }
             }
         } ?: throw BackupException("Could not open the destination.")
+    }
+
+    internal fun validateExportHistory(bytes: ByteArray) {
+        val json = try {
+            JSONObject(String(bytes, Charsets.UTF_8))
+        } catch (_: Exception) {
+            throw BackupException("Chat history could not be read; backup was not exported.")
+        }
+        if (json.optJSONArray("chats") == null) {
+            throw BackupException("Chat history is incomplete; backup was not exported.")
+        }
+    }
+
+    internal fun validateExportAttachmentNames(names: List<String>) {
+        if (names.any { !isAllowedEntry("$ATTACHMENTS/$it") }) {
+            throw BackupException("Backup contains an unsupported attachment name.")
+        }
     }
 
     internal fun validateExportLimits(entrySizes: List<Pair<String, Long>>) {
