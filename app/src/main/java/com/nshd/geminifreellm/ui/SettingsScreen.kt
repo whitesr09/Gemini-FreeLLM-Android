@@ -60,6 +60,10 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
     var saving by remember { mutableStateOf(false) }
     var discard by rememberSaveable { mutableStateOf(false) }
     var openDiagnosticsAfterDiscard by remember { mutableStateOf(false) }
+    // Keep the baseline stable while the user edits; upstream state changes must not
+    // silently redefine what counts as an unsaved local draft.
+    val initialDraft = remember { settings.copy(selected = initialProvider,
+        profiles = settings.profiles + (if (settings.profiles.none { it.provider == initialProvider }) listOf(ProviderProfile(initialProvider)) else emptyList())) }
     var probe by remember { mutableStateOf<Job?>(null) }
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     val scope = rememberCoroutineScope()
@@ -73,7 +77,7 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
     fun snapshot() = settings.copy(profiles = profiles.map { if (it.provider == selected) profile else it } +
         (if (profiles.none { it.provider == selected }) listOf(profile) else emptyList()), selected = selected, theme = theme,
         reducedMotion = reducedMotion, showTimestamps = timestamps, compactSpacing = compact, haptics = haptics, agent = agent)
-    fun leave() { if (!saving) { if (snapshot() != settings) discard = true else onBack() } }
+    fun leave() { if (!saving) { if (snapshot() != initialDraft) discard = true else onBack() } }
     fun update(value: ProviderProfile) {
         probe?.cancel(); working = false; status = null; models = null; profile = value
     }
