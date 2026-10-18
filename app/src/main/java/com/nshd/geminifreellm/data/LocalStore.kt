@@ -63,7 +63,11 @@ class LocalStore(private val context: Context) {
 
     fun loadHistory(): Pair<List<Conversation>, String?> {
         if (!history.baseFile.exists()) return emptyList<Conversation>() to null
-        val json = JSONObject(String(history.readFully(), Charsets.UTF_8))
+        // A malformed or incomplete history must not be treated as an empty history:
+        // doing so would delete attachment files that may still be referenced by recoverable data.
+        val json = runCatching { JSONObject(String(history.readFully(), Charsets.UTF_8)) }.getOrNull()
+            ?: return emptyList<Conversation>() to null
+        if (json.optJSONArray("chats") == null) return emptyList<Conversation>() to null
         val chats = conversationsFromJson(json)
         // Runs before new attachments can be prepared. Never collect files after a failed read.
         val referenced = chats.flatMap { it.attachments + it.messages.flatMap { message -> message.attachments } }
@@ -170,4 +174,5 @@ private fun attachmentsFromJson(array: JSONArray?): List<Attachment> = array?.ob
         Attachment(it.getString("id"), it.getString("name"), it.getString("mimeType"), it.getLong("size"), it.optString("localPath"), it.optString("text"))
     }.getOrNull()
 }.orEmpty()
-private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
+private fun JSONArray.objects(): List<JSONObject> =
+    (0 until length()).mapNotNull { index -> runCatching { optJSONObject(index) }.getOrNull() }
