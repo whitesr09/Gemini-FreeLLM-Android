@@ -381,9 +381,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (userIndex < 0) return
         if (!value.settings.autoRouting) FreeLlmApiClient.validate(value.settings.active)?.let { notice(it); return }
         val history = chat.messages.take(userIndex + 1)
+        val lastUser = history.last()
+        val (invokedSkill, cleanText) = AgentConfig.parseInvocation(lastUser.text, value.settings.agent)
+        val apiHistory = if (invokedSkill != null) {
+            history.dropLast(1) + lastUser.copy(text = cleanText.trim())
+        } else history
 
         changeChat { it.copy(messages = history) }
-        generate(chat.id, history, value)
+        generate(chat.id, history, value, invokedSkill, apiHistory)
     }
 
     /** The UI confirms replacement of the selected turn and its following replies. */
