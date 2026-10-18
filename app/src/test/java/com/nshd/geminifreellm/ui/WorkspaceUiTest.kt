@@ -44,6 +44,15 @@ class WorkspaceUiTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithText("What can I help with?").fetchSemanticsNodes().isNotEmpty() }
     }
 
+    @Test fun voiceSystemSettingsParserAcceptsNavigationOnly() {
+        Assert.assertEquals(VoiceSystemAction.GENERAL_SETTINGS, parseVoiceSystemAction("Open settings"))
+        Assert.assertEquals(VoiceSystemAction.WIFI_SETTINGS, parseVoiceSystemAction("Open Wi-Fi settings!"))
+        Assert.assertEquals(VoiceSystemAction.WIFI_SETTINGS, parseVoiceSystemAction("open wifi"))
+        Assert.assertEquals(VoiceSystemAction.BLUETOOTH_SETTINGS, parseVoiceSystemAction("Open Bluetooth."))
+        Assert.assertNull(parseVoiceSystemAction("Turn Wi-Fi off"))
+        Assert.assertNull(parseVoiceSystemAction("Enable Bluetooth"))
+    }
+
     @Test fun voiceAppLaunchParserOnlyAcceptsExplicitLaunchPhrases() {
         Assert.assertEquals("WhatsApp", parseVoiceAppLaunchCommand("Open WhatsApp"))
         Assert.assertEquals("Settings", parseVoiceAppLaunchCommand("please launch Settings"))
