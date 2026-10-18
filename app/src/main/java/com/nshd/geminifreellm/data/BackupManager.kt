@@ -47,15 +47,13 @@ object BackupManager {
                 zip.closeEntry()
                 zip.addFile(File(filesDir, CREDENTIALS), CREDENTIALS)
                 val historyFile = File(filesDir, HISTORY)
-                if (historyFile.isFile) {
-                    zip.addFile(historyFile, HISTORY)
-                } else {
-                    // A fresh install may not have saved history yet, but every exported
-                    // archive must still satisfy the importer's required history entry.
-                    zip.putNextEntry(ZipEntry(HISTORY))
-                    zip.write(conversationsToJson(emptyList()).put("active", "").toString().toByteArray(Charsets.UTF_8))
-                    zip.closeEntry()
-                }
+                // Snapshot once and always write the required entry; don't silently skip it
+                // if the live file disappears between an existence check and the ZIP copy.
+                val historyBytes = if (historyFile.isFile) historyFile.readBytes()
+                    else conversationsToJson(emptyList()).put("active", "").toString().toByteArray(Charsets.UTF_8)
+                zip.putNextEntry(ZipEntry(HISTORY))
+                zip.write(historyBytes)
+                zip.closeEntry()
                 File(filesDir, ATTACHMENTS).listFiles()?.forEach { file ->
                     if (file.isFile) zip.addFile(file, "$ATTACHMENTS/${file.name}")
                 }
