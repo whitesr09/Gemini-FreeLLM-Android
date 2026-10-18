@@ -51,6 +51,21 @@ import java.util.Date
 
 
 /** Parses explicit, direct app-launch phrases; other speech remains ordinary chat dictation. */
+internal enum class VoiceSystemAction { GENERAL_SETTINGS, WIFI_SETTINGS, BLUETOOTH_SETTINGS }
+
+/** Recognizes only explicit settings-navigation requests; it never toggles radios silently. */
+internal fun parseVoiceSystemAction(transcript: String): VoiceSystemAction? {
+    val normalized = transcript.trim().lowercase()
+        .replace(Regex("[.!?]+$"), "")
+        .replace(Regex("\\s+"), " ")
+    return when (normalized) {
+        "open settings", "open phone settings", "launch settings", "start settings" -> VoiceSystemAction.GENERAL_SETTINGS
+        "open wi-fi settings", "open wifi settings", "open wi fi settings", "open wi-fi", "open wifi" -> VoiceSystemAction.WIFI_SETTINGS
+        "open bluetooth settings", "open bluetooth" -> VoiceSystemAction.BLUETOOTH_SETTINGS
+        else -> null
+    }
+}
+
 internal fun parseVoiceAppLaunchCommand(transcript: String): String? {
     val match = Regex("^(?:please\\s+)?(?:open|launch|start|switch to)\\s+(.+?)[.!?]*$", RegexOption.IGNORE_CASE)
         .matchEntire(transcript.trim()) ?: return null
@@ -59,6 +74,24 @@ internal fun parseVoiceAppLaunchCommand(transcript: String): String? {
 
 /** Executes only an explicit app-launch request, using Android's launcher-visible apps. */
 private fun executeVoiceAppLaunch(context: android.content.Context, transcript: String, onNotice: (String) -> Unit): Boolean {
+    val systemAction = parseVoiceSystemAction(transcript)
+    if (systemAction != null) {
+        val action = when (systemAction) {
+            VoiceSystemAction.GENERAL_SETTINGS -> android.provider.Settings.ACTION_SETTINGS
+            VoiceSystemAction.WIFI_SETTINGS -> android.provider.Settings.ACTION_WIFI_SETTINGS
+            VoiceSystemAction.BLUETOOTH_SETTINGS -> android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+        }
+        return try {
+            context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (_: ActivityNotFoundException) {
+            onNotice("This Android version doesn't provide that settings screen.")
+            true
+        } catch (_: SecurityException) {
+            onNotice("Android blocked opening that settings screen.")
+            true
+        }
+    }
     val requestedApp = parseVoiceAppLaunchCommand(transcript) ?: return false
     val packageManager = context.packageManager
     val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
