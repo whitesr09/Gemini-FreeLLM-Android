@@ -37,6 +37,11 @@ class MarkdownTest {
             splitThink("Visible text<think>still thinking"))
     }
 
+    @Test fun thinkRemovalPreservesWhitespaceOutsideRemovedBlocks() {
+        val source = "    indented code\\n<think>plan</think>\\n    more code"
+        assertEquals("    indented code\\n\\n    more code", splitThink(source).first)
+    }
+
     @Test fun headingStyleStopsAtTheHeadingLine() {
         assertEquals(listOf("## Heading", "Body text on the next line"),
             splitHeadingAndBody("## Heading\nBody text on the next line"))
