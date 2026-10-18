@@ -48,4 +48,12 @@ class CodeRunnerTest {
         assertTrue(CodeRunner.isPreviewable("html"))
         assertFalse(CodeRunner.isPreviewable("css"))
     }
+    @Test fun es6AndConsoleOutputLimitAreEnforced() {
+        val result = CodeRunner.runJs("console.log('x'.repeat(70000));")
+        assertTrue(result is JsRunResult.Success)
+        val output = (result as JsRunResult.Success).output
+        assertTrue(output.contains("Output truncated at 65536 characters"))
+        assertTrue(output.length < 66_000)
+    }
+
 }
