@@ -23,6 +23,7 @@ sealed interface JsRunResult {
 object CodeRunner {
     const val TIMEOUT_MS = 8000L
     private const val MAX_CHARS = 120_000
+    private const val MAX_OUTPUT_CHARS = 64 * 1024
 
     fun isRunnable(language: String) = language.lowercase() in setOf("js", "javascript", "mjs")
     fun isPreviewable(language: String) = language.lowercase() in setOf("html", "htm")
@@ -41,6 +42,7 @@ object CodeRunner {
                 // Interpreted mode is required on Android (no JIT classloading).
                 optimizationLevel = -1
                 setInstructionObserverThreshold(20_000)
+                languageVersion = Context.VERSION_ES6
                 maximumInterpreterStackDepth = 256
             }
         }
@@ -50,7 +52,11 @@ object CodeRunner {
                 val scope: Scriptable = cx.initStandardObjects()
                 val logFn = object : BaseFunction() {
                     override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<out Any?>): Any {
-                        output.appendLine(args.joinToString(" ") { Context.toString(it) })
+                        if (output.length < MAX_OUTPUT_CHARS) {
+                            val line = args.joinToString(" ") { Context.toString(it) } + "\n"
+                            val remaining = MAX_OUTPUT_CHARS - output.length
+                            output.append(line.take(remaining))
+                        }
                         return Context.getUndefinedValue()
                     }
                 }
@@ -63,7 +69,8 @@ object CodeRunner {
                 if (result !== Context.getUndefinedValue()) returned = Context.toString(result)
                 null
             }
-            JsRunResult.Success(output.toString().trimEnd(), returned)
+            val text = output.toString().trimEnd()
+            JsRunResult.Success(if (text.length == MAX_OUTPUT_CHARS) "$text\\n[Output truncated at $MAX_OUTPUT_CHARS characters]" else text, returned)
         } catch (e: RhinoException) {
             JsRunResult.Failure((e.message ?: "Script error").take(500), e.lineNumber())
         } catch (e: JsTimeoutException) {
