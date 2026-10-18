@@ -1,9 +1,5 @@
 package com.nshd.geminifreellm.ui
 
-import android.app.Activity
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -120,24 +116,42 @@ fun JarvisScreen(
         animationSpec = infiniteRepeatable(tween(if (settings.reducedMotion) 1 else 2_200), repeatMode = RepeatMode.Reverse),
         label = "orb-pulse"
     )
-    val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { transcript ->
-                // A short spoken acknowledgement makes voice actions feel responsive without
-                // reading private conversation content aloud or requiring extra permissions.
+    var isListening by remember { mutableStateOf(false) }
+    var voiceStatus by remember { mutableStateOf("Tap the microphone to speak") }
+    val voiceController = remember(context) {
+        JarvisVoiceController(
+            context = context,
+            onListeningChanged = { isListening = it },
+            onTranscript = { transcript ->
                 if (speechReady.value) {
-                    speechEngine.value?.speak(
-                        "Got it. Processing your request.",
-                        TextToSpeech.QUEUE_FLUSH,
-                        null,
-                        "jarvis-acknowledgement"
-                    )
+                    speechEngine.value?.speak("Got it. Processing your request.", TextToSpeech.QUEUE_FLUSH, null, "jarvis-acknowledgement")
                 }
                 handleVoiceTranscript(context, transcript, { spokenText ->
                     vm.draft(spokenText)
                     onChat()
                 }, vm::notice)
-            }
+            },
+            onMessage = { voiceStatus = it }
+        )
+    }
+    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) voiceController.startListening()
+        else {
+            voiceStatus = "Microphone permission is needed for voice control"
+            vm.notice("Allow microphone access to use Jarvis voice control.")
+        }
+    }
+    DisposableEffect(voiceController) {
+        onDispose { voiceController.release() }
+    }
+    val startVoice = {
+        if (isListening) {
+            voiceController.stopListening()
+            voiceStatus = "Voice input cancelled"
+        } else if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            voiceController.startListening()
+        } else {
+            microphonePermission.launch(android.Manifest.permission.RECORD_AUDIO)
         }
     }
     BackHandler(onBack = onBack)
@@ -179,36 +193,20 @@ fun JarvisScreen(
             ) {
                 JarvisOrb(rotation = rotation, pulse = if (settings.reducedMotion) 1f else pulse, reducedMotion = settings.reducedMotion)
                 Surface(
-                    onClick = {
-                        try {
-                            voice.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                .putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Jarvis"))
-                        } catch (_: ActivityNotFoundException) {
-                            vm.notice("Speech recognition is unavailable. Install or enable a speech-recognition app.")
-                        }
-                    },
+                    onClick = startVoice,
                     modifier = Modifier.size(82.dp).shadow(10.dp, CircleShape),
                     shape = CircleShape,
                     color = Color(0xFFFFF8F5),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.9f))
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.Mic, "Talk to Jarvis", tint = JarvisInk, modifier = Modifier.size(32.dp))
+                        Icon(if (isListening) Icons.Outlined.Waves else Icons.Outlined.Mic, if (isListening) "Stop listening" else "Talk to Jarvis", tint = JarvisInk, modifier = Modifier.size(32.dp))
                     }
                 }
             }
 
             Surface(
-                onClick = {
-                    try {
-                        voice.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Jarvis"))
-                    } catch (_: ActivityNotFoundException) {
-                        vm.notice("Speech recognition is unavailable. Install or enable a speech-recognition app.")
-                    }
-                },
+                onClick = startVoice,
                 shape = RoundedCornerShape(50),
                 color = Color.White.copy(alpha = 0.68f),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD8B9C5)),
@@ -217,10 +215,11 @@ fun JarvisScreen(
                 Row(Modifier.padding(horizontal = 22.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(8.dp).clip(CircleShape).background(JarvisPink))
                     Spacer(Modifier.width(10.dp))
-                    Text("TAP TO TALK TO JARVIS", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp, color = JarvisMuted)
+                    Text(if (isListening) "TAP TO STOP LISTENING" else "TAP TO TALK TO JARVIS", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp, color = JarvisMuted)
                 }
             }
-            Text("Try “Open YouTube” or ask a question", fontSize = 12.sp, color = JarvisMuted, modifier = Modifier.padding(top = 10.dp))
+            Text(voiceStatus, fontSize = 12.sp, color = JarvisMuted, modifier = Modifier.padding(top = 10.dp), textAlign = TextAlign.Center)
+            Text("Try “Open YouTube” or ask a question", fontSize = 12.sp, color = JarvisMuted, modifier = Modifier.padding(top = 5.dp))
 
             Spacer(Modifier.height(24.dp))
             Surface(
