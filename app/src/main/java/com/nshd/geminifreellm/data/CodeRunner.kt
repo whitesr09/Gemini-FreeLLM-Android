@@ -53,13 +53,22 @@ object CodeRunner {
                 val scope: Scriptable = cx.initStandardObjects()
                 val logFn = object : BaseFunction() {
                     override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<out Any?>): Any {
-                        if (output.length < MAX_OUTPUT_CHARS) {
-                            val line = args.joinToString(" ") { Context.toString(it) } + "\n"
-                            val remaining = MAX_OUTPUT_CHARS - output.length
-                            output.append(line.take(remaining))
-                            if (line.length > remaining) outputTruncated = true
-                        } else {
+                        if (output.length >= MAX_OUTPUT_CHARS) {
                             outputTruncated = true
+                        } else {
+                            args.forEachIndexed { index, argument ->
+                                if (index > 0 && output.length < MAX_OUTPUT_CHARS) output.append(' ')
+                                if (output.length < MAX_OUTPUT_CHARS) {
+                                    val value = Context.toString(argument)
+                                    val remaining = MAX_OUTPUT_CHARS - output.length
+                                    output.append(value.take(remaining))
+                                    if (value.length > remaining) outputTruncated = true
+                                } else {
+                                    outputTruncated = true
+                                }
+                            }
+                            if (output.length < MAX_OUTPUT_CHARS) output.append('\n')
+                            else outputTruncated = true
                         }
                         return Context.getUndefinedValue()
                     }
