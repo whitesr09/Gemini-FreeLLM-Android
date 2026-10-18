@@ -14,6 +14,7 @@ class CanvasOffsetMappingTest {
         assertEquals(0, mapping.transformedToOriginal(7))
         assertEquals(2, mapping.transformedToOriginal(9))
         assertEquals(3, mapping.transformedToOriginal(10))
+        assertEquals(3, mapping.transformedToOriginal(16))
         assertEquals(3, mapping.transformedToOriginal(17))
     }
 
