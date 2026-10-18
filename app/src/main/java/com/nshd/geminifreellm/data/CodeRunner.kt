@@ -43,7 +43,7 @@ object CodeRunner {
             override fun makeContext(): Context = super.makeContext().apply {
                 // Interpreted mode is required on Android (no JIT classloading).
                 optimizationLevel = -1
-                setInstructionObserverThreshold(20_000)
+                instructionObserverThreshold = 20_000
                 languageVersion = Context.VERSION_ES6
                 maximumInterpreterStackDepth = 256
                 // Java/Android classes must never be visible to model-provided snippets.
