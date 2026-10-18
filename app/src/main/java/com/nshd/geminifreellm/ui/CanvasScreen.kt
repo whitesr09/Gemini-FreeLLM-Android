@@ -42,6 +42,43 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+internal class CanvasOffsetMapping(private val text: String, private val prefixLen: Int) : OffsetMapping {
+    private val lineStarts = ArrayList<Int>(text.length / 40 + 2).apply {
+        add(0)
+        text.forEachIndexed { index, char -> if (char == '\n') add(index + 1) }
+    }
+
+    fun lineOf(offset: Int): Int {
+        val bounded = offset.coerceIn(0, text.length)
+        val index = lineStarts.binarySearch(bounded)
+        return (if (index >= 0) index else -index - 2).coerceAtLeast(0)
+    }
+
+    override fun originalToTransformed(offset: Int): Int =
+        offset.coerceIn(0, text.length) + (lineOf(offset) + 1) * prefixLen
+
+    override fun transformedToOriginal(offset: Int): Int {
+        val transformedLength = text.length + lineStarts.size * prefixLen
+        val bounded = offset.coerceIn(0, transformedLength)
+        var low = 0
+        var high = lineStarts.size - 1
+        var line = 0
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            if (lineStarts[mid] + (mid + 1) * prefixLen <= bounded) {
+                line = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        val linePrefixStart = lineStarts[line] + line * prefixLen
+        val lineContentStart = linePrefixStart + prefixLen
+        return if (bounded < lineContentStart) lineStarts[line]
+        else (bounded - (line + 1) * prefixLen).coerceIn(lineStarts[line], text.length)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Suppress("DEPRECATION")
 @Composable
@@ -116,15 +153,7 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
         val text = original.text
         val prefixLen = 7 // "%4d │ " is always 7 chars; numbers past 9999 are truncated
         fun prefix(n: Int) = "%4d │ ".format(Locale.US, n).takeLast(prefixLen)
-        // Original offsets where each line starts, for the offset mapping.
-        val lineStarts = ArrayList<Int>(text.length / 40 + 2).apply {
-            add(0); text.forEachIndexed { i, c -> if (c == '\n') add(i + 1) }
-        }
-        fun lineOf(offset: Int): Int {
-            val o = offset.coerceIn(0, text.length)
-            val idx = lineStarts.binarySearch(o)
-            return (if (idx >= 0) idx else -idx - 2).coerceAtLeast(0)
-        }
+        val mapping = CanvasOffsetMapping(text, prefixLen)
         val result = buildAnnotatedString {
             val lines = if (text.isEmpty()) listOf("") else text.split('\n')
             lines.forEachIndexed { index, line ->
@@ -135,27 +164,11 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                 if (index != lines.lastIndex) append('\n')
             }
             if (query.isNotEmpty()) Regex(Regex.escape(query), RegexOption.IGNORE_CASE).findAll(text).forEach { match ->
-                val shift = (lineOf(match.range.first) + 1) * prefixLen
+                val shift = (mapping.lineOf(match.range.first) + 1) * prefixLen
                 addStyle(SpanStyle(background = highlight, color = highlightText), match.range.first + shift, match.range.last + 1 + shift)
             }
         }
-        TransformedText(result, object : OffsetMapping {
-            override fun originalToTransformed(offset: Int) = offset.coerceIn(0, text.length) + (lineOf(offset) + 1) * prefixLen
-            override fun transformedToOriginal(offset: Int): Int {
-                val t = offset.coerceIn(0, result.length)
-                var lo = 0; var hi = lineStarts.size - 1; var line = 0
-                while (lo <= hi) {
-                    val mid = (lo + hi) ushr 1
-                    if (lineStarts[mid] + mid * prefixLen <= t) { line = mid; lo = mid + 1 } else hi = mid - 1
-                }
-                val linePrefixStartT = lineStarts[line] + line * prefixLen
-                val lineContentStartT = linePrefixStartT + prefixLen
-                // Taps inside the current line's gutter land at that line's start.
-                return if (t < lineContentStartT) lineStarts[line]
-                else (t - (line + 1) * prefixLen).coerceIn(lineStarts[line], text.length)
-            }
-        })
-    } }
+        TransformedText(result, mapping)
     BackHandler { leave() }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
