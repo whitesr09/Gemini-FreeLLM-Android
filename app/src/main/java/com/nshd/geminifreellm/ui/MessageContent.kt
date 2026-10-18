@@ -86,8 +86,14 @@ fun MessageContent(text: String, onCanvas: (String, String) -> Unit = { _, _ -> 
             else SelectionContainer {
                 Column(verticalArrangement = Arrangement.spacedBy(Design.small)) {
                     // Paragraph blocks keep long responses inexpensive; no composable per token.
-                    block.text.split(Regex("\n\\s*\n")).forEach { paragraph ->
-                        val heading = Regex("^(#{1,6})\\s+(.*)", RegexOption.DOT_MATCHES_ALL).matchEntire(paragraph)
+                    block.text.split(Regex("\n\\s*\n"))
+                        .flatMap { paragraph ->
+                            val firstLine = paragraph.substringBefore('\n')
+                            if ('\n' in paragraph && Regex("^(#{1,6})\\s+.*$").matches(firstLine))
+                                listOf(firstLine, paragraph.substringAfter('\n'))
+                            else listOf(paragraph)
+                        }.forEach { paragraph ->
+                        val heading = Regex("^(#{1,6})\\s+(.*)").matchEntire(paragraph)
                         val table = markdownTable(paragraph)
                         val quote = paragraph.startsWith("> ")
                         val displayed = when {
