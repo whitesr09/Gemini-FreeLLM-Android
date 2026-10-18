@@ -362,6 +362,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             // persist. The mutex also waits for an already-running synchronous disk write.
             persistEpoch++
             restoringBackup = true
+            mutable.update { it.copy(loading = true, generatingId = null, preparing = false) }
             draftSave?.cancel()
             draftSave = null
             generation?.cancel()
@@ -370,14 +371,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 generation?.join()
                 pendingAttachment?.join()
-                historyMutex.withLock {
-                    withContext(Dispatchers.IO) { BackupManager.import(getApplication(), uri) }
+                settingsMutex.withLock {
+                    historyMutex.withLock {
+                        withContext(Dispatchers.IO) { BackupManager.import(getApplication(), uri) }
+                    }
                 }
                 reload()
                 notice("Backup restored.")
             } catch (cancelled: CancellationException) {
+                mutable.update { it.copy(loading = false) }
                 throw cancelled
             } catch (error: Exception) {
+                mutable.update { it.copy(loading = false) }
                 withContext(Dispatchers.IO) { diagnostics.record("Backup", error = error) }
                 notice(if (error is BackupException) error.message ?: "Could not read the backup file." else "Restore failed.")
             } finally {
