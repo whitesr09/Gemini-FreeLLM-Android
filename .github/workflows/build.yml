@@ -39,7 +39,7 @@ jobs:
       # Secrets are never exposed to pull-request builds from untrusted code.
       - name: Decode CI signing keystore
         id: signing
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           CI_KEYSTORE_BASE64: ${{ secrets.CI_KEYSTORE_BASE64 }}
           CI_KEYSTORE_PASSWORD: ${{ secrets.CI_KEYSTORE_PASSWORD }}
@@ -63,13 +63,20 @@ jobs:
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --stacktrace
 
       - name: Validate and build trusted APKs
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
           CI_KEYSTORE_PASSWORD: ${{ secrets.CI_KEYSTORE_PASSWORD }}
           CI_KEY_ALIAS: ${{ secrets.CI_KEY_ALIAS }}
           CI_KEY_PASSWORD: ${{ secrets.CI_KEY_PASSWORD }}
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --stacktrace
+
+      - name: Validate and build non-main branch APKs
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main'
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --stacktrace
 
       - name: Upload debug APK
@@ -79,7 +86,7 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload signed release APK
-        if: github.event_name != 'pull_request' && steps.signing.outputs.configured == 'true'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Gemini-FreeLLM-release-signed
