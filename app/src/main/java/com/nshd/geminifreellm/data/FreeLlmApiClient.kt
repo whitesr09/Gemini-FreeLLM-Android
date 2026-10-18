@@ -375,6 +375,10 @@ class FreeLlmApiClient(
         fun validate(profile: ProviderProfile, requireModel: Boolean = true): String? {
             val url = profile.baseUrl.trim().toHttpUrlOrNull() ?: return "Enter a valid HTTP or HTTPS API base URL."
             if (url.username.isNotEmpty() || url.password.isNotEmpty() || url.query != null || url.fragment != null) return "Use a base URL without credentials, query parameters, or a fragment."
+            val localHost = url.host in setOf("127.0.0.1", "localhost", "10.0.2.2", "::1")
+            if (!url.isHttps && profile.apiKey.isNotBlank() && !localHost) {
+                return "Use HTTPS when sending an API key to a remote server."
+            }
             if (requireModel && (profile.model.isBlank() || !profile.model.matches(Regex("[A-Za-z0-9._:/@+\\-]+")) || profile.model.contains(".."))) return "Enter a valid model ID from your provider."
             if (profile.apiKey.any { it.code < 32 || it.code > 126 }) return "The API key contains invalid characters."
             if (profile.apiKey.isBlank() && profile.provider !in listOf(Provider.CUSTOM, Provider.FREELLM, Provider.OLLAMA)) return "Enter the API key for ${profile.provider.label}."
