@@ -52,13 +52,13 @@ Tap the model name in chat, expand a provider, then select a catalog model or en
 
 For DeepSeek, use its preset and a direct DeepSeek API key. A FreeLLMAPI/OpenRouter key belongs in that gateway's profile. Fetch current model IDs instead of guessing. HTTP 402 means insufficient provider balance; 429 can mean rate or quota limits.
 
-Open **Chat options → Coding canvas**, or use the canvas icon on a code block. Code is saved per conversation. Explain/Review/Fix/Optimize prepare a draft for you to inspect and send. Code is never executed locally.
+Open **Chat options → Coding canvas**, or use the canvas icon on a code block. Code is saved per conversation. Explain/Review/Fix/Optimize prepare a draft for you to inspect and send. JavaScript snippets can run locally in a bounded Rhino interpreter without Java interop; HTML preview is a separate feature.
 
 Open **Chat options → Create image or video**. Images use Gemini's image-capable `generateContent` route or a compatible `/images/generations` endpoint. Videos use `/videos`, job polling and content download. Enter a media model ID with account access; the app confirms potentially billable submissions. This does not change your chat model. Video jobs can be resumed; stopping local waiting does not cancel remote generation or billing.
 
 ## Auto and agent customization
 
-Open **Auto · all providers** in the model picker and turn on the single **Auto** switch. It discovers configured providers, checks ranked candidates and selects one that responds. The combined model pool shows availability and provider inclusion controls. Auto may send chat history and agent context to several enabled providers; normal API charges apply. It uses recent access results, measured latency and task/favorite hints, with up to six attempts and a 25-second chat first-text timeout. Interrupted partial replies are preserved, with automatic continuation in a separate model-labeled reply. Availability and ranking are estimates, not guaranteed quota or model quality.
+Open **Auto · all providers** in the model picker and turn on the single **Auto** switch. It discovers configured providers, checks ranked candidates and selects one that responds. The combined model pool shows availability and provider inclusion controls. Auto may send chat history and agent context to several enabled providers; normal API charges apply. It uses recent access results, measured latency and task/favorite hints, with up to six attempts from up to eight candidates and a 45-second first-token timeout. Availability probes can run for up to 20 seconds. Interrupted partial replies are preserved, with automatic continuation in a separate model-labeled reply. Availability and ranking are estimates, not guaranteed quota or model quality.
 
 Open **Chat options → Agent · skills & memory** for persistent persona, instructions, editable memory and prompt skills. Paste text, import UTF-8 files, or load direct HTTPS raw-text URLs, then review and save. Executable plugins and tool runtimes are not installed. Agent settings are encrypted locally and included in provider-native system instructions when enabled.
 
