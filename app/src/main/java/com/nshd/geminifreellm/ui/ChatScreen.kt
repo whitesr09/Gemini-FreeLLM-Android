@@ -140,7 +140,7 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
             })
         }, bottomBar = {
             Box(Modifier.fillMaxWidth().imePadding().navigationBarsPadding(), contentAlignment = Alignment.Center) {
-                Composer(chat, busy, state.preparing, vm::draft, { if (state.settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); vm.send() }, vm::stop,
+                Composer(chat, busy, state.settings.reducedMotion, state.preparing, vm::draft, { if (state.settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); vm.send() }, vm::stop,
                     skills = state.settings.agent.invokableSkills(),
                     onAttach = { attachmentPicker.launch(arrayOf("image/*", "text/*", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/json")) },
                     onVoice = {
@@ -435,7 +435,7 @@ private fun AttachmentLabel(file: Attachment, onRemove: (() -> Unit)? = null) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Composer(chat: Conversation, busy: Boolean, preparing: Boolean, onChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit,
+private fun Composer(chat: Conversation, busy: Boolean, reducedMotion: Boolean, preparing: Boolean, onChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit,
                      onAttach: () -> Unit, onVoice: () -> Unit, onRemove: (String) -> Unit, skills: List<AgentSkill> = emptyList()) {
     Column(Modifier.widthIn(max = Design.readingWidth).fillMaxWidth().padding(horizontal = Design.medium, vertical = Design.small), verticalArrangement = Arrangement.spacedBy(Design.small)) {
         if (chat.attachments.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(Design.small)) {
@@ -448,7 +448,11 @@ private fun Composer(chat: Conversation, busy: Boolean, preparing: Boolean, onCh
             if (slashQuery == null) emptyList()
             else skills.filter { it.name.contains(slashQuery, ignoreCase = true) }.take(5)
         }
-        if (skillMatches.isNotEmpty() && !busy) {
+        AnimatedVisibility(
+            visible = skillMatches.isNotEmpty() && !busy,
+            enter = if (reducedMotion) EnterTransition.None else expandVertically() + fadeIn(tween(140)),
+            exit = if (reducedMotion) ExitTransition.None else shrinkVertically() + fadeOut(tween(100))
+        ) {
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
                 Column(Modifier.padding(vertical = Design.tiny)) {
                     skillMatches.forEach { skill ->
@@ -461,7 +465,8 @@ private fun Composer(chat: Conversation, busy: Boolean, preparing: Boolean, onCh
                 }
             }
         }
-        Surface(shape = Design.composer, color = MaterialTheme.colorScheme.surfaceContainer, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Surface(shape = Design.composer, color = MaterialTheme.colorScheme.surfaceContainer, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.animateContentSize(animationSpec = tween(if (reducedMotion) 0 else 180))) {
             Row(Modifier.padding(Design.tiny), verticalAlignment = Alignment.Bottom) {
                 IconButton(onClick = onAttach, enabled = !busy && !preparing) { Icon(Icons.Outlined.Add, "Attach a file") }
                 BasicTextField(chat.draft, onChange, modifier = Modifier.weight(1f).heightIn(min = Design.touch)
