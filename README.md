@@ -82,7 +82,7 @@ export ANDROID_HOME=/path/to/android/sdk
 ```
 
 Debug APK: `app/build/outputs/apk/debug/app-debug.apk`.
-Release APK: `app/build/outputs/apk/release/app-release-unsigned.apk` (configure your own signing for distribution).
+Local release APK: `app/build/outputs/apk/release/app-release-unsigned.apk` unless you configure signing. Trusted CI builds also upload a `Gemini-FreeLLM-release-signed` artifact when all four CI signing secrets are configured; pull-request builds never receive those secrets.
 
 ### Identify the installed build
 
