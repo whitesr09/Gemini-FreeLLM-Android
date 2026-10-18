@@ -19,4 +19,14 @@ class MarkdownTest {
         assertNull(markdownTable("a|b\nnot|separator"))
         assertNull(markdownTable("a|b\n---|---\na|b|c"))
     }
+    @Test fun shorterFenceInsideLongFenceDoesNotCloseCodeBlock() {
+        val blocks = markdownBlocks("````kotlin\nval marker = \"```\"\nval a = 1\n````\nAfter")
+        assertEquals(MarkdownBlock("val marker = \"```\"\nval a = 1", "kotlin"), blocks[0])
+        assertEquals(MarkdownBlock("After"), blocks[1])
+    }
+    @Test fun tildeFencesAreRecognized() {
+        assertEquals(listOf(MarkdownBlock("val a = 1", "kotlin"), MarkdownBlock("After")),
+            markdownBlocks("~~~kotlin\nval a = 1\n~~~\nAfter"))
+    }
+
 }
