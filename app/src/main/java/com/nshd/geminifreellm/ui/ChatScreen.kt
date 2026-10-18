@@ -69,7 +69,7 @@ fun FreeLlmApp(vm: ChatViewModel) {
                 }
             }
             diagnostics -> DiagnosticsScreen(vm.diagnostics, onAsk = { vm.diagnose(it); diagnostics = false; settings = false }, onBack = { diagnostics = false })
-            settings -> SettingsScreen(state.settings, vm.client, vm::saveSettings, { settings = false },
+            settings -> SettingsScreen(state.settings, vm::testConnection, vm::saveSettings, { settings = false },
                 initialProvider = settingsProvider?.let(Provider::valueOf) ?: state.settings.selected, onDiagnostics = { diagnostics = true },
                 onExportBackup = vm::exportBackup, onImportBackup = vm::importBackup)
             else -> ChatWorkspace(state, vm, onSettings = { settingsProvider = null; settings = true },
