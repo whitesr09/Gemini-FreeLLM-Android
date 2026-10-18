@@ -63,7 +63,7 @@ jobs:
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --stacktrace
 
       - name: Validate and build trusted APKs
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: (github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || github.event_name == 'workflow_dispatch'
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -73,7 +73,7 @@ jobs:
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --stacktrace
 
       - name: Validate and build non-main branch APKs
-        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main' && github.event_name != 'workflow_dispatch'
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
