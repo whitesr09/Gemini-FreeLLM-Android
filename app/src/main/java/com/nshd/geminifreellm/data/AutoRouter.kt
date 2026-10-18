@@ -3,6 +3,7 @@ package com.nshd.geminifreellm.data
 import com.nshd.geminifreellm.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.selects.select
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -170,7 +171,7 @@ object AutoRouter {
         onWinnerChunk: (String) -> Unit,
         request: suspend (ProviderProfile, (String) -> Unit) -> String,
     ): AttemptOutcome = supervisorScope {
-        val partials = mutableMapOf<ProviderProfile, String>()
+        val partials = ConcurrentHashMap<ProviderProfile, String>()
         val winner = AtomicReference<ProviderProfile?>(null)
         val lastChunkAt = AtomicLong(System.currentTimeMillis())
         val attemptStart = System.currentTimeMillis()
