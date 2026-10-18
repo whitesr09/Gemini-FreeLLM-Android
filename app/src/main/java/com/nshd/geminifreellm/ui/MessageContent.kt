@@ -98,29 +98,40 @@ fun MessageContent(text: String, onCanvas: (String, String) -> Unit = { _, _ -> 
     Column(verticalArrangement = Arrangement.spacedBy(Design.medium)) {
         blocks.forEachIndexed { index, block ->
             key(index) {
-                if (block.language != null) CodeBlock(block, onCanvas)
-                else SelectionContainer {
-                    Column(verticalArrangement = Arrangement.spacedBy(Design.small)) {
-                        // Paragraph blocks keep long responses inexpensive; no composable per token.
-                        block.text.split(MARKDOWN_PARAGRAPH_BREAK).flatMap(::splitHeadingAndBody).forEach { paragraph ->
-                        val heading = MARKDOWN_HEADING_CONTENT.matchEntire(paragraph)
-                        val table = markdownTable(paragraph)
-                        val quote = paragraph.startsWith("> ")
-                        val displayed = when {
-                            heading != null -> heading.groupValues[2]
-                            quote -> paragraph.lineSequence().joinToString("\n") { it.removePrefix("> ") }
-                            else -> paragraph.replace(MARKDOWN_LIST_MARKER, "$1• ")
+                if (block.language != null) {
+                    CodeBlock(block, onCanvas)
+                } else {
+                    SelectionContainer {
+                        Column(verticalArrangement = Arrangement.spacedBy(Design.small)) {
+                            // Paragraph blocks keep long responses inexpensive; no composable per token.
+                            block.text.split(MARKDOWN_PARAGRAPH_BREAK).flatMap(::splitHeadingAndBody).forEach { paragraph ->
+                                val heading = MARKDOWN_HEADING_CONTENT.matchEntire(paragraph)
+                                val table = markdownTable(paragraph)
+                                val quote = paragraph.startsWith("> ")
+                                val displayed = when {
+                                    heading != null -> heading.groupValues[2]
+                                    quote -> paragraph.lineSequence().joinToString("\n") { it.removePrefix("> ") }
+                                    else -> paragraph.replace(MARKDOWN_LIST_MARKER, "$1• ")
+                                }
+                                if (paragraph.trim() in listOf("---", "***", "___")) {
+                                    HorizontalDivider(Modifier.padding(vertical = Design.small))
+                                } else if (table != null) {
+                                    MarkdownTable(table)
+                                } else {
+                                    Text(
+                                        inlineMarkdown(displayed),
+                                        modifier = if (quote) Modifier
+                                            .background(MaterialTheme.colorScheme.surfaceContainer, Design.card)
+                                            .padding(Design.medium) else Modifier,
+                                        style = when {
+                                            heading != null && heading.groupValues[1].length <= 2 -> MaterialTheme.typography.titleLarge
+                                            heading != null -> MaterialTheme.typography.titleMedium
+                                            else -> MaterialTheme.typography.bodyLarge
+                                        }
+                                    )
+                                }
+                            }
                         }
-                        if (paragraph.trim() in listOf("---", "***", "___")) HorizontalDivider(Modifier.padding(vertical = Design.small))
-                        else if (table != null) MarkdownTable(table)
-                        else Text(inlineMarkdown(displayed),
-                            modifier = if (quote) Modifier.background(MaterialTheme.colorScheme.surfaceContainer, Design.card).padding(Design.medium)
-                                else Modifier,
-                            style = when {
-                                heading != null && heading.groupValues[1].length <= 2 -> MaterialTheme.typography.titleLarge
-                                heading != null -> MaterialTheme.typography.titleMedium
-                                else -> MaterialTheme.typography.bodyLarge
-                            })
                     }
                 }
             }
@@ -237,7 +248,7 @@ internal fun markdownTable(text: String): MarkdownTableData? {
     val lines = text.trim().lines()
     if (lines.size < 2) return null
     fun cells(line: String) = line.trim().removePrefix("|").removeSuffix("|")
-        .split(Regex("(?<!\\\\)\\|")).map { it.trim().replace("\\|", "|") }
+        .split(MARKDOWN_TABLE_CELLS).map { it.trim().replace("\\|", "|") }
     val header = cells(lines.first())
     val separator = cells(lines[1])
     if (header.size !in 2..12 || separator.size != header.size || separator.any { !MARKDOWN_TABLE_SEPARATOR.matches(it) }) return null
