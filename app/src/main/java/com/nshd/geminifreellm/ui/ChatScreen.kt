@@ -50,6 +50,18 @@ import java.text.DateFormat
 import java.util.Date
 
 
+/** Routes explicit phone actions first; all other recognized speech remains normal chat dictation. */
+internal fun handleVoiceTranscript(
+    context: android.content.Context,
+    transcript: String,
+    onDraft: (String) -> Unit,
+    onNotice: (String?) -> Unit
+) {
+    if (!executeVoiceAppLaunch(context, transcript) { onNotice(it) }) {
+        onDraft(transcript.trim())
+    }
+}
+
 /** Parses explicit, direct app-launch phrases; other speech remains ordinary chat dictation. */
 internal enum class VoiceSystemAction { GENERAL_SETTINGS, WIFI_SETTINGS, BLUETOOTH_SETTINGS }
 
@@ -170,9 +182,7 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::attach) }
     val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { transcript ->
-            if (!executeVoiceAppLaunch(context, transcript) { vm.notice(it) }) {
-                vm.draft(listOf(vm.state.value.active?.draft.orEmpty(), transcript).filter { value -> value.isNotBlank() }.joinToString(" "))
-            }
+            handleVoiceTranscript(context, transcript, vm::draft, vm::notice)
         }
     }
     LaunchedEffect(state.notice) {
