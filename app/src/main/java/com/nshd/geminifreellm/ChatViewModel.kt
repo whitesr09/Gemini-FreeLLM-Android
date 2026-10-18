@@ -458,12 +458,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 // Seamless: the same bubble keeps streaming; the next attempt's
                                 // chunks are appended after the preserved prefix, with a
                                 // continuation instruction in the request history.
-                                continuationPrefix = partial
+                                continuationPrefix += partial
                                 requestHistory = requestHistory + ChatMessage(text = partial, role = ChatMessage.Role.ASSISTANT) +
                                     ChatMessage(text = "The previous reply was interrupted. Continue from its last unfinished point, preserve the user's requirements, and avoid repeating completed content.", role = ChatMessage.Role.USER)
                             })
                         profile = winner
-                        reply
+                        continuationPrefix + reply
                     }
                     else client.generate(profile, history, systemPrompt) { updates.trySend(replyId to it) }
                 } finally { updates.close(); collector.join() }
