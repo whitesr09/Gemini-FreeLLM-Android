@@ -46,7 +46,16 @@ object BackupManager {
                     .put("createdAt", System.currentTimeMillis()).toString().toByteArray())
                 zip.closeEntry()
                 zip.addFile(File(filesDir, CREDENTIALS), CREDENTIALS)
-                zip.addFile(File(filesDir, HISTORY), HISTORY)
+                val historyFile = File(filesDir, HISTORY)
+                if (historyFile.isFile) {
+                    zip.addFile(historyFile, HISTORY)
+                } else {
+                    // A fresh install may not have saved history yet, but every exported
+                    // archive must still satisfy the importer's required history entry.
+                    zip.putNextEntry(ZipEntry(HISTORY))
+                    zip.write(conversationsToJson(emptyList()).put("active", "").toString().toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
                 File(filesDir, ATTACHMENTS).listFiles()?.forEach { file ->
                     if (file.isFile) zip.addFile(file, "$ATTACHMENTS/${file.name}")
                 }
