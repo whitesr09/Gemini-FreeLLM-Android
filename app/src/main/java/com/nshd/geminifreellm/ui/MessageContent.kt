@@ -77,6 +77,13 @@ internal fun markdownBlocks(text: String): List<MarkdownBlock> {
     return blocks
 }
 
+internal fun splitHeadingAndBody(paragraph: String): List<String> {
+    val firstLine = paragraph.substringBefore('\n')
+    return if ('\n' in paragraph && Regex("^(#{1,6})\\s+.*$").matches(firstLine))
+        listOf(firstLine, paragraph.substringAfter('\n'))
+    else listOf(paragraph)
+}
+
 @Composable
 fun MessageContent(text: String, onCanvas: (String, String) -> Unit = { _, _ -> }) {
     val blocks = remember(text) { markdownBlocks(text) }
@@ -86,13 +93,7 @@ fun MessageContent(text: String, onCanvas: (String, String) -> Unit = { _, _ -> 
             else SelectionContainer {
                 Column(verticalArrangement = Arrangement.spacedBy(Design.small)) {
                     // Paragraph blocks keep long responses inexpensive; no composable per token.
-                    block.text.split(Regex("\n\\s*\n"))
-                        .flatMap { paragraph ->
-                            val firstLine = paragraph.substringBefore('\n')
-                            if ('\n' in paragraph && Regex("^(#{1,6})\\s+.*$").matches(firstLine))
-                                listOf(firstLine, paragraph.substringAfter('\n'))
-                            else listOf(paragraph)
-                        }.forEach { paragraph ->
+                    block.text.split(Regex("\\n\\s*\\n")).flatMap(::splitHeadingAndBody).forEach { paragraph ->
                         val heading = Regex("^(#{1,6})\\s+(.*)").matchEntire(paragraph)
                         val table = markdownTable(paragraph)
                         val quote = paragraph.startsWith("> ")
