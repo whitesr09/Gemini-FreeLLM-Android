@@ -534,8 +534,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 // Seamless: the same bubble keeps streaming; the next attempt's
                                 // chunks are appended after the preserved prefix, with a
                                 // continuation instruction in the request history.
-                                continuationPrefix += partial
-                                requestHistory = requestHistory + ChatMessage(text = partial, role = ChatMessage.Role.ASSISTANT) +
+                                // AutoRouter reports the full accumulated partial (including the
+                                // existing prefix), not just the newly received suffix.
+                                val added = partial.removePrefix(continuationPrefix)
+                                continuationPrefix = partial
+                                requestHistory = requestHistory + ChatMessage(text = added, role = ChatMessage.Role.ASSISTANT) +
                                     ChatMessage(text = "The previous reply was interrupted. Continue from its last unfinished point, preserve the user's requirements, and avoid repeating completed content.", role = ChatMessage.Role.USER)
                             })
                         profile = winner
