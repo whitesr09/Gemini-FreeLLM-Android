@@ -43,6 +43,16 @@ class WorkspaceUiTest {
         }
         compose.waitUntil(10_000) { compose.onAllNodesWithText("What can I help with?").fetchSemanticsNodes().isNotEmpty() }
     }
+
+    @Test fun voiceAppLaunchParserOnlyAcceptsExplicitLaunchPhrases() {
+        Assert.assertEquals("WhatsApp", parseVoiceAppLaunchCommand("Open WhatsApp"))
+        Assert.assertEquals("Settings", parseVoiceAppLaunchCommand("please launch Settings"))
+        Assert.assertEquals("YouTube", parseVoiceAppLaunchCommand("switch to YouTube"))
+        Assert.assertNull(parseVoiceAppLaunchCommand("What is the weather today?"))
+        Assert.assertNull(parseVoiceAppLaunchCommand("open"))
+        Assert.assertNull(parseVoiceAppLaunchCommand("I want to open WhatsApp"))
+    }
+
     @Test fun homeDrawerAndVersionRender() {
         ready()
         compose.onNodeWithContentDescription("Message").assertExists()
