@@ -87,8 +87,11 @@ fun MediaScreen(settings: AppSettings, onBack: () -> Unit) {
                 Button(onClick = { notice = null; noticeError = false; confirm = true }, enabled = !state.loading && !state.storageBlocked && state.busyId == null && profile != null && model.isNotBlank() && prompt.isNotBlank() &&
                     (kind != MediaKind.VIDEO.name || profile.provider.protocol == ApiProtocol.OPENAI), modifier = Modifier.fillMaxWidth()) { Text("Create ${kind.lowercase()}") }
                 if (state.busyId != null) OutlinedButton(onClick = vm::stop, modifier = Modifier.fillMaxWidth()) { Text("Stop waiting") }
-                (notice ?: state.notice)?.let { message ->
-                    Text(message, color = if (state.notice != null || noticeError) MaterialTheme.colorScheme.error
+                state.notice?.let { message ->
+                    Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                }
+                notice?.let { message ->
+                    Text(message, color = if (noticeError) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                 }
             }
