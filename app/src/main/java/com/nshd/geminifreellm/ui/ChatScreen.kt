@@ -167,8 +167,13 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
     var canvas by rememberSaveable { mutableStateOf(false) }
     var pendingCanvas by remember { mutableStateOf<CanvasDocument?>(null) }
     var media by rememberSaveable { mutableStateOf(false) }
+    var jarvis by rememberSaveable { mutableStateOf(false) }
     if (canvas) { CanvasScreen(chat.canvas, vm::saveCanvas, vm::askAboutCanvas, { canvas = false }); return }
     if (media) { MediaScreen(state.settings, { media = false }); return }
+    if (jarvis) {
+        JarvisScreen(state.settings, vm, onBack = { jarvis = false }, onSettings = { jarvis = false; onSettings() }, onChat = { jarvis = false })
+        return
+    }
     val keyboard = LocalSoftwareKeyboardController.current
     val haptics = LocalHapticFeedback.current
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -208,6 +213,9 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
                 IconButton(onClick = { scope.launch { drawer.open() } }) { Icon(Icons.AutoMirrored.Outlined.MenuOpen, "Open chat history") }
             }, actions = {
                 IconButton(onClick = { vm.newChat(); keyboard?.hide() }) { Icon(Icons.Outlined.Edit, "New chat") }
+                IconButton(onClick = { keyboard?.hide(); jarvis = true }) {
+                    Icon(Icons.Outlined.AutoAwesome, "Open Jarvis assistant", tint = MaterialTheme.colorScheme.primary)
+                }
                 var overflow by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { overflow = true }) { Icon(Icons.Outlined.MoreHoriz, "Chat options") }
