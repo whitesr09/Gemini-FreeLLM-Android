@@ -81,10 +81,12 @@ object BackupManager {
                     var sawManifest = false
                     var entryCount = 0
                     var totalBytes = 0L
+                    val seenEntries = mutableSetOf<String>()
                     var entry = zip.nextEntry
                     while (entry != null) {
                         if (++entryCount > MAX_ENTRIES) throw BackupException("Backup contains too many files.")
                         val name = entry.name
+                        if (!seenEntries.add(name)) throw BackupException("Backup contains duplicate file entries.")
                         if (entry.isDirectory || !isAllowedEntry(name)) {
                             throw BackupException("Backup contains an unsupported or unsafe path.")
                         }
