@@ -198,7 +198,8 @@ class WorkspaceUiTest {
         compose.runOnIdle { (compose.activity.application as FreeLlmApplication).diagnostics.record("Storage", error = IllegalStateException("synthetic-private-message")) }
         compose.onNodeWithContentDescription("Chat options").performClick()
         compose.onNode(hasText("Settings") and hasAnyAncestor(isPopup())).performClick()
-        compose.onNodeWithContentDescription("About settings, collapsed").performClick()
+        compose.onNodeWithContentDescription("About settings, collapsed").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Error log & AI troubleshooting").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Error log & AI troubleshooting").performScrollTo().performClick()
         compose.onNodeWithText("Ask AI to explain").performClick()
         compose.onNodeWithText("Review in chat").performClick()
