@@ -56,6 +56,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
     var status by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
+    var connectionTestToken by remember { mutableIntStateOf(0) }
     var saving by remember { mutableStateOf(false) }
     var discard by rememberSaveable { mutableStateOf(false) }
     var openDiagnosticsAfterDiscard by remember { mutableStateOf(false) }
@@ -78,6 +79,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
     fun leave() { if (!saving) { if (snapshot() != initialDraft) discard = true else onBack() } }
     val latestProfile by rememberUpdatedState(profile)
     fun update(value: ProviderProfile) {
+        connectionTestToken++
         working = false; status = null; models = null; profile = value
     }
     BackHandler { leave() }
@@ -137,11 +139,12 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                     singleLine = true, supportingText = { Text("Use the exact ID from your provider. Free tiers and quotas depend on the provider.") })
                 OutlinedButton(enabled = !working && FreeLlmApiClient.validate(profile, false) == null, onClick = {
                     val testedProfile = profile
+                    val requestId = ++connectionTestToken
                     scope.launch {
                         working = true; status = null; error = false
                         try {
                             val result = onTestConnection(testedProfile)
-                            if (latestProfile == testedProfile) {
+                            if (connectionTestToken == requestId && latestProfile == testedProfile) {
                                 models = result.models
                                 status = result.message
                                 error = result.error
@@ -154,7 +157,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                                 status = failure.message ?: "Connection test failed."
                             }
                         } finally {
-                            if (latestProfile == testedProfile) working = false
+                            if (connectionTestToken == requestId) working = false
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) { Text(if (working) "Checking connection…" else "Test connection & find models") }
@@ -175,7 +178,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                                 val filtered = catalog.filter { it.contains(query, true) }
                                 items(filtered.size, key = { filtered[it] }) { index ->
                                     val id = filtered[index]
-                                    TextButton(onClick = { profile = profile.copy(model = id); showModels = false }, modifier = Modifier.fillMaxWidth()) {
+                                    TextButton(onClick = { update(profile.copy(model = id)); showModels = false }, modifier = Modifier.fillMaxWidth()) {
                                         Text(id, maxLines = 3, overflow = TextOverflow.Ellipsis)
                                     }
                                 }
