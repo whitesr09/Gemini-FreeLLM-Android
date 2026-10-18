@@ -151,8 +151,9 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     // line, so cursor mapping stays exact); search highlighting shifts with them.
     val transform = remember(query, highlight, highlightText, gutterColor) { VisualTransformation { original ->
         val text = original.text
-        val prefixLen = 7 // "%4d │ " is always 7 chars; numbers past 9999 are truncated
-        fun prefix(n: Int) = "%4d │ ".format(Locale.US, n).takeLast(prefixLen)
+        val numberWidth = maxOf(4, (text.count { it == '\n' } + 1).toString().length)
+        val prefixLen = numberWidth + 3 // number + space + gutter bar + space
+        fun prefix(n: Int) = "%${numberWidth}d │ ".format(Locale.US, n)
         val mapping = CanvasOffsetMapping(text, prefixLen)
         val result = buildAnnotatedString {
             val lines = if (text.isEmpty()) listOf("") else text.split('\n')
