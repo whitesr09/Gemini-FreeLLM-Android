@@ -50,11 +50,20 @@ fun ThinkingOrb(
     color: Color = MaterialTheme.colorScheme.primary,
 ) {
     val animate = motionEnabled()
-    // Hoisted unconditionally: a conditional rememberInfiniteTransition would
-    // bind to the wrong slot if the motion setting flips mid-composition.
-    val clock by rememberInfiniteTransition(label = "ThinkingOrb")
-        .animateFloat(0f, 1f, infiniteRepeatable(tween(4200, easing = LinearEasing)), label = "ThinkingOrb clock")
-    val t = if (animate) clock else 0.6f // reduced motion: one static representative frame
+    // A cancellable animation loop stops completely when reduced motion is enabled.
+    val clock = remember { Animatable(0f) }
+    LaunchedEffect(animate) {
+        if (animate) {
+            clock.snapTo(0f)
+            while (true) {
+                clock.animateTo(1f, animationSpec = tween(4200, easing = LinearEasing))
+                clock.snapTo(0f)
+            }
+        } else {
+            clock.snapTo(0.6f)
+        }
+    }
+    val t = clock.value
     // Precompute in px: inside the Canvas draw scope, `size` means the canvas Size and would shadow the Dp param.
     val px = with(LocalDensity.current) { size.toPx() }
     Canvas(modifier.size(size)) {
