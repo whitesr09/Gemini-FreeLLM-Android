@@ -126,7 +126,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadCatalog(provider: Provider, force: Boolean = false) {
         val current = mutable.value
-        val profile = current.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)
+        val profile = current.settings.active.takeIf { current.settings.selected == provider }
+            ?: current.settings.profiles.firstOrNull { it.provider == provider }
+            ?: ProviderProfile(provider)
         val cached = current.catalogs[provider]
         if (catalogJobs[provider]?.isActive == true || (!force && cached?.fetchedAt != null && cached.fetchedAt > System.currentTimeMillis() - 300_000)) return
         mutable.update { it.copy(catalogs = it.catalogs + (provider to (cached ?: ModelCatalog()).copy(loading = true, error = null))) }
@@ -150,10 +152,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun selectModel(provider: Provider, model: String): Boolean {
-        val profile = mutable.value.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)
-        FreeLlmApiClient.validate(profile.copy(model = model.trim()))?.let { notice(it); return false }
-        return updateSettings { current -> current.copy(selected = provider, autoRouting = false,
-            profiles = current.profiles.filterNot { it.provider == provider } + profile.copy(model = model.trim())) }
+        val current = mutable.value.settings
+        val profile = current.active.takeIf { current.selected == provider }
+            ?: current.profiles.firstOrNull { it.provider == provider }
+            ?: ProviderProfile(provider)
+        val updated = profile.copy(model = model.trim())
+        FreeLlmApiClient.validate(updated)?.let { notice(it); return false }
+        return updateSettings { settings ->
+            val exists = settings.profiles.any { it.id == updated.id }
+            settings.copy(selected = provider, activeProfileId = updated.id, autoRouting = false,
+                profiles = if (exists) settings.profiles.map { if (it.id == updated.id) updated else it }
+                    else settings.profiles + updated)
+        }
     }
 
     suspend fun setAutoEnabled(enabled: Boolean): Boolean {
@@ -285,7 +295,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkModel(provider: Provider, model: String) {
-        val profile = (mutable.value.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)).copy(model = model)
+        val current = mutable.value.settings
+        val profile = (current.active.takeIf { current.selected == provider }
+            ?: current.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)).copy(model = model)
         val key = modelKey(provider, model)
         if (mutable.value.autoChecking || key in mutable.value.checking || mutable.value.checking.isNotEmpty()) return
         mutable.update { it.copy(checking = it.checking + key) }
@@ -303,7 +315,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun markAccess(profile: ProviderProfile, access: AccessState, latencyMs: Long = 0) {
-        val configured = mutable.value.settings.profiles.firstOrNull { it.provider == profile.provider } ?: ProviderProfile(profile.provider)
+        val configured = mutable.value.settings.profiles.firstOrNull { it.id == profile.id }
+            ?: mutable.value.settings.profiles.firstOrNull { it.provider == profile.provider }
+            ?: ProviderProfile(profile.provider)
         if (configured.apiKey == profile.apiKey && configured.baseUrl == profile.baseUrl)
             mutable.update { it.copy(access = it.access + (modelKey(profile.provider, profile.model) to ModelAccess(access, latencyMs = latencyMs.coerceAtLeast(0))),
                 autoChoice = if (access != AccessState.USABLE && it.autoChoice == "${profile.provider.label} · ${profile.model}") null else it.autoChoice) }
@@ -401,7 +415,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }) }
         try {
             withContext(Dispatchers.IO) { store.saveSettings(settings) }
-            val changed = settings.profiles.filter { profile -> old.profiles.firstOrNull { it.provider == profile.provider }?.let {
+            val changed = settings.profiles.filter { profile -> old.profiles.firstOrNull { it.id == profile.id }?.let {
                 it.apiKey != profile.apiKey || it.baseUrl != profile.baseUrl
             } ?: true }.map { it.provider }.toSet()
             if (changed.isNotEmpty() || old.autoExcluded != settings.autoExcluded || (old.autoRouting && !settings.autoRouting)) stopAutoCheck()
