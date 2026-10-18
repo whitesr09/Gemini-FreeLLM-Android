@@ -43,6 +43,7 @@ fun MediaScreen(settings: AppSettings, onBack: () -> Unit) {
     var exportItem by remember { mutableStateOf<MediaViewModel.JobItem?>(null) }
     var preview by remember { mutableStateOf<Attachment?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+    var noticeError by remember { mutableStateOf(false) }
     // A fresh ViewModel result (especially a generation failure) supersedes stale local export notices.
     LaunchedEffect(state.notice) { if (state.notice != null) notice = null }
     val profile = choices.firstOrNull { it.provider.name == provider }
@@ -56,6 +57,7 @@ fun MediaScreen(settings: AppSettings, onBack: () -> Unit) {
                 File(item.localPath).inputStream().use { input -> checkNotNull(context.contentResolver.openOutputStream(uri)).use { input.copyTo(it) } }
                 "Creation exported"
             }.getOrDefault("Could not export this creation") }
+            noticeError = notice?.startsWith("Could not") == true
         }
     }
     Scaffold(topBar = { TopAppBar(title = { Text("Create") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to chat") } }) }) { padding ->
@@ -82,10 +84,13 @@ fun MediaScreen(settings: AppSettings, onBack: () -> Unit) {
                 label = { Text("Describe your creation") }, supportingText = { Text("${prompt.length} / 8,000") }) }
             item {
                 Text("Media requests may incur charges. No media is generated until you confirm. Stopping local waiting does not cancel a provider job or its charges.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Button(onClick = { confirm = true }, enabled = !state.loading && !state.storageBlocked && state.busyId == null && profile != null && model.isNotBlank() && prompt.isNotBlank() &&
+                Button(onClick = { notice = null; noticeError = false; confirm = true }, enabled = !state.loading && !state.storageBlocked && state.busyId == null && profile != null && model.isNotBlank() && prompt.isNotBlank() &&
                     (kind != MediaKind.VIDEO.name || profile.provider.protocol == ApiProtocol.OPENAI), modifier = Modifier.fillMaxWidth()) { Text("Create ${kind.lowercase()}") }
                 if (state.busyId != null) OutlinedButton(onClick = vm::stop, modifier = Modifier.fillMaxWidth()) { Text("Stop waiting") }
-                (notice ?: state.notice)?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                (notice ?: state.notice)?.let { message ->
+                    Text(message, color = if (state.notice != null || noticeError) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                }
             }
             item { Text("Your creations · ${state.jobs.size}/30", style = MaterialTheme.typography.titleLarge) }
             if (state.jobs.isEmpty()) item { Text("Generated media stays in this app until you export or delete it.", style = MaterialTheme.typography.bodyMedium) }
@@ -118,7 +123,7 @@ fun MediaScreen(settings: AppSettings, onBack: () -> Unit) {
                             }
                         }
                         Row {
-                            if (item.remoteId.isNotBlank() && item.localPath.isBlank()) TextButton(enabled = state.busyId == null, onClick = { vm.resume(item, settings) }) { Text("Resume / check job") }
+                            if (item.remoteId.isNotBlank() && item.localPath.isBlank()) TextButton(enabled = state.busyId == null, onClick = { notice = null; noticeError = false; vm.resume(item, settings) }) { Text("Resume / check job") }
                             TextButton(enabled = state.busyId == null, onClick = { delete = item }) { Text("Delete locally") }
                         }
                     }
@@ -129,7 +134,7 @@ fun MediaScreen(settings: AppSettings, onBack: () -> Unit) {
     preview?.let { AttachmentPreview(it) { preview = null } }
     if (confirm && profile != null) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("Create ${kind.lowercase()}?") },
         text = { Text("Send this prompt to ${profile.provider.label} using $model. The provider may charge for generation. Your conversation and API keys are not included in the prompt.") },
-        confirmButton = { TextButton(onClick = { confirm = false; vm.create(profile, MediaKind.valueOf(kind), model.trim(), prompt) }) { Text("Create") } },
+        confirmButton = { TextButton(onClick = { confirm = false; notice = null; noticeError = false; vm.create(profile, MediaKind.valueOf(kind), model.trim(), prompt) }) { Text("Create") } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } })
     delete?.let { item -> AlertDialog(onDismissRequest = { delete = null }, title = { Text("Delete local creation?") },
         text = { Text("This removes the saved file and job reference from this device. Provider jobs and exported copies are unaffected.") },
