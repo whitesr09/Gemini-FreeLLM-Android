@@ -60,21 +60,27 @@ android {
 // decode to the identical PNG at build time. To replace it with a directly-committed
 // file, drop the real PNG at app/src/main/res/drawable-nodpi/ic_logo.png and delete
 // this block plus the icon-src directory.
-// Decoded at configuration time (the parts are static) so no task-dependency wiring is needed.
-run {
+// Generate resources as a task so `clean` cannot delete the icon after it was decoded.
+val generateAppIcon by tasks.registering {
     val iconSrcDir = file("icon-src")
-    val generatedIconDir = layout.buildDirectory.dir("generated/res/appIcon").get().asFile.resolve("drawable-nodpi")
-    if (!file("src/main/res/drawable-nodpi/ic_logo.png").exists() && iconSrcDir.isDirectory) {
+    val generatedIcon = layout.buildDirectory.file("generated/res/appIcon/drawable-nodpi/ic_logo.png")
+    inputs.files(fileTree(iconSrcDir) { include("ic_logo.part*.b64") })
+    outputs.file(generatedIcon)
+    doLast {
+        if (file("src/main/res/drawable-nodpi/ic_logo.png").exists()) return@doLast
         val parts = iconSrcDir.listFiles { f -> f.name.matches(Regex("ic_logo\\.part\\d+\\.b64")) }
             ?.sortedBy { it.name }.orEmpty()
         if (parts.isNotEmpty()) {
             val encoded = parts.joinToString("") { it.readText().trim() }
-            generatedIconDir.mkdirs()
-            generatedIconDir.resolve("ic_logo.png").writeBytes(Base64.getDecoder().decode(encoded))
+            generatedIcon.get().asFile.apply {
+                parentFile.mkdirs()
+                writeBytes(Base64.getDecoder().decode(encoded))
+            }
         }
     }
 }
 android.sourceSets.getByName("main").res.srcDir(layout.buildDirectory.dir("generated/res/appIcon"))
+tasks.named("preBuild").configure { dependsOn(generateAppIcon) }
 
 kotlin {
     jvmToolchain(17)
