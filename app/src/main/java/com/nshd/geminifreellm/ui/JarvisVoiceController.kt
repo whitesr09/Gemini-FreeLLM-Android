@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.speech.tts.TextToSpeech
 import java.util.Locale
 
 /**
@@ -21,8 +20,6 @@ internal class JarvisVoiceController(
 ) {
     private val appContext = context.applicationContext
     private var recognizer: SpeechRecognizer? = null
-    private var tts: TextToSpeech? = null
-    private var ttsReady = false
     private var released = false
 
     init {
@@ -67,12 +64,6 @@ internal class JarvisVoiceController(
                 })
             }
         }
-        tts = TextToSpeech(appContext) { status ->
-            ttsReady = status == TextToSpeech.SUCCESS
-            if (ttsReady) {
-                tts?.language = Locale.getDefault()
-            }
-        }
     }
 
     fun startListening() {
@@ -83,7 +74,6 @@ internal class JarvisVoiceController(
             return
         }
         runCatching {
-            tts?.stop()
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
@@ -99,19 +89,9 @@ internal class JarvisVoiceController(
         }
     }
 
-    fun stopListening() {
-        runCatching { recognizer?.stopListening() }
+    fun cancelListening() {
+        runCatching { recognizer?.cancel() }
         onListeningChanged(false)
-    }
-
-    fun speak(text: String) {
-        if (!released && ttsReady && text.isNotBlank()) {
-            tts?.speak(text.take(500), TextToSpeech.QUEUE_FLUSH, null, "jarvis-response")
-        }
-    }
-
-    fun stopSpeaking() {
-        runCatching { tts?.stop() }
     }
 
     fun release() {
@@ -119,8 +99,6 @@ internal class JarvisVoiceController(
         released = true
         runCatching { recognizer?.cancel(); recognizer?.destroy() }
         recognizer = null
-        runCatching { tts?.stop(); tts?.shutdown() }
-        tts = null
         onListeningChanged(false)
     }
 }
