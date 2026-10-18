@@ -171,7 +171,8 @@ internal fun splitThink(text: String): Triple<String, String, Boolean> {
         thoughts.append(text.substring(contentStart, end).trim())
         cursor = end + "</think>".length
     }
-    return Triple(body.toString(), thoughts.toString(), stillOpen)
+    val visibleBody = if (thoughts.isNotEmpty()) body.toString().trimEnd(' ', '\t') else body.toString()
+    return Triple(visibleBody, thoughts.toString(), stillOpen)
 }
 
 @Composable
