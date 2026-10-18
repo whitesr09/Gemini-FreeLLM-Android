@@ -109,6 +109,32 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
         }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState())
                 .padding(horizontal = Design.page, vertical = Design.medium), verticalArrangement = Arrangement.spacedBy(Design.medium)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = Design.small),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Surface(
+                        modifier = Modifier.size(44.dp),
+                        shape = RoundedCornerShape(15.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.62f)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(26.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Gemini", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Free LLM AI", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Text("Your models, one space", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
                 SettingsCategory(
                     title = "Connection", subtitle = "API key, provider and model management",
                     icon = Icons.Outlined.VpnKey, expanded = expandedSection == "connection",
