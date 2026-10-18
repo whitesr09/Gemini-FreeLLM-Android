@@ -65,7 +65,7 @@ internal class CanvasOffsetMapping(private val text: String, private val prefixL
         var line = 0
         while (low <= high) {
             val mid = (low + high) ushr 1
-            if (lineStarts[mid] + (mid + 1) * prefixLen <= bounded) {
+            if (lineStarts[mid] + mid * prefixLen <= bounded) {
                 line = mid
                 low = mid + 1
             } else {
