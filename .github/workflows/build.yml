@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, phase2/settings-canvas-compact]
   pull_request:
   workflow_dispatch:
 
@@ -39,7 +39,7 @@ jobs:
       # Secrets are never exposed to pull-request builds from untrusted code.
       - name: Decode CI signing keystore
         id: signing
-        if: (github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || github.event_name == 'workflow_dispatch'
+        if: (github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || (github.ref == 'refs/heads/phase2/settings-canvas-compact' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
         env:
           ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
           ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
@@ -63,7 +63,7 @@ jobs:
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --stacktrace
 
       - name: Validate and build trusted APKs
-        if: (github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || github.event_name == 'workflow_dispatch'
+        if: (github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || (github.ref == 'refs/heads/phase2/settings-canvas-compact' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -86,7 +86,7 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload signed release APK
-        if: ((github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || github.event_name == 'workflow_dispatch') && steps.signing.outputs.configured == 'true'
+        if: ((github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || (github.ref == 'refs/heads/phase2/settings-canvas-compact' && github.event_name == 'push') || github.event_name == 'workflow_dispatch') && steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Gemini-FreeLLM-release-signed
