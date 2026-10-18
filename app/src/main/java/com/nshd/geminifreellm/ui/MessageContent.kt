@@ -201,7 +201,7 @@ private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) 
             }
             if (allLines.size > 8) Text(
                 if (expanded) "${allLines.size} lines · full code" else "Showing first 8 of ${allLines.size} lines",
-                Modifier.padding(horizontal = Design.medium, bottom = Design.small),
+                Modifier.padding(start = Design.medium, end = Design.medium, bottom = Design.small),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
