@@ -56,14 +56,24 @@ object BackupManager {
 
         context.contentResolver.openOutputStream(uri)?.use { raw ->
             ZipOutputStream(raw.buffered()).use { zip ->
+                var totalWritten = 0L
                 zip.putNextEntry(ZipEntry(MANIFEST))
                 zip.write(manifestBytes)
                 zip.closeEntry()
-                credentialsFile?.let { zip.addFile(it, CREDENTIALS) }
+                totalWritten += manifestBytes.size
+                credentialsFile?.let { file ->
+                    totalWritten += zip.addFile(file, CREDENTIALS, MAX_TOTAL_UNCOMPRESSED_BYTES - totalWritten)
+                }
+                if (historyBytes.size.toLong() > MAX_TOTAL_UNCOMPRESSED_BYTES - totalWritten) {
+                    throw BackupException("Backup exceeds the safe export size limit.")
+                }
                 zip.putNextEntry(ZipEntry(HISTORY))
                 zip.write(historyBytes)
                 zip.closeEntry()
-                attachmentFiles.forEach { file -> zip.addFile(file, "$ATTACHMENTS/${file.name}") }
+                totalWritten += historyBytes.size
+                attachmentFiles.forEach { file ->
+                    totalWritten += zip.addFile(file, "$ATTACHMENTS/${file.name}", MAX_TOTAL_UNCOMPRESSED_BYTES - totalWritten)
+                }
             }
         } ?: throw BackupException("Could not open the destination.")
     }
@@ -79,11 +89,24 @@ object BackupManager {
         }
     }
 
-    private fun ZipOutputStream.addFile(file: File, entryName: String) {
-        if (!file.exists()) return
+    private fun ZipOutputStream.addFile(file: File, entryName: String, maxTotalBytes: Long): Long {
+        if (!file.isFile) return 0L
         putNextEntry(ZipEntry(entryName))
-        file.inputStream().use { it.copyTo(this) }
+        var copied = 0L
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                copied += count
+                if (copied > MAX_ENTRY_BYTES || copied > maxTotalBytes) {
+                    throw BackupException("Backup exceeds the safe export size limit.")
+                }
+                write(buffer, 0, count)
+            }
+        }
         closeEntry()
+        return copied
     }
 
     private const val MAX_ENTRIES = 256
