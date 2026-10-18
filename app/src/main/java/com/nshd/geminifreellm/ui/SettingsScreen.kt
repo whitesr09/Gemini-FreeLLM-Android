@@ -309,7 +309,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(Design.medium)) {
     
-                    OutlinedButton(onClick = { if (snapshot() != settings) { openDiagnosticsAfterDiscard = true; discard = true } else onDiagnostics() }, modifier = Modifier.fillMaxWidth()) { Text("Error log & AI troubleshooting") }
+                    OutlinedButton(onClick = { if (snapshot() != initialDraft) { openDiagnosticsAfterDiscard = true; discard = true } else onDiagnostics() }, modifier = Modifier.fillMaxWidth()) { Text("Error log & AI troubleshooting") }
     
                     Text("FreeLLM AI · Your models, one space", style = MaterialTheme.typography.bodyLarge)
                     Text("Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.BUILD_TYPE}",
