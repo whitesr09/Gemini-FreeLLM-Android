@@ -65,7 +65,7 @@ class WorkspaceUiTest {
         compose.onNodeWithText("Connection").performClick()
         compose.onNodeWithText("API base URL").performScrollTo().assertIsDisplayed()
 
-        compose.onNodeWithText("Personalisation").performClick()
+        compose.onNodeWithText("Personalisation").performScrollTo().performClick()
         compose.onNodeWithText("Persona").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Skills").assertIsDisplayed()
     }
@@ -217,6 +217,7 @@ class WorkspaceUiTest {
         compose.runOnIdle { (compose.activity.application as FreeLlmApplication).diagnostics.record("Storage", error = IllegalStateException("synthetic-private-message")) }
         compose.onNodeWithContentDescription("Chat options").performClick()
         compose.onNode(hasText("Settings") and hasAnyAncestor(isPopup())).performClick()
+        compose.onNodeWithText("Diagnostics").performScrollTo().performClick()
         compose.onNodeWithText("Error log & AI troubleshooting").performScrollTo().performClick()
         compose.onNodeWithText("Ask AI to explain").performClick()
         compose.onNodeWithText("Review in chat").performClick()
