@@ -135,12 +135,12 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                 if (index != lines.lastIndex) append('\n')
             }
             if (query.isNotEmpty()) Regex(Regex.escape(query), RegexOption.IGNORE_CASE).findAll(text).forEach { match ->
-                val shift = lineOf(match.range.first) * prefixLen
+                val shift = (lineOf(match.range.first) + 1) * prefixLen
                 addStyle(SpanStyle(background = highlight, color = highlightText), match.range.first + shift, match.range.last + 1 + shift)
             }
         }
         TransformedText(result, object : OffsetMapping {
-            override fun originalToTransformed(offset: Int) = offset.coerceIn(0, text.length) + lineOf(offset) * prefixLen
+            override fun originalToTransformed(offset: Int) = offset.coerceIn(0, text.length) + (lineOf(offset) + 1) * prefixLen
             override fun transformedToOriginal(offset: Int): Int {
                 val t = offset.coerceIn(0, result.length)
                 var lo = 0; var hi = lineStarts.size - 1; var line = 0
@@ -148,10 +148,11 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                     val mid = (lo + hi) ushr 1
                     if (lineStarts[mid] + mid * prefixLen <= t) { line = mid; lo = mid + 1 } else hi = mid - 1
                 }
-                val lineStartT = lineStarts[line] + line * prefixLen
-                // Taps inside the gutter land at the line start.
-                return if (t - lineStartT < prefixLen) lineStarts[line]
-                else (t - line * prefixLen).coerceIn(lineStarts[line], text.length)
+                val linePrefixStartT = lineStarts[line] + line * prefixLen
+                val lineContentStartT = linePrefixStartT + prefixLen
+                // Taps inside the current line's gutter land at that line's start.
+                return if (t < lineContentStartT) lineStarts[line]
+                else (t - (line + 1) * prefixLen).coerceIn(lineStarts[line], text.length)
             }
         })
     } }
