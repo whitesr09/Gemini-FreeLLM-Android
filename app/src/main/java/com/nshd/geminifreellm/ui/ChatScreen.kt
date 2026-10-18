@@ -138,7 +138,7 @@ fun FreeLlmApp(vm: ChatViewModel) {
     var settings by rememberSaveable { mutableStateOf(false) }
     var diagnostics by rememberSaveable { mutableStateOf(false) }
     var settingsProvider by rememberSaveable { mutableStateOf<String?>(null) }
-    val mode = runCatching { ThemeMode.valueOf(state.settings.theme) }.getOrDefault(ThemeMode.SYSTEM)
+    val mode = runCatching { ThemeMode.valueOf(state.settings.theme) }.getOrDefault(ThemeMode.LIGHT)
     GeminiTheme(mode, state.settings.reducedMotion) {
         when {
             state.loading -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
