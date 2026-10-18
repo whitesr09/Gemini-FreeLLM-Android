@@ -29,19 +29,18 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.nshd.geminifreellm.data.ApiException
 import com.nshd.geminifreellm.data.BackupManager
 import com.nshd.geminifreellm.BuildConfig
 import com.nshd.geminifreellm.data.FreeLlmApiClient
+import com.nshd.geminifreellm.ConnectionTestResult
 import com.nshd.geminifreellm.model.*
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: suspend (AppSettings) -> Boolean, onBack: () -> Unit, initialProvider: Provider = settings.selected, onDiagnostics: () -> Unit = {},
+fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderProfile) -> ConnectionTestResult, onSave: suspend (AppSettings) -> Boolean, onBack: () -> Unit, initialProvider: Provider = settings.selected, onDiagnostics: () -> Unit = {},
     onExportBackup: (Uri) -> Unit = {}, onImportBackup: (Uri) -> Unit = {}) {
     var profiles by remember { mutableStateOf(settings.profiles) }
     var selected by remember { mutableStateOf(initialProvider) }
@@ -64,7 +63,6 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
     // silently redefine what counts as an unsaved local draft.
     val initialDraft = remember { settings.copy(selected = initialProvider,
         profiles = settings.profiles + (if (settings.profiles.none { it.provider == initialProvider }) listOf(ProviderProfile(initialProvider)) else emptyList())) }
-    var probe by remember { mutableStateOf<Job?>(null) }
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -78,8 +76,9 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
         (if (profiles.none { it.provider == selected }) listOf(profile) else emptyList()), selected = selected, theme = theme,
         reducedMotion = reducedMotion, showTimestamps = timestamps, compactSpacing = compact, haptics = haptics, agent = agent)
     fun leave() { if (!saving) { if (snapshot() != initialDraft) discard = true else onBack() } }
+    val latestProfile by rememberUpdatedState(profile)
     fun update(value: ProviderProfile) {
-        probe?.cancel(); working = false; status = null; models = null; profile = value
+        working = false; status = null; models = null; profile = value
     }
     BackHandler { leave() }
     GeminiTheme(runCatching { ThemeMode.valueOf(theme) }.getOrDefault(ThemeMode.SYSTEM), reducedMotion) {
@@ -137,41 +136,26 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
                 OutlinedTextField(profile.model, { update(profile.copy(model = it)) }, Modifier.fillMaxWidth(), label = { Text("Model ID") },
                     singleLine = true, supportingText = { Text("Use the exact ID from your provider. Free tiers and quotas depend on the provider.") })
                 OutlinedButton(enabled = !working && FreeLlmApiClient.validate(profile, false) == null, onClick = {
-                    probe = scope.launch {
+                    val testedProfile = profile
+                    scope.launch {
                         working = true; status = null; error = false
                         try {
-                            // Stage 1: prove the API key works with a tiny real request. Listing
-                            // /models alone is not a connection test — many gateways serve it
-                            // without ever checking the key.
-                            var keyNote: String? = null
-                            val probeProfile = profile.copy(model = profile.model.ifBlank { selected.defaultModel })
-                            try {
-                                client.generate(probeProfile, listOf(ChatMessage(text = "Reply with OK only.", role = ChatMessage.Role.USER))) {}
-                            } catch (auth: ApiException) {
-                                when (auth.access) {
-                                    AccessState.AUTH ->
-                                        throw ApiException("The API key was rejected. Check the key for ${selected.label}.", auth.access, auth.statusCode)
-                                    AccessState.MODEL_REJECTED ->
-                                        throw ApiException("The key may be valid, but this account or model is not permitted. Check model access and provider permissions.", auth.access, auth.statusCode)
-                                    AccessState.QUOTA ->
-                                        throw ApiException("The key works, but this provider's quota or balance is exhausted.", auth.access, auth.statusCode)
-                                    AccessState.UNAVAILABLE ->
-                                        keyNote = "Key looks OK, but the model \"${probeProfile.model}\" was not found — check the model ID and base URL."
-                                    AccessState.RATE_LIMITED ->
-                                        keyNote = "Key accepted, but the provider is rate-limiting right now."
-                                    else -> throw auth
-                                }
+                            val result = onTestConnection(testedProfile)
+                            if (latestProfile == testedProfile) {
+                                models = result.models
+                                status = result.message
+                                error = result.error
                             }
-                            // Stage 2: model discovery is best-effort — its absence is not a failure.
-                            models = try { client.models(profile) } catch (_: Exception) { null }
-                            status = buildString {
-                                append(if (keyNote == null) "Connected · API key verified" else "Connected · $keyNote")
-                                if (models.isNullOrEmpty()) append(" · no model catalog here; enter a model ID manually.")
-                                else append(" · ${models!!.size} models returned. Select one below.")
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            if (latestProfile == testedProfile) {
+                                error = true
+                                status = failure.message ?: "Connection test failed."
                             }
-                        } catch (cancelled: CancellationException) { throw cancelled }
-                        catch (failure: Exception) { error = true; status = (failure as? ApiException)?.message ?: "Connection test failed." }
-                        finally { working = false }
+                        } finally {
+                            if (latestProfile == testedProfile) working = false
+                        }
                     }
                 }, modifier = Modifier.fillMaxWidth()) { Text(if (working) "Checking connection…" else "Test connection & find models") }
                 Text("Sends a tiny test message to verify your API key, then loads the model catalog. Some gateways do not provide model discovery.",
