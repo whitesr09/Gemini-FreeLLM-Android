@@ -19,8 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -212,7 +211,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                 )
                 AnimatedVisibility(visible = expandedSection == "personalisation") {
                     Column(verticalArrangement = Arrangement.spacedBy(Design.medium)) {
-                        PersonalizationSection(agent, { agent = it })
+                        PersonalizationSection(agent, { agent = it }, showSkills = false)
                     }
                 }
 
