@@ -143,7 +143,18 @@ internal fun splitThink(text: String): Triple<String, String, Boolean> {
             body.append(text.substring(cursor))
             break
         }
-        body.append(text.substring(cursor, start))
+        val segment = text.substring(cursor, start)
+        if (cursor > 0 && body.isNotEmpty() &&
+            body.last() in charArrayOf(' ', '\\t') &&
+            segment.firstOrNull() in charArrayOf(' ', '\\t')) {
+            // Normalize only the join created by removing a completed think block;
+            // preserve indentation and whitespace everywhere else (including code).
+            while (body.isNotEmpty() && body.last() in charArrayOf(' ', '\\t')) body.setLength(body.length - 1)
+            body.append(' ')
+            body.append(segment.dropWhile { it == ' ' || it == '\\t' })
+        } else {
+            body.append(segment)
+        }
         val contentStart = start + "<think>".length
         val end = text.indexOf("</think>", contentStart)
         if (end < 0) {
@@ -156,10 +167,7 @@ internal fun splitThink(text: String): Triple<String, String, Boolean> {
         thoughts.append(text.substring(contentStart, end).trim())
         cursor = end + "</think>".length
     }
-    // Removing inline reasoning can leave whitespace on both sides of the removed block.
-    // Collapse horizontal runs without changing intentional paragraph/newline boundaries.
-    val visibleBody = body.toString().replace(Regex("[ \\t]{2,}"), " ").trim()
-    return Triple(visibleBody, thoughts.toString(), stillOpen)
+    return Triple(body.toString(), thoughts.toString(), stillOpen)
 }
 
 @Composable
