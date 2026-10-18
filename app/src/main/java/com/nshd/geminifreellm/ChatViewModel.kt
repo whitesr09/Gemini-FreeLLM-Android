@@ -371,13 +371,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 generation?.join()
                 pendingAttachment?.join()
-                settingsMutex.withLock {
+                val credentialsSkipped = settingsMutex.withLock {
                     historyMutex.withLock {
                         withContext(Dispatchers.IO) { BackupManager.import(getApplication(), uri) }
                     }
                 }
                 reload()
-                notice("Backup restored.")
+                notice(if (credentialsSkipped)
+                    "Backup restored, but its API keys belong to another installation. Enter your API keys again."
+                else "Backup restored.")
             } catch (cancelled: CancellationException) {
                 mutable.update { it.copy(loading = false) }
                 throw cancelled
