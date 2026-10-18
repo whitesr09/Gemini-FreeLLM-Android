@@ -61,6 +61,17 @@ object BackupManager {
         closeEntry()
     }
 
+    private const val MAX_ENTRIES = 256
+    private const val MAX_ENTRY_BYTES = 32L * 1024 * 1024
+    private const val MAX_TOTAL_UNCOMPRESSED_BYTES = 64L * 1024 * 1024
+    private const val MAX_MANIFEST_BYTES = 16L * 1024
+
+    /** Only paths emitted by this app's exporter are accepted. */
+    private fun isAllowedEntry(name: String): Boolean =
+        name == MANIFEST || name == HISTORY || name == CREDENTIALS ||
+            (name.startsWith("$ATTACHMENTS/") &&
+                name.removePrefix("$ATTACHMENTS/").let { it.isNotBlank() && '/' !in it && '\\\\' !in it && it != "." && it != ".." })
+
     /** Validates a backup and restores it over the current data. */
     suspend fun import(context: Context, uri: Uri) = withContext(Dispatchers.IO) {
         val tmp = File(context.cacheDir, "backup-restore").apply { deleteRecursively(); mkdirs() }
@@ -68,38 +79,108 @@ object BackupManager {
             context.contentResolver.openInputStream(uri)?.use { raw ->
                 ZipInputStream(raw.buffered()).use { zip ->
                     var sawManifest = false
+                    var entryCount = 0
+                    var totalBytes = 0L
                     var entry = zip.nextEntry
                     while (entry != null) {
+                        if (++entryCount > MAX_ENTRIES) throw BackupException("Backup contains too many files.")
                         val name = entry.name
-                        // Zip-slip guard: entries must stay inside the temp dir.
-                        if (name.contains("..") || name.startsWith("/")) throw BackupException("Unsafe entry in backup: $name")
-                        val out = File(tmp, name)
-                        if (entry.isDirectory) out.mkdirs()
-                        else {
-                            out.parentFile?.mkdirs()
-                            out.outputStream().use { zip.copyTo(it) }
-                            if (name == MANIFEST) sawManifest = true
+                        if (entry.isDirectory || !isAllowedEntry(name)) {
+                            throw BackupException("Backup contains an unsupported or unsafe path.")
                         }
+                        val limit = if (name == MANIFEST) MAX_MANIFEST_BYTES else MAX_ENTRY_BYTES
+                        val out = File(tmp, name)
+                        out.parentFile?.mkdirs()
+                        var entryBytes = 0L
+                        out.outputStream().buffered().use { output ->
+                            val buffer = ByteArray(8192)
+                            while (true) {
+                                val count = zip.read(buffer)
+                                if (count < 0) break
+                                entryBytes += count
+                                totalBytes += count
+                                if (entryBytes > limit || totalBytes > MAX_TOTAL_UNCOMPRESSED_BYTES) {
+                                    throw BackupException("Backup exceeds the safe extraction size limit.")
+                                }
+                                output.write(buffer, 0, count)
+                            }
+                        }
+                        if (name == MANIFEST) sawManifest = true
                         zip.closeEntry()
                         entry = zip.nextEntry
                     }
                     if (!sawManifest) throw BackupException("This file is not a FreeLLM backup.")
                 }
             } ?: throw BackupException("Could not open the backup file.")
-            // Validate before touching live data.
+
+            // Validate every staged file before touching live data.
             if (JSONObject(File(tmp, MANIFEST).readText()).optInt("version", -1) != BACKUP_VERSION)
                 throw BackupException("Unsupported backup version.")
-            if (!File(tmp, HISTORY).exists()) throw BackupException("Backup is missing chat history.")
-            JSONObject(File(tmp, HISTORY).readText()).getJSONArray("chats")
+            val stagedHistory = File(tmp, HISTORY)
+            if (!stagedHistory.isFile) throw BackupException("Backup is missing chat history.")
+            JSONObject(stagedHistory.readText()).getJSONArray("chats")
             File(tmp, CREDENTIALS).takeIf { it.exists() }?.let {
                 JSONObject(it.readText()).let { envelope -> envelope.getString("iv"); envelope.getString("data") }
             }
-            // Restore.
+            val stagedAttachments = File(tmp, ATTACHMENTS)
+            if (stagedAttachments.exists() && !stagedAttachments.isDirectory) {
+                throw BackupException("Backup attachments are invalid.")
+            }
+
+            // Stage replacement files beside the live files so rename operations stay on
+            // the same filesystem. Keep rollback copies until every replacement succeeds.
             val filesDir = context.filesDir
-            File(tmp, CREDENTIALS).takeIf { it.exists() }?.copyTo(File(filesDir, CREDENTIALS), overwrite = true)
-            File(tmp, HISTORY).copyTo(File(filesDir, HISTORY), overwrite = true)
-            val attachments = File(filesDir, ATTACHMENTS).apply { deleteRecursively(); mkdirs() }
-            File(tmp, ATTACHMENTS).listFiles()?.forEach { it.copyTo(File(attachments, it.name)) }
+            val history = File(filesDir, HISTORY)
+            val credentials = File(filesDir, CREDENTIALS)
+            val attachments = File(filesDir, ATTACHMENTS)
+            val transaction = File(context.cacheDir, "backup-restore-transaction").apply {
+                deleteRecursively()
+                mkdirs()
+            }
+            try {
+                val stagedHistoryLive = File(filesDir, "$HISTORY.restore-new")
+                stagedHistory.copyTo(stagedHistoryLive, overwrite = true)
+                val stagedCredentials = File(tmp, CREDENTIALS)
+                val credentialsLiveNew = File(filesDir, "$CREDENTIALS.restore-new")
+                if (stagedCredentials.exists()) stagedCredentials.copyTo(credentialsLiveNew, overwrite = true)
+
+                val newAttachments = File(filesDir, "$ATTACHMENTS.restore-new").apply {
+                    deleteRecursively()
+                    mkdirs()
+                }
+                stagedAttachments.listFiles()?.forEach { file ->
+                    if (!file.isFile) throw BackupException("Backup contains an invalid attachment.")
+                    file.copyTo(File(newAttachments, file.name), overwrite = true)
+                }
+
+                val oldHistory = File(transaction, HISTORY)
+                val oldCredentials = File(transaction, CREDENTIALS)
+                val oldAttachments = File(transaction, ATTACHMENTS)
+                if (history.exists()) history.copyTo(oldHistory, overwrite = true)
+                if (credentials.exists()) credentials.copyTo(oldCredentials, overwrite = true)
+                if (attachments.exists()) attachments.copyRecursively(oldAttachments, overwrite = true)
+
+                try {
+                    if (!stagedHistoryLive.renameTo(history)) throw BackupException("Could not install restored chat history.")
+                    if (stagedCredentials.exists() &&
+                        !credentialsLiveNew.renameTo(credentials)) throw BackupException("Could not install restored credentials.")
+                    if (attachments.exists() && !attachments.deleteRecursively()) throw BackupException("Could not replace attachments.")
+                    if (!newAttachments.renameTo(attachments)) throw BackupException("Could not install restored attachments.")
+                } catch (failure: Exception) {
+                    history.delete()
+                    oldHistory.takeIf { it.exists() }?.copyTo(history, overwrite = true)
+                    credentials.delete()
+                    oldCredentials.takeIf { it.exists() }?.copyTo(credentials, overwrite = true)
+                    attachments.deleteRecursively()
+                    oldAttachments.takeIf { it.exists() }?.copyRecursively(attachments, overwrite = true)
+                    throw failure
+                }
+            } finally {
+                transaction.deleteRecursively()
+                File(filesDir, "$HISTORY.restore-new").delete()
+                File(filesDir, "$CREDENTIALS.restore-new").delete()
+                File(filesDir, "$ATTACHMENTS.restore-new").deleteRecursively()
+            }
         } finally {
             tmp.deleteRecursively()
         }
