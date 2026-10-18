@@ -11,7 +11,6 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Preview
-import androidx.compose.material.icons.outlined.WrapText
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -147,7 +146,10 @@ private fun inlineMarkdown(value: String): AnnotatedString {
 private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) {
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
-    var wrap by remember { mutableStateOf(false) }
+    var expanded by remember(block.text) { mutableStateOf(canvasCodeLines(block.text).size <= 8) }
+    val allLines = remember(block.text) { canvasCodeLines(block.text) }
+    val visibleText = remember(block.text, expanded) { if (expanded) block.text else allLines.take(8).joinToString("\n") }
+    val visibleLines = remember(visibleText) { canvasCodeLines(visibleText) }
     var copied by remember { mutableStateOf(false) }
     var running by remember { mutableStateOf(false) }
     var runResult by remember { mutableStateOf<JsRunResult?>(null) }
@@ -164,8 +166,11 @@ private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) 
     }
     Surface(shape = Design.card, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Column {
-            Row(Modifier.fillMaxWidth().padding(start = Design.medium), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = Design.medium), verticalAlignment = Alignment.CenterVertically) {
                 Text(language.ifBlank { "Code" }, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                if (allLines.size > 8) TextButton(onClick = { expanded = !expanded }) {
+                    Text(if (expanded) "Collapse" else "Expand · ${allLines.size} lines")
+                }
                 if (CodeRunner.isRunnable(language)) IconButton(onClick = ::run, enabled = !running) {
                     if (running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Outlined.PlayArrow, "Run JavaScript on this device")
@@ -173,7 +178,6 @@ private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) 
                 if (CodeRunner.isPreviewable(language)) IconButton(onClick = { preview = true }) {
                     Icon(Icons.Outlined.Preview, "Preview HTML on this device")
                 }
-                IconButton(onClick = { wrap = !wrap }) { Icon(Icons.Outlined.WrapText, if (wrap) "Disable code wrapping" else "Wrap code lines", Modifier.size(20.dp)) }
                 IconButton(onClick = { onCanvas(block.text, language) }, enabled = block.text.length <= 120_000) { Icon(Icons.Outlined.Code, "Open code in canvas", Modifier.size(20.dp)) }
                 TextButton(onClick = { clipboard.setText(AnnotatedString(block.text)); copied = true }) {
                     Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, null, Modifier.size(18.dp))
@@ -185,16 +189,22 @@ private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) 
                 // Line-number gutter: excluded from selection and the horizontal scroll.
                 val gutterStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
                 Column(Modifier.padding(vertical = Design.medium).padding(start = Design.medium)) {
-                    repeat(block.text.lines().size) { index ->
+                    repeat(visibleLines.size) { index ->
                         Text("%4d".format(Locale.US, index + 1), style = gutterStyle,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f))
                     }
                 }
                 SelectionContainer(Modifier.weight(1f)) {
-                    Text(block.text, Modifier.horizontalScroll(rememberScrollState()).padding(Design.medium),
-                        style = gutterStyle, softWrap = wrap)
+                    Text(visibleText, Modifier.horizontalScroll(rememberScrollState()).padding(Design.medium),
+                        style = gutterStyle, softWrap = false)
                 }
             }
+            if (allLines.size > 8) Text(
+                if (expanded) "${allLines.size} lines · full code" else "Showing first 8 of ${allLines.size} lines",
+                Modifier.padding(horizontal = Design.medium, bottom = Design.small),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
     if (preview) HtmlPreviewDialog(block.text) { preview = false }
