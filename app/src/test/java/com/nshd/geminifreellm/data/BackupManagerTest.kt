@@ -33,4 +33,16 @@ class BackupManagerTest {
             BackupManager.validateExportLimits((0..256).map { "attachments/$it.bin" to 1L })
         }
     }
+    @Test fun exportRejectsUnreadableOrIncompleteHistory() {
+        assertThrows(BackupException::class.java) { BackupManager.validateExportHistory("not-json".toByteArray()) }
+        assertThrows(BackupException::class.java) { BackupManager.validateExportHistory("""{"active":"x"}""".toByteArray()) }
+        BackupManager.validateExportHistory("""{"chats":[],"active":""}""".toByteArray())
+    }
+
+    @Test fun exportRejectsAttachmentNamesTheImporterWouldReject() {
+        BackupManager.validateExportAttachmentNames(listOf("notes.txt", "image.png"))
+        assertThrows(BackupException::class.java) { BackupManager.validateExportAttachmentNames(listOf("nested/file.txt")) }
+        assertThrows(BackupException::class.java) { BackupManager.validateExportAttachmentNames(listOf("bad\\name.txt")) }
+    }
+
 }
