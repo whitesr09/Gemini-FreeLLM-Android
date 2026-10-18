@@ -38,6 +38,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val diagnostics = (application as FreeLlmApplication).diagnostics
     private val store = LocalStore(application)
     private val settingsMutex = Mutex()
+    private val historyMutex = Mutex()
     private val catalogJobs = mutableMapOf<Provider, Job>()
     private val catalogTokens = mutableMapOf<Provider, String>()
     private var draftSave: Job? = null
@@ -57,8 +58,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             for ((epoch, chats, active) in saves) {
                 // A restore bumps the epoch; stale queued saves must not overwrite it.
                 if (epoch != persistEpoch) continue
-                try { withContext(Dispatchers.IO) { store.saveHistory(chats, active) } }
-                catch (error: Exception) {
+                try {
+                    historyMutex.withLock {
+                        // A restore may have started while this save was waiting for the lock.
+                        if (epoch == persistEpoch) withContext(Dispatchers.IO) { store.saveHistory(chats, active) }
+                    }
+                } catch (error: Exception) {
                     withContext(Dispatchers.IO) { diagnostics.record("Storage", error = error) }
                     notice("Could not save chats. Free some device storage, then try again.")
                 }
@@ -309,10 +314,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun importBackup(uri: Uri) {
         viewModelScope.launch {
+            // Invalidate queued snapshots and stop producers before touching the files they
+            // persist. The mutex also waits for an already-running synchronous disk write.
+            persistEpoch++
+            draftSave?.cancel()
+            draftSave = null
+            generation?.cancel()
+            attachmentJob?.cancel()
             try {
-                withContext(Dispatchers.IO) { BackupManager.import(getApplication(), uri) }
+                generation?.join()
+                historyMutex.withLock {
+                    withContext(Dispatchers.IO) { BackupManager.import(getApplication(), uri) }
+                }
                 reload()
                 notice("Backup restored.")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 withContext(Dispatchers.IO) { diagnostics.record("Backup", error = error) }
                 notice(if (error is BackupException) error.message ?: "Could not read the backup file." else "Restore failed.")
