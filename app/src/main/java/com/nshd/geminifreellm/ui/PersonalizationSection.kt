@@ -9,8 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -45,7 +43,7 @@ fun PersonalizationSection(agent: AgentConfig, onChange: (AgentConfig) -> Unit, 
     var personaExpanded by rememberSaveable { mutableStateOf(false) }
     var instructionsExpanded by rememberSaveable { mutableStateOf(false) }
     var memoryExpanded by rememberSaveable { mutableStateOf(false) }
-    var expandedSkills by rememberSaveable { mutableStateOf(setOf<String>()) }
+    var expandedSkills by remember { mutableStateOf(setOf<String>()) }
 
     if (!showSkills) {
         Card(Modifier.fillMaxWidth()) {
