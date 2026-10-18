@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -47,7 +48,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +74,7 @@ import com.nshd.geminifreellm.model.AppSettings
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+import java.util.Locale
 
 private val JarvisInk = Color(0xFF32152E)
 private val JarvisMuted = Color(0xFF9B6E88)
@@ -89,6 +93,23 @@ fun JarvisScreen(
     onChat: () -> Unit
 ) {
     val context = LocalContext.current
+    val speechEngine = remember { mutableStateOf<TextToSpeech?>(null) }
+    val speechReady = remember { mutableStateOf(false) }
+    DisposableEffect(context) {
+        val engine = TextToSpeech(context) { status ->
+            speechReady.value = status == TextToSpeech.SUCCESS
+            if (status == TextToSpeech.SUCCESS) {
+                speechEngine.value?.language = Locale.getDefault()
+            }
+        }
+        speechEngine.value = engine
+        onDispose {
+            engine.stop()
+            engine.shutdown()
+            speechEngine.value = null
+            speechReady.value = false
+        }
+    }
     val infinite = rememberInfiniteTransition(label = "jarvis-orb")
     val rotation by infinite.animateFloat(
         initialValue = 0f, targetValue = 360f,
@@ -102,6 +123,16 @@ fun JarvisScreen(
     val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { transcript ->
+                // A short spoken acknowledgement makes voice actions feel responsive without
+                // reading private conversation content aloud or requiring extra permissions.
+                if (speechReady.value) {
+                    speechEngine.value?.speak(
+                        "Got it. Processing your request.",
+                        TextToSpeech.QUEUE_FLUSH,
+                        null,
+                        "jarvis-acknowledgement"
+                    )
+                }
                 handleVoiceTranscript(context, transcript, { spokenText ->
                     vm.draft(spokenText)
                     onChat()
