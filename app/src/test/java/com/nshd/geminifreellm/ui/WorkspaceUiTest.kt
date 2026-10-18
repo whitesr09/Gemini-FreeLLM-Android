@@ -51,6 +51,25 @@ class WorkspaceUiTest {
         compose.onNodeWithText("FreeLLM AI · ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})").assertExists()
         capture("drawer")
     }
+    @Test fun settingsCategoriesAreCompactAndExpandOnDemand() {
+        ready()
+        compose.onNodeWithContentDescription("Chat options").performClick()
+        compose.onNode(hasText("Settings") and hasAnyAncestor(isPopup())).performClick()
+
+        compose.onNodeWithText("Connection").assertIsDisplayed()
+        compose.onNodeWithText("Personalisation").assertIsDisplayed()
+        compose.onNodeWithText("Skills").assertIsDisplayed()
+        compose.onNodeWithText("API base URL").assertDoesNotExist()
+        compose.onNodeWithText("Enable personalization").assertDoesNotExist()
+
+        compose.onNodeWithText("Connection").performClick()
+        compose.onNodeWithText("API base URL").performScrollTo().assertIsDisplayed()
+
+        compose.onNodeWithText("Personalisation").performClick()
+        compose.onNodeWithText("Persona").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Skills").assertIsDisplayed()
+    }
+
     @Test fun modelPickerExpandsProviderAndAllowsManualId() {
         ready()
         compose.onNodeWithContentDescription("Choose AI model").performClick()
