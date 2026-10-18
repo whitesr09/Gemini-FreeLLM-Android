@@ -142,6 +142,7 @@ object BackupManager {
     /** Validates a backup and restores it over the current data. */
     suspend fun import(context: Context, uri: Uri) = withContext(Dispatchers.IO) {
         val tmp = File(context.cacheDir, "backup-restore").apply { deleteRecursively(); mkdirs() }
+        var credentialsSkipped = false
         try {
             context.contentResolver.openInputStream(uri)?.use { raw ->
                 ZipInputStream(raw.buffered()).use { zip ->
@@ -211,7 +212,12 @@ object BackupManager {
                 stagedHistory.copyTo(stagedHistoryLive, overwrite = true)
                 val stagedCredentials = File(tmp, CREDENTIALS)
                 val credentialsLiveNew = File(filesDir, "$CREDENTIALS.restore-new")
-                if (stagedCredentials.exists()) stagedCredentials.copyTo(credentialsLiveNew, overwrite = true)
+                // Android Keystore keys are device/install-bound. Never replace usable
+                // credentials with an envelope this installation cannot decrypt.
+                val installCredentials = stagedCredentials.isFile &&
+                    LocalStore(context).canDecrypt(stagedCredentials.readBytes())
+                credentialsSkipped = stagedCredentials.exists() && !installCredentials
+                if (installCredentials) stagedCredentials.copyTo(credentialsLiveNew, overwrite = true)
 
                 val newAttachments = File(filesDir, "$ATTACHMENTS.restore-new").apply {
                     deleteRecursively()
@@ -231,7 +237,7 @@ object BackupManager {
 
                 try {
                     if (!stagedHistoryLive.renameTo(history)) throw BackupException("Could not install restored chat history.")
-                    if (stagedCredentials.exists() &&
+                    if (installCredentials &&
                         !credentialsLiveNew.renameTo(credentials)) throw BackupException("Could not install restored credentials.")
                     if (attachments.exists() && !attachments.deleteRecursively()) throw BackupException("Could not replace attachments.")
                     if (!newAttachments.renameTo(attachments)) throw BackupException("Could not install restored attachments.")
@@ -250,6 +256,7 @@ object BackupManager {
                 File(filesDir, "$CREDENTIALS.restore-new").delete()
                 File(filesDir, "$ATTACHMENTS.restore-new").deleteRecursively()
             }
+            credentialsSkipped
         } finally {
             tmp.deleteRecursively()
         }
