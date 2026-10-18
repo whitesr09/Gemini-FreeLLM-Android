@@ -82,7 +82,12 @@ object CodeRunner {
                 ScriptableObject.putProperty(scope, "console", consoleObj)
                 ScriptableObject.putProperty(scope, "print", logFn)
                 val result = cx.evaluateString(scope, code, "code", 1, null)
-                if (result !== Context.getUndefinedValue()) returned = Context.toString(result)
+                if (result !== Context.getUndefinedValue()) {
+                    val value = Context.toString(result)
+                    returned = if (value.length > MAX_OUTPUT_CHARS)
+                        value.take(MAX_OUTPUT_CHARS) + "\n[Return value truncated at $MAX_OUTPUT_CHARS characters]"
+                    else value
+                }
                 null
             }
             val text = output.toString().trimEnd()
