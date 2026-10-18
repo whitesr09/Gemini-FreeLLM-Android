@@ -137,24 +137,28 @@ internal fun splitThink(text: String): Triple<String, String, Boolean> {
     val thoughts = StringBuilder()
     var cursor = 0
     var stillOpen = false
-    while (true) {
-        val start = text.indexOf("<think>", cursor)
-        if (start < 0) {
-            body.append(text.substring(cursor))
-            break
-        }
-        val segment = text.substring(cursor, start)
-        if (cursor > 0 && body.isNotEmpty() &&
-            body.last() in charArrayOf(' ', '\\t') &&
-            segment.firstOrNull() in charArrayOf(' ', '\\t')) {
+    fun appendVisible(segment: String, joinsRemovedThink: Boolean) {
+        if (joinsRemovedThink && body.isNotEmpty() &&
+            body.last() in charArrayOf(' ', '\t') &&
+            segment.firstOrNull() in charArrayOf(' ', '\t')) {
             // Normalize only the join created by removing a completed think block;
             // preserve indentation and whitespace everywhere else (including code).
-            while (body.isNotEmpty() && body.last() in charArrayOf(' ', '\\t')) body.setLength(body.length - 1)
+            while (body.isNotEmpty() && body.last() in charArrayOf(' ', '\t')) {
+                body.setLength(body.length - 1)
+            }
             body.append(' ')
-            body.append(segment.dropWhile { it == ' ' || it == '\\t' })
+            body.append(segment.dropWhile { it == ' ' || it == '\t' })
         } else {
             body.append(segment)
         }
+    }
+    while (true) {
+        val start = text.indexOf("<think>", cursor)
+        if (start < 0) {
+            appendVisible(text.substring(cursor), cursor > 0)
+            break
+        }
+        appendVisible(text.substring(cursor, start), cursor > 0)
         val contentStart = start + "<think>".length
         val end = text.indexOf("</think>", contentStart)
         if (end < 0) {
