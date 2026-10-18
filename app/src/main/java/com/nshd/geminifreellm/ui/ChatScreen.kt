@@ -49,6 +49,43 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
+
+/** Parses explicit, direct app-launch phrases; other speech remains ordinary chat dictation. */
+internal fun parseVoiceAppLaunchCommand(transcript: String): String? {
+    val match = Regex("^(?:please\\s+)?(?:open|launch|start|switch to)\\s+(.+?)[.!?]*$", RegexOption.IGNORE_CASE)
+        .matchEntire(transcript.trim()) ?: return null
+    return match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+}
+
+/** Executes only an explicit app-launch request, using Android's launcher-visible apps. */
+private fun executeVoiceAppLaunch(context: android.content.Context, transcript: String, onNotice: (String) -> Unit): Boolean {
+    val requestedApp = parseVoiceAppLaunchCommand(transcript) ?: return false
+    val packageManager = context.packageManager
+    val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    val matchingApp = packageManager.queryIntentActivities(launcherIntent, 0).firstOrNull { resolve ->
+        resolve.loadLabel(packageManager).toString().trim().equals(requestedApp, ignoreCase = true)
+    }
+    if (matchingApp == null) {
+        onNotice("I couldn't find an installed app named \"$requestedApp\". Try the app's exact launcher name.")
+        return true
+    }
+    val launchIntent = packageManager.getLaunchIntentForPackage(matchingApp.activityInfo.packageName)
+    if (launchIntent == null) {
+        onNotice("Android did not provide a launch action for $requestedApp.")
+        return true
+    }
+    return try {
+        context.startActivity(launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (_: ActivityNotFoundException) {
+        onNotice("I couldn't open $requestedApp.")
+        true
+    } catch (_: SecurityException) {
+        onNotice("Android blocked opening $requestedApp.")
+        true
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FreeLlmApp(vm: ChatViewModel) {
@@ -99,8 +136,10 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
     val chatScrollStates = rememberSaveableStateHolder()
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::attach) }
     val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let {
-            vm.draft(listOf(vm.state.value.active?.draft.orEmpty(), it).filter { value -> value.isNotBlank() }.joinToString(" "))
+        if (result.resultCode == Activity.RESULT_OK) result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { transcript ->
+            if (!executeVoiceAppLaunch(context, transcript) { vm.notice(it) }) {
+                vm.draft(listOf(vm.state.value.active?.draft.orEmpty(), transcript).filter { value -> value.isNotBlank() }.joinToString(" "))
+            }
         }
     }
     LaunchedEffect(state.notice) {
