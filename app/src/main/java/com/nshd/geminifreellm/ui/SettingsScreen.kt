@@ -61,7 +61,12 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
     onExportBackup: (Uri) -> Unit = {}, onImportBackup: (Uri) -> Unit = {}) {
     var profiles by remember { mutableStateOf(settings.profiles) }
     var selected by remember { mutableStateOf(initialProvider) }
-    var profile by remember { mutableStateOf(settings.profiles.firstOrNull { it.provider == initialProvider } ?: ProviderProfile(initialProvider)) }
+    val startingProfile = remember(settings, initialProvider) {
+        settings.profiles.firstOrNull { it.id == settings.activeProfileId && it.provider == initialProvider }
+            ?: settings.profiles.firstOrNull { it.provider == initialProvider }
+            ?: ProviderProfile(initialProvider)
+    }
+    var profile by remember(startingProfile) { mutableStateOf(startingProfile) }
     var theme by remember { mutableStateOf(settings.theme) }
     var reducedMotion by remember { mutableStateOf(settings.reducedMotion) }
     var timestamps by remember { mutableStateOf(settings.showTimestamps) }
@@ -78,10 +83,17 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
     var saving by remember { mutableStateOf(false) }
     var discard by rememberSaveable { mutableStateOf(false) }
     var openDiagnosticsAfterDiscard by remember { mutableStateOf(false) }
+    var pendingDeleteProfileId by remember { mutableStateOf<String?>(null) }
     // Keep the baseline stable while the user edits; upstream state changes must not
     // silently redefine what counts as an unsaved local draft.
-    val initialDraft = remember { settings.copy(selected = initialProvider,
-        profiles = settings.profiles + (if (settings.profiles.none { it.provider == initialProvider }) listOf(ProviderProfile(initialProvider)) else emptyList())) }
+    val initialDraft = remember(settings, initialProvider, startingProfile) {
+        settings.copy(selected = initialProvider,
+            profiles = if (settings.profiles.any { it.id == startingProfile.id }) settings.profiles else settings.profiles + startingProfile,
+            activeProfileId = startingProfile.id)
+    }
+    val compatibleProfiles = (profiles.filterNot { it.id == profile.id } +
+        if (profile.provider == Provider.CUSTOM) listOf(profile) else emptyList())
+        .filter { it.provider == Provider.CUSTOM }.distinctBy { it.id }
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -91,8 +103,9 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { if (!wasSecure) activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
-    fun snapshot() = settings.copy(profiles = profiles.map { if (it.provider == selected) profile else it } +
-        (if (profiles.none { it.provider == selected }) listOf(profile) else emptyList()), selected = selected, theme = theme,
+    fun snapshot() = settings.copy(
+        profiles = (profiles.filterNot { it.id == profile.id } + profile).distinctBy { it.id },
+        selected = selected, activeProfileId = profile.id, theme = theme,
         reducedMotion = reducedMotion, showTimestamps = timestamps, compactSpacing = compact, haptics = haptics, agent = agent)
     fun leave() { if (!saving) { if (snapshot() != initialDraft) discard = true else onBack() } }
     val latestProfile by rememberUpdatedState(profile)
@@ -128,7 +141,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                 }
                 SettingsCategoryCard(
                     title = "Connection",
-                    subtitle = "${selected.label} · API keys and model management",
+                    subtitle = "${if (selected == Provider.CUSTOM) profile.name else selected.label} · API keys and model management",
                     icon = Icons.Outlined.VpnKey,
                     expanded = expandedSection == "Connection",
                     reducedMotion = reducedMotion,
@@ -136,23 +149,80 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(Design.medium)) {
     
-                    Text("Use a provider key or connect a unified API gateway. Each provider keeps its own settings.",
+                    Text("Connect providers or save multiple OpenAI-compatible agents. Each saved connection keeps its own URL, key, model and capabilities.",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Box {
                         OutlinedButton(onClick = { providerMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text(selected.label, Modifier.weight(1f)); Icon(Icons.Outlined.KeyboardArrowDown, null)
+                            Text(if (selected == Provider.CUSTOM) profile.name else selected.label, Modifier.weight(1f)); Icon(Icons.Outlined.KeyboardArrowDown, null)
                         }
                         DropdownMenu(expanded = providerMenu, onDismissRequest = { providerMenu = false }) {
                             Provider.entries.forEach { provider ->
                                 DropdownMenuItem(text = { Text(provider.label) }, onClick = {
-                                    profiles = profiles.filterNot { it.provider == selected } + profile
+                                    profiles = (profiles.filterNot { it.id == profile.id } + profile).distinctBy { it.id }
+                                    val next = if (provider == selected && provider == Provider.CUSTOM) profile
+                                        else profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)
                                     selected = provider
-                                    update(profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider))
+                                    update(next)
                                     providerMenu = false
                                 }, trailingIcon = { if (selected == provider) Icon(Icons.Outlined.Check, null) })
                             }
                         }
                     }
+
+                    if (selected == Provider.CUSTOM) {
+                        Column(verticalArrangement = Arrangement.spacedBy(Design.small)) {
+                            Text("Saved compatible agents", style = MaterialTheme.typography.titleSmall)
+                            Text("Each agent can point to a different OpenAI-compatible server or gateway. Switch or edit one without removing the others.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            OutlinedButton(onClick = {
+                                profiles = (profiles.filterNot { it.id == profile.id } + profile).distinctBy { it.id }
+                                val next = ProviderProfile(provider = Provider.CUSTOM,
+                                    name = "Compatible API ${compatibleProfiles.size + 1}")
+                                selected = Provider.CUSTOM
+                                update(next)
+                            }, modifier = Modifier.fillMaxWidth()) {
+                                Text("＋ Add another compatible agent")
+                            }
+                            compatibleProfiles.forEach { saved ->
+                                Surface(
+                                    shape = Design.card,
+                                    color = if (saved.id == profile.id) MaterialTheme.colorScheme.secondaryContainer
+                                        else MaterialTheme.colorScheme.surfaceContainerLow,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(Modifier.padding(start = Design.medium, end = Design.small, top = Design.small, bottom = Design.small),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(Design.small)) {
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(saved.name.ifBlank { "OpenAI-compatible agent" },
+                                                style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(saved.baseUrl.ifBlank { "Base URL not set" }, style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(saved.model.ifBlank { "No model selected" }, style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                        if (saved.id == profile.id) {
+                                            Text("Editing", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                        } else {
+                                            TextButton(onClick = {
+                                                profiles = (profiles.filterNot { it.id == profile.id } + profile).distinctBy { it.id }
+                                                selected = Provider.CUSTOM
+                                                update(saved)
+                                            }) { Text("Edit") }
+                                        }
+                                        TextButton(onClick = { pendingDeleteProfileId = saved.id }) {
+                                            Text("Remove", color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        OutlinedTextField(profile.name, { update(profile.copy(name = it.take(60))) },
+                            Modifier.fillMaxWidth(), label = { Text("Connection name") }, singleLine = true,
+                            supportingText = { Text("A short label to identify this endpoint when switching agents.") })
+                    }
+
                     if (selected == Provider.DEEPSEEK) Text("Use a DeepSeek API key with api.deepseek.com. Keys from a gateway belong in that gateway's profile. Discover model IDs below; a chat subscription does not imply API credit.", style = MaterialTheme.typography.bodySmall)
                     if (selected == Provider.OLLAMA) Text("On a phone, use your computer's LAN address and enable server access. 10.0.2.2 is for Android emulators.", style = MaterialTheme.typography.bodySmall)
                     val url = profile.baseUrl.toHttpUrlOrNull()
@@ -328,6 +398,32 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                 confirmButton = { TextButton(onClick = { pendingImport = null; onImportBackup(uri); onBack() }) { Text("Restore") } },
                 dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("Cancel") } })
         }
+
+        pendingDeleteProfileId?.let { deletingId ->
+            val deleting = compatibleProfiles.firstOrNull { it.id == deletingId }
+            AlertDialog(
+                onDismissRequest = { pendingDeleteProfileId = null },
+                title = { Text("Remove compatible agent?") },
+                text = { Text("Remove \"${deleting?.name ?: "this agent"}\" from saved connections? This does not affect the remote server account.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val removedActive = profile.id == deletingId
+                        val remaining = (profiles.filterNot { it.id == deletingId } +
+                            if (profile.id != deletingId && profile.provider == Provider.CUSTOM) listOf(profile) else emptyList())
+                            .distinctBy { it.id }
+                        profiles = remaining
+                        if (removedActive) {
+                            val fallback = remaining.firstOrNull() ?: ProviderProfile()
+                            selected = fallback.provider
+                            update(fallback)
+                        }
+                        pendingDeleteProfileId = null
+                    }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = { TextButton(onClick = { pendingDeleteProfileId = null }) { Text("Cancel") } }
+            )
+        }
+
         if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard settings changes?") },
             text = { Text("Your saved connection, personalization and appearance will be kept.") },
             confirmButton = { TextButton(onClick = { if (openDiagnosticsAfterDiscard) onDiagnostics() else onBack() }) { Text("Discard") } },
