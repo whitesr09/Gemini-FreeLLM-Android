@@ -68,4 +68,12 @@ class CodeRunnerTest {
         assertEquals("2,4", (result as JsRunResult.Success).returned)
     }
 
+    @Test fun largeReturnValuesAreBounded() {
+        val result = CodeRunner.runJs("'x'.repeat(70000);")
+        assertTrue(result is JsRunResult.Success)
+        val returned = (result as JsRunResult.Success).returned.orEmpty()
+        assertTrue(returned.contains("Return value truncated at 65536 characters"))
+        assertTrue(returned.length < 66_000)
+    }
+
 }
