@@ -36,6 +36,9 @@ private val MARKDOWN_HEADING = Regex("^(#{1,6})\\s+.*$")
 private val MARKDOWN_HEADING_CONTENT = Regex("^(#{1,6})\\s+(.*)")
 private val MARKDOWN_TABLE_SEPARATOR = Regex(":?-{3,}:?")
 private val MARKDOWN_LIST_MARKER = Regex("(?m)^(\\s*)[-*] ")
+private val MARKDOWN_PARAGRAPH_BREAK = Regex("\\n\\s*\\n")
+private val MARKDOWN_INLINE_PATTERN = Regex("\\[([^]\\n]+)]\\((https?://[^\\s)]+)\\)|`([^`\\n]+)`|\\*\\*([^*]+)\\*\\*|(?<!\\*)\\*([^*\\n]+)\\*(?!\\*)")
+private val MARKDOWN_TABLE_CELLS = Regex("(?<!\\\\)\\\\|")
 
 /** Unclosed fences are deliberately rendered as code while the response streams. */
 internal fun markdownBlocks(text: String): List<MarkdownBlock> {
@@ -93,12 +96,13 @@ internal fun splitHeadingAndBody(paragraph: String): List<String> {
 fun MessageContent(text: String, onCanvas: (String, String) -> Unit = { _, _ -> }) {
     val blocks = remember(text) { markdownBlocks(text) }
     Column(verticalArrangement = Arrangement.spacedBy(Design.medium)) {
-        blocks.forEach { block ->
-            if (block.language != null) CodeBlock(block, onCanvas)
-            else SelectionContainer {
-                Column(verticalArrangement = Arrangement.spacedBy(Design.small)) {
-                    // Paragraph blocks keep long responses inexpensive; no composable per token.
-                    block.text.split(Regex("\\n\\s*\\n")).flatMap(::splitHeadingAndBody).forEach { paragraph ->
+        blocks.forEachIndexed { index, block ->
+            key(index) {
+                if (block.language != null) CodeBlock(block, onCanvas)
+                else SelectionContainer {
+                    Column(verticalArrangement = Arrangement.spacedBy(Design.small)) {
+                        // Paragraph blocks keep long responses inexpensive; no composable per token.
+                        block.text.split(MARKDOWN_PARAGRAPH_BREAK).flatMap(::splitHeadingAndBody).forEach { paragraph ->
                         val heading = MARKDOWN_HEADING_CONTENT.matchEntire(paragraph)
                         val table = markdownTable(paragraph)
                         val quote = paragraph.startsWith("> ")
@@ -129,7 +133,7 @@ private fun inlineMarkdown(value: String): AnnotatedString {
     val colors = MaterialTheme.colorScheme
     return remember(value, colors) {
         buildAnnotatedString {
-            val pattern = Regex("\\[([^]\\n]+)]\\((https?://[^\\s)]+)\\)|`([^`\\n]+)`|\\*\\*([^*]+)\\*\\*|(?<!\\*)\\*([^*\\n]+)\\*(?!\\*)")
+            val pattern = MARKDOWN_INLINE_PATTERN
             var cursor = 0
             pattern.findAll(value).forEach { match ->
                 append(value.substring(cursor, match.range.first))
@@ -152,8 +156,18 @@ private fun inlineMarkdown(value: String): AnnotatedString {
 private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) {
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
-    var expanded by remember(block.text) { mutableStateOf(canvasCodeLines(block.text).size <= 8) }
     val allLines = remember(block.text) { canvasCodeLines(block.text) }
+    var expanded by remember { mutableStateOf(allLines.size <= 8) }
+    var userChangedExpanded by remember { mutableStateOf(false) }
+    var autoCollapsed by remember { mutableStateOf(allLines.size > 8) }
+    LaunchedEffect(allLines.size) {
+        // During streaming, collapse once when a short snippet grows into a long one.
+        // Do not fight the user's expand/collapse choice after their first tap.
+        if (!userChangedExpanded && !autoCollapsed && allLines.size > 8) {
+            expanded = false
+            autoCollapsed = true
+        }
+    }
     val visibleText = remember(block.text, expanded) { if (expanded) block.text else allLines.take(8).joinToString("\n") }
     val visibleLines = remember(visibleText) { canvasCodeLines(visibleText) }
     var copied by remember { mutableStateOf(false) }
@@ -174,7 +188,7 @@ private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) 
         Column {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = Design.medium), verticalAlignment = Alignment.CenterVertically) {
                 Text(language.ifBlank { "Code" }, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
-                if (allLines.size > 8) TextButton(onClick = { expanded = !expanded }) {
+                if (allLines.size > 8) TextButton(onClick = { userChangedExpanded = true; expanded = !expanded }) {
                     Text(if (expanded) "Collapse" else "Expand · ${allLines.size} lines")
                 }
                 if (CodeRunner.isRunnable(language)) IconButton(onClick = ::run, enabled = !running) {
