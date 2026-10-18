@@ -44,6 +44,19 @@ class WorkspaceUiTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithText("What can I help with?").fetchSemanticsNodes().isNotEmpty() }
     }
 
+    @Test fun voiceTranscriptRoutesPhoneCommandsWithoutDraftingThem() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        var draft: String? = null
+        var notice: String? = null
+        handleVoiceTranscript(context, "Turn Wi-Fi off", { draft = it }, { notice = it })
+        Assert.assertEquals("Turn Wi-Fi off", draft)
+        Assert.assertNull(notice)
+        draft = null
+        handleVoiceTranscript(context, "Open Wi-Fi settings", { draft = it }, { notice = it })
+        Assert.assertNull(draft)
+        Assert.assertNull(notice)
+    }
+
     @Test fun voiceSystemSettingsParserAcceptsNavigationOnly() {
         Assert.assertEquals(VoiceSystemAction.GENERAL_SETTINGS, parseVoiceSystemAction("Open settings"))
         Assert.assertEquals(VoiceSystemAction.WIFI_SETTINGS, parseVoiceSystemAction("Open Wi-Fi settings!"))
