@@ -414,7 +414,8 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                             .distinctBy { it.id }
                         profiles = remaining
                         if (removedActive) {
-                            val fallback = remaining.firstOrNull() ?: ProviderProfile()
+                            val fallback = remaining.firstOrNull { it.provider == Provider.CUSTOM }
+                                ?: remaining.firstOrNull() ?: ProviderProfile()
                             selected = fallback.provider
                             update(fallback)
                         }
