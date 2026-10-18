@@ -140,7 +140,7 @@ internal fun splitThink(text: String): Triple<String, String, Boolean> {
     fun appendVisible(segment: String, joinsRemovedThink: Boolean) {
         if (joinsRemovedThink && body.isNotEmpty() &&
             body.last() in charArrayOf(' ', '\t') &&
-            segment.firstOrNull() in charArrayOf(' ', '\t')) {
+            segment.firstOrNull()?.let { it == ' ' || it == '\t' } == true) {
             // Normalize only the join created by removing a completed think block;
             // preserve indentation and whitespace everywhere else (including code).
             while (body.isNotEmpty() && body.last() in charArrayOf(' ', '\t')) {
