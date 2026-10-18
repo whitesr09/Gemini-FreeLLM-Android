@@ -33,7 +33,10 @@ object Design {
     const val normalMotion = 220
 }
 
-enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark"), AMOLED("AMOLED") }
+enum class ThemeMode(val label: String) {
+    SYSTEM("System"), LIGHT("Blue Light"), DARK("Blue Dark"), AMOLED("AMOLED"),
+    VIOLET("Classic Violet"), CHATGPT("ChatGPT")
+}
 
 /** Calm, high-contrast light palette with a cool blue/cyan identity. */
 private val LightColors = lightColorScheme(
@@ -76,19 +79,60 @@ private val DarkColors = darkColorScheme(
     errorContainer = Color(0xFF93000A), onErrorContainer = Color(0xFFFFDAD6)
 )
 
+/** Original violet palette retained as a first-class, switchable appearance. */
+private val VioletColors = lightColorScheme(
+    primary = Color(0xFF783EC8), onPrimary = Color.White,
+    primaryContainer = Color(0xFFEFE4FF), onPrimaryContainer = Color(0xFF3F166F),
+    secondary = Color(0xFF635A70), onSecondary = Color.White,
+    secondaryContainer = Color(0xFFF0EAF5), onSecondaryContainer = Color(0xFF342C40),
+    tertiary = Color(0xFF7662A8), onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFECE5FF), onTertiaryContainer = Color(0xFF2C2058),
+    background = Color(0xFFFCFBFD), onBackground = Color(0xFF242126),
+    surface = Color(0xFFFCFBFD), onSurface = Color(0xFF242126),
+    surfaceVariant = Color(0xFFEFEAF3), onSurfaceVariant = Color(0xFF635D69),
+    surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFF6F4F7),
+    surfaceContainer = Color(0xFFF1EFF3), surfaceContainerHigh = Color(0xFFEAE7ED),
+    surfaceContainerHighest = Color(0xFFE3DFE7),
+    outline = Color(0xFF7A7280), outlineVariant = Color(0xFFDED9E3),
+    error = Color(0xFFBA1A1A), onError = Color.White,
+    errorContainer = Color(0xFFFFDAD6), onErrorContainer = Color(0xFF410002)
+)
+
+/** Familiar ChatGPT-inspired green accent with restrained neutral surfaces. */
+private val ChatGptColors = lightColorScheme(
+    primary = Color(0xFF16856B), onPrimary = Color.White,
+    primaryContainer = Color(0xFFD1F3E8), onPrimaryContainer = Color(0xFF00382B),
+    secondary = Color(0xFF53645D), onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE0ECE5), onSecondaryContainer = Color(0xFF172F25),
+    tertiary = Color(0xFF426B81), onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFD9EDF8), onTertiaryContainer = Color(0xFF0B3447),
+    background = Color(0xFFF7F8F6), onBackground = Color(0xFF1D2420),
+    surface = Color(0xFFFBFCFA), onSurface = Color(0xFF1D2420),
+    surfaceVariant = Color(0xFFE7ECE8), onSurfaceVariant = Color(0xFF53615A),
+    surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFF1F4F1),
+    surfaceContainer = Color(0xFFEAEFEB), surfaceContainerHigh = Color(0xFFE1E8E2),
+    surfaceContainerHighest = Color(0xFFD8E1DA),
+    outline = Color(0xFF74837A), outlineVariant = Color(0xFFD2DDD4),
+    error = Color(0xFFBA1A1A), onError = Color.White,
+    errorContainer = Color(0xFFFFDAD6), onErrorContainer = Color(0xFF410002)
+)
+
 @Composable
 fun GeminiTheme(mode: ThemeMode, reducedMotion: Boolean = false, content: @Composable () -> Unit) {
     val dark = mode == ThemeMode.DARK || mode == ThemeMode.AMOLED || (mode == ThemeMode.SYSTEM && isSystemInDarkTheme())
-    val scheme = when {
-        mode == ThemeMode.AMOLED -> DarkColors.copy(
+    val scheme = when (mode) {
+        ThemeMode.VIOLET -> VioletColors
+        ThemeMode.CHATGPT -> ChatGptColors
+        ThemeMode.AMOLED -> DarkColors.copy(
             background = Color.Black,
             surface = Color.Black,
             surfaceContainerLowest = Color.Black,
             surfaceContainerLow = Color(0xFF080D10),
             surfaceContainer = Color(0xFF11191D)
         )
-        dark -> DarkColors
-        else -> LightColors
+        ThemeMode.DARK -> DarkColors
+        ThemeMode.SYSTEM -> if (dark) DarkColors else LightColors
+        ThemeMode.LIGHT -> LightColors
     }
     val activity = LocalActivity.current
     SideEffect {
