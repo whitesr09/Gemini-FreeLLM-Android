@@ -31,6 +31,12 @@ import kotlinx.coroutines.withContext
 
 internal data class MarkdownBlock(val text: String, val language: String? = null)
 
+private val MARKDOWN_FENCE_OPEN = Regex("^(`{3,}|~{3,})(.*)$")
+private val MARKDOWN_HEADING = Regex("^(#{1,6})\\s+.*$")
+private val MARKDOWN_HEADING_CONTENT = Regex("^(#{1,6})\\s+(.*)")
+private val MARKDOWN_TABLE_SEPARATOR = Regex(":?-{3,}:?")
+private val MARKDOWN_LIST_MARKER = Regex("(?m)^(\\s*)[-*] ")
+
 /** Unclosed fences are deliberately rendered as code while the response streams. */
 internal fun markdownBlocks(text: String): List<MarkdownBlock> {
     val blocks = mutableListOf<MarkdownBlock>()
@@ -46,7 +52,7 @@ internal fun markdownBlocks(text: String): List<MarkdownBlock> {
     text.lineSequence().forEach { line ->
         val trimmed = line.trimStart()
         if (!code) {
-            val opening = Regex("^(`{3,}|~{3,})(.*)$").matchEntire(trimmed)
+            val opening = MARKDOWN_FENCE_OPEN.matchEntire(trimmed)
             if (opening != null) {
                 flush()
                 code = true
@@ -78,7 +84,7 @@ internal fun markdownBlocks(text: String): List<MarkdownBlock> {
 
 internal fun splitHeadingAndBody(paragraph: String): List<String> {
     val firstLine = paragraph.substringBefore('\n')
-    return if ('\n' in paragraph && Regex("^(#{1,6})\\s+.*$").matches(firstLine))
+    return if ('\n' in paragraph && MARKDOWN_HEADING.matches(firstLine))
         listOf(firstLine, paragraph.substringAfter('\n'))
     else listOf(paragraph)
 }
@@ -93,13 +99,13 @@ fun MessageContent(text: String, onCanvas: (String, String) -> Unit = { _, _ -> 
                 Column(verticalArrangement = Arrangement.spacedBy(Design.small)) {
                     // Paragraph blocks keep long responses inexpensive; no composable per token.
                     block.text.split(Regex("\\n\\s*\\n")).flatMap(::splitHeadingAndBody).forEach { paragraph ->
-                        val heading = Regex("^(#{1,6})\\s+(.*)").matchEntire(paragraph)
+                        val heading = MARKDOWN_HEADING_CONTENT.matchEntire(paragraph)
                         val table = markdownTable(paragraph)
                         val quote = paragraph.startsWith("> ")
                         val displayed = when {
                             heading != null -> heading.groupValues[2]
                             quote -> paragraph.lineSequence().joinToString("\n") { it.removePrefix("> ") }
-                            else -> paragraph.replace(Regex("(?m)^(\\s*)[-*] "), "$1• ")
+                            else -> paragraph.replace(MARKDOWN_LIST_MARKER, "$1• ")
                         }
                         if (paragraph.trim() in listOf("---", "***", "___")) HorizontalDivider(Modifier.padding(vertical = Design.small))
                         else if (table != null) MarkdownTable(table)
@@ -220,7 +226,7 @@ internal fun markdownTable(text: String): MarkdownTableData? {
         .split(Regex("(?<!\\\\)\\|")).map { it.trim().replace("\\|", "|") }
     val header = cells(lines.first())
     val separator = cells(lines[1])
-    if (header.size !in 2..12 || separator.size != header.size || separator.any { !it.matches(Regex(":?-{3,}:?")) }) return null
+    if (header.size !in 2..12 || separator.size != header.size || separator.any { !MARKDOWN_TABLE_SEPARATOR.matches(it) }) return null
     if (lines.size > 202) return null
     val rows = lines.drop(2).map(::cells)
     if (rows.any { it.size != header.size }) return null
