@@ -1,6 +1,8 @@
 package com.nshd.geminifreellm.data
 
 import com.nshd.geminifreellm.model.*
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
@@ -100,6 +102,21 @@ class LocalDataTest {
             file.writeText("%PDF-1.4\\n(" + "x".repeat(120_001) + ") Q\\n(hello) Tj")
             assertEquals("hello", PdfTextExtractor.extract(file))
         } finally { file.delete() }
+    }
+
+    @Test fun malformedJsonArrayEntriesAreSkippedWithoutLosingValidObjects() {
+        val profile = JSONObject().put("provider", "GEMINI")
+            .put("baseUrl", "https://generativelanguage.googleapis.com/v1beta")
+            .put("apiKey", "synthetic").put("model", "gemini-test")
+            .put("stream", true).put("vision", false).put("fastReplies", false)
+        val settings = settingsFromJson(settingsToJson(AppSettings())
+            .put("profiles", JSONArray().put("not-an-object").put(profile)))
+        assertEquals(listOf(Provider.GEMINI), settings.profiles.map { it.provider })
+
+        val validChat = conversationsToJson(listOf(Conversation(title = "survivor")))
+            .getJSONArray("chats").getJSONObject(0)
+        val chats = conversationsFromJson(JSONObject().put("chats", JSONArray().put("invalid").put(validChat)))
+        assertEquals(listOf("survivor"), chats.map { it.title })
     }
 
 }
