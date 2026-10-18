@@ -69,7 +69,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
     var haptics by remember { mutableStateOf(settings.haptics) }
     var agent by remember { mutableStateOf(settings.agent) }
     var providerMenu by remember { mutableStateOf(false) }
-    var expandedSection by rememberSaveable { mutableStateOf<String?>(null) }
+    var expandedSection by rememberSaveable { mutableStateOf<String?>("Connection") }
     var models by remember { mutableStateOf<List<String>?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
