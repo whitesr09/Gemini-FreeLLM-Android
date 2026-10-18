@@ -37,17 +37,41 @@ internal fun markdownBlocks(text: String): List<MarkdownBlock> {
     val blocks = mutableListOf<MarkdownBlock>()
     var code = false
     var language = ""
+    var fenceChar: Char? = null
+    var fenceLength = 0
     val buffer = StringBuilder()
     fun flush() {
         if (buffer.isNotEmpty() || code) blocks += MarkdownBlock(buffer.toString().trimEnd('\n'), if (code) language else null)
         buffer.setLength(0)
     }
     text.lineSequence().forEach { line ->
-        if (line.trimStart().startsWith("```")) {
-            flush()
-            code = !code
-            language = if (code) line.trim().removePrefix("```").take(30) else ""
-        } else buffer.append(line).append('\n')
+        val trimmed = line.trimStart()
+        if (!code) {
+            val opening = Regex("^(`{3,}|~{3,})(.*)$").matchEntire(trimmed)
+            if (opening != null) {
+                flush()
+                code = true
+                fenceChar = opening.groupValues[1].first()
+                fenceLength = opening.groupValues[1].length
+                language = opening.groupValues[2].trim().take(30)
+            } else {
+                buffer.append(line).append('\n')
+            }
+        } else {
+            val marker = fenceChar
+            val markerCount = if (marker == null) 0 else trimmed.takeWhile { it == marker }.length
+            val isClosing = marker != null && markerCount >= fenceLength &&
+                trimmed.drop(markerCount).isBlank()
+            if (isClosing) {
+                flush()
+                code = false
+                language = ""
+                fenceChar = null
+                fenceLength = 0
+            } else {
+                buffer.append(line).append('\n')
+            }
+        }
     }
     flush()
     return blocks
