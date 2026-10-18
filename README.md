@@ -101,3 +101,6 @@ Tests use synthetic HTTP responses and cover all three protocols, streaming comp
 - History search is local and in memory. Database-backed pagination, import, advanced performance profiling and a full TalkBack/device matrix remain follow-up work.
 
 See the [2.1 improvement checklist](docs/UPGRADE-2.1.md) for new features and the earlier [redesign audit and coverage](docs/REDESIGN.md) for implementation decisions and remaining verification.
+
+
+**Auto-mode cost note:** A slow response can trigger a parallel request to another provider, so more than one provider may charge for the same user message.
