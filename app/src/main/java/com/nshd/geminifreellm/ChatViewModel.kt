@@ -320,9 +320,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             draftSave?.cancel()
             draftSave = null
             generation?.cancel()
-            attachmentJob?.cancel()
+            val pendingAttachment = attachmentJob
+            pendingAttachment?.cancel()
             try {
                 generation?.join()
+                pendingAttachment?.join()
                 historyMutex.withLock {
                     withContext(Dispatchers.IO) { BackupManager.import(getApplication(), uri) }
                 }
