@@ -73,7 +73,7 @@ jobs:
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --stacktrace
 
       - name: Validate and build non-main branch APKs
-        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main' && github.event_name != 'workflow_dispatch'
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/phase2/settings-canvas-compact' && github.event_name != 'workflow_dispatch'
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
