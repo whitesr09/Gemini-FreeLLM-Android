@@ -56,4 +56,10 @@ class CodeRunnerTest {
         assertTrue(output.length < 66_000)
     }
 
+    @Test fun javaBridgeIsNotExposedToSnippets() {
+        val result = CodeRunner.runJs("typeof Packages + ':' + typeof JavaAdapter;")
+        assertTrue(result is JsRunResult.Success)
+        assertEquals("undefined:undefined", (result as JsRunResult.Success).returned)
+    }
+
 }
