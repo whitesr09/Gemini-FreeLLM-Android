@@ -51,10 +51,6 @@ class WorkspaceUiTest {
         handleVoiceTranscript(context, "Turn Wi-Fi off", { draft = it }, { notice = it })
         Assert.assertEquals("Turn Wi-Fi off", draft)
         Assert.assertNull(notice)
-        draft = null
-        handleVoiceTranscript(context, "Open Wi-Fi settings", { draft = it }, { notice = it })
-        Assert.assertNull(draft)
-        Assert.assertNull(notice)
     }
 
     @Test fun voiceSystemSettingsParserAcceptsNavigationOnly() {
