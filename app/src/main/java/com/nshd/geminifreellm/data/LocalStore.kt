@@ -32,6 +32,16 @@ class LocalStore(private val context: Context) {
         }.generateKey()
     }
 
+    /** Returns false for credentials encrypted by another install/device or a corrupt envelope. */
+    fun canDecrypt(envelopeBytes: ByteArray): Boolean = runCatching {
+        val envelope = JSONObject(String(envelopeBytes, Charsets.UTF_8))
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key(),
+            GCMParameterSpec(128, Base64.getDecoder().decode(envelope.getString("iv"))))
+        settingsFromJson(JSONObject(String(
+            cipher.doFinal(Base64.getDecoder().decode(envelope.getString("data"))), Charsets.UTF_8)))
+    }.isSuccess
+
     fun loadSettings(): AppSettings {
         if (credentials.baseFile.exists()) {
             val envelope = JSONObject(String(credentials.readFully(), Charsets.UTF_8))
