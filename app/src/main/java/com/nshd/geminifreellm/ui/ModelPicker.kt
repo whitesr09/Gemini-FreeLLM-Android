@@ -76,14 +76,17 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 providers.forEach { provider ->
                     val open = expanded == provider.name
-                    val profile = state.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)
+                    val profile = state.settings.active.takeIf { state.settings.selected == provider }
+                        ?: state.settings.profiles.firstOrNull { it.provider == provider }
+                        ?: ProviderProfile(provider)
                     val catalog = state.catalogs[provider] ?: ModelCatalog()
                     item(key = provider.name) {
                         Surface(shape = Design.card, color = if (open) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow) {
                             Row(Modifier.fillMaxWidth().clickable { expanded = if (open) "" else provider.name }.padding(Design.medium)
                                 .semantics { stateDescription = if (open) "Expanded" else "Collapsed" }, verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(provider.label, style = MaterialTheme.typography.titleMedium)
+                                    Text(if (provider == Provider.CUSTOM && state.settings.selected == provider) profile.name else provider.label,
+                                        style = MaterialTheme.typography.titleMedium)
                                     Text(if (catalog.models.isNotEmpty()) "${catalog.models.size} models" else if (profile.apiKey.isNotBlank()) "Key configured" else "Configure or browse",
                                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
