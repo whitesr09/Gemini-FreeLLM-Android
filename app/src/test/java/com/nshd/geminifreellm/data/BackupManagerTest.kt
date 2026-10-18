@@ -23,7 +23,8 @@ class BackupManagerTest {
         assertThrows(BackupException::class.java) {
             BackupManager.validateExportLimits(listOf(
                 "conversations.json" to (32L * 1024 * 1024),
-                "attachments/a.bin" to (32L * 1024 * 1024 + 1)
+                "attachments/a.bin" to (32L * 1024 * 1024),
+                "attachments/b.bin" to 1L
             ))
         }
     }
