@@ -81,6 +81,7 @@ val generateAppIcon by tasks.registering {
 }
 android.sourceSets.getByName("main").res.srcDir(layout.buildDirectory.dir("generated/res/appIcon"))
 tasks.named("preBuild").configure { dependsOn(generateAppIcon) }
+generateAppIcon.configure { mustRunAfter("clean") }
 
 kotlin {
     jvmToolchain(17)
