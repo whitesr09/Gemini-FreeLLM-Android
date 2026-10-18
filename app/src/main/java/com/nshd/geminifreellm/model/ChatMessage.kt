@@ -90,6 +90,12 @@ data class AppSettings(
         activeProfileId?.let { id -> profiles.firstOrNull { it.id == id && it.provider == selected } }
             ?: profiles.firstOrNull { it.provider == selected }
             ?: ProviderProfile(selected)
+
+    /** Select an existing saved connection while preserving every other endpoint. */
+    fun withActiveProfile(profileId: String): AppSettings? {
+        val target = profiles.firstOrNull { it.id == profileId } ?: return null
+        return copy(selected = target.provider, activeProfileId = target.id, autoRouting = false)
+    }
 }
 
 

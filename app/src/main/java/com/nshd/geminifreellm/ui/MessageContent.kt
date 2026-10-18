@@ -38,7 +38,7 @@ private val MARKDOWN_TABLE_SEPARATOR = Regex(":?-{3,}:?")
 private val MARKDOWN_LIST_MARKER = Regex("(?m)^(\\s*)[-*] ")
 private val MARKDOWN_PARAGRAPH_BREAK = Regex("\\n\\s*\\n")
 private val MARKDOWN_INLINE_PATTERN = Regex("\\[([^]\\n]+)]\\((https?://[^\\s)]+)\\)|`([^`\\n]+)`|\\*\\*([^*]+)\\*\\*|(?<!\\*)\\*([^*\\n]+)\\*(?!\\*)")
-private val MARKDOWN_TABLE_CELLS = Regex("(?<!\\\\)\\\\|")
+private val MARKDOWN_TABLE_CELLS = Regex("(?<!\\\\)\\|")
 
 /** Unclosed fences are deliberately rendered as code while the response streams. */
 internal fun markdownBlocks(text: String): List<MarkdownBlock> {

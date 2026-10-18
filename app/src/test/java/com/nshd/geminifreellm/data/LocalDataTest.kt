@@ -49,6 +49,21 @@ class LocalDataTest {
         assertFalse(restored.active.stream)
     }
 
+    @Test fun selectingSavedCompatibleAgentPreservesEveryConnection() {
+        val first = ProviderProfile(Provider.CUSTOM, "https://one.example/v1", "key-one", "model-one", id = "one", name = "One")
+        val second = ProviderProfile(Provider.CUSTOM, "https://two.example/v1", "key-two", "model-two", id = "two", name = "Two")
+        val settings = AppSettings(profiles = listOf(first, second), selected = Provider.CUSTOM,
+            activeProfileId = first.id, autoRouting = true)
+
+        val selected = settings.withActiveProfile(second.id)!!
+        assertEquals(listOf(first, second), selected.profiles)
+        assertEquals(second.id, selected.activeProfileId)
+        assertEquals(second, selected.active)
+        assertEquals("key-one", selected.profiles.first { it.id == first.id }.apiKey)
+        assertFalse(selected.autoRouting)
+        assertNull(settings.withActiveProfile("missing"))
+    }
+
     @Test fun pdfLiteralEscapesAreDecoded() {
         val file = File.createTempFile("test", ".pdf")
         try { file.writeText("%PDF-1.4\n(Hello\\nworld) Tj"); assertEquals("Hello world", PdfTextExtractor.extract(file)) }

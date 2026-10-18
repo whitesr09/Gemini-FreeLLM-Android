@@ -98,6 +98,55 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
                     if (open) {
                         item(key = "controls/${provider.name}") {
                             Column {
+                                if (provider == Provider.CUSTOM) {
+                                    val connections = state.settings.profiles.filter { it.provider == Provider.CUSTOM }
+                                    if (connections.isNotEmpty()) {
+                                        Text("Saved compatible agents", style = MaterialTheme.typography.titleSmall,
+                                            modifier = Modifier.padding(top = Design.small))
+                                        Text("Each connection keeps its own endpoint, key and model. Choose Use to switch without deleting another connection.",
+                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        connections.forEach { connection ->
+                                            val isActiveConnection = state.settings.selected == Provider.CUSTOM &&
+                                                state.settings.active.id == connection.id
+                                            Surface(
+                                                shape = Design.card,
+                                                color = if (isActiveConnection) MaterialTheme.colorScheme.secondaryContainer
+                                                    else MaterialTheme.colorScheme.surfaceContainerLow,
+                                                modifier = Modifier.fillMaxWidth().padding(top = Design.tiny)
+                                            ) {
+                                                Row(Modifier.fillMaxWidth().padding(Design.medium),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(Design.small)) {
+                                                    Column(Modifier.weight(1f)) {
+                                                        Text(connection.name.ifBlank { "Compatible API" },
+                                                            style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        Text(connection.model.ifBlank { "No model selected" },
+                                                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        Text(connection.baseUrl.ifBlank { "Base URL not set" },
+                                                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    }
+                                                    if (isActiveConnection) {
+                                                        Text("Active", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                                    } else {
+                                                        TextButton(enabled = !selecting, onClick = {
+                                                            scope.launch {
+                                                                selecting = true
+                                                                if (vm.selectProfile(connection.id)) {
+                                                                    manual = ""
+                                                                    query = ""
+                                                                    vm.loadCatalog(Provider.CUSTOM, true)
+                                                                } else feedback = "Could not switch to this connection. Reopen Settings and check its configuration."
+                                                                selecting = false
+                                                            }
+                                                        }) { Text("Use") }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 if (state.settings.profiles.any { it.provider == provider }) Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Allow in Auto", Modifier.weight(1f))
                                     Switch(provider !in state.settings.autoExcluded, { enabled -> scope.launch { vm.setAutoProvider(provider, enabled) } })

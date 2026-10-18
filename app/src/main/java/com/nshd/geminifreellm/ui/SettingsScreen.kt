@@ -173,7 +173,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                     if (selected == Provider.CUSTOM) {
                         Column(verticalArrangement = Arrangement.spacedBy(Design.small)) {
                             Text("Saved compatible agents", style = MaterialTheme.typography.titleSmall)
-                            Text("Each agent can point to a different OpenAI-compatible server or gateway. Switch or edit one without removing the others.",
+                            Text("Each connection keeps its own URL, key, model and capabilities. Use Choose your AI to switch between saved agents; select one here to edit it.",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             OutlinedButton(onClick = {
                                 profiles = (profiles.filterNot { it.id == profile.id } + profile).distinctBy { it.id }
@@ -210,7 +210,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                                                 profiles = (profiles.filterNot { it.id == profile.id } + profile).distinctBy { it.id }
                                                 selected = Provider.CUSTOM
                                                 update(saved)
-                                            }) { Text("Edit") }
+                                            }) { Text("Select / edit") }
                                         }
                                         TextButton(onClick = { pendingDeleteProfileId = saved.id }) {
                                             Text("Remove", color = MaterialTheme.colorScheme.error)

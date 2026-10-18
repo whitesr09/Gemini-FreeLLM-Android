@@ -157,6 +157,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Activate a saved connection without replacing its URL, key, model, or capabilities. */
+    suspend fun selectProfile(profileId: String): Boolean {
+        if (mutable.value.settings.profiles.none { it.id == profileId }) {
+            notice("That saved connection no longer exists. Refresh settings and try again.")
+            return false
+        }
+        return updateSettings { settings -> settings.withActiveProfile(profileId) ?: settings }
+    }
+
     suspend fun selectModel(provider: Provider, model: String): Boolean {
         val current = mutable.value.settings
         val profile = current.active.takeIf { current.selected == provider }
@@ -424,16 +433,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val changed = settings.profiles.filter { profile -> old.profiles.firstOrNull { it.id == profile.id }?.let {
                 it.apiKey != profile.apiKey || it.baseUrl != profile.baseUrl
             } ?: true }.map { it.provider }.toSet()
-            if (changed.isNotEmpty() || old.autoExcluded != settings.autoExcluded || (old.autoRouting && !settings.autoRouting)) stopAutoCheck()
-            changed.forEach {
+            // Catalogs/access for CUSTOM are endpoint-dependent. Switching between two saved
+            // compatible endpoints must never keep the previous endpoint's model list visible.
+            val activeProfileChanged = old.selected != settings.selected || old.active.id != settings.active.id
+            val invalidatedProviders = changed + if (activeProfileChanged) setOfNotNull(
+                old.selected.takeIf { it == Provider.CUSTOM },
+                settings.selected.takeIf { it == Provider.CUSTOM }
+            ) else emptySet()
+            if (invalidatedProviders.isNotEmpty() || old.autoExcluded != settings.autoExcluded || (old.autoRouting && !settings.autoRouting)) stopAutoCheck()
+            invalidatedProviders.forEach {
                 catalogTokens.remove(it)
                 catalogProfileIds.remove(it)
                 catalogJobs.remove(it)?.cancel()
             }
             mutable.update { value -> value.copy(settings = settings,
-                autoChoice = if (changed.isNotEmpty() || old.autoExcluded != settings.autoExcluded) null else value.autoChoice,
-                catalogs = value.catalogs.filterKeys { it !in changed },
-                access = value.access.filterKeys { key -> changed.none { key.startsWith("${it.name}/") } }) }
+                autoChoice = if (invalidatedProviders.isNotEmpty() || old.autoExcluded != settings.autoExcluded) null else value.autoChoice,
+                catalogs = value.catalogs.filterKeys { it !in invalidatedProviders },
+                access = value.access.filterKeys { key -> invalidatedProviders.none { key.startsWith("${it.name}/") } }) }
             true
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) {
