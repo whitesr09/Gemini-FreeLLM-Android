@@ -35,9 +35,9 @@ android {
     signingConfigs {
         create("ci") {
             storeFile = ciKeystoreFile
-            storePassword = System.getenv("CI_KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("CI_KEY_ALIAS")
-            keyPassword = System.getenv("CI_KEY_PASSWORD")
+            storePassword = System.getenv("ANDROID_SIGNING_STORE_PASSWORD")
+            keyAlias = System.getenv("ANDROID_SIGNING_KEY_ALIAS")
+            keyPassword = System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
         }
     }
     buildTypes {
