@@ -169,6 +169,7 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
             }
         }
         TransformedText(result, mapping)
+    } }
     BackHandler { leave() }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
