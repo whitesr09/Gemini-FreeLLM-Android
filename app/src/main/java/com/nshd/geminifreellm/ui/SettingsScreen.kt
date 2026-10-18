@@ -152,7 +152,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
-                            if (latestProfile == testedProfile) {
+                            if (connectionTestToken == requestId && latestProfile == testedProfile) {
                                 error = true
                                 status = failure.message ?: "Connection test failed."
                             }
