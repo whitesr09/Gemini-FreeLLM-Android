@@ -62,4 +62,10 @@ class CodeRunnerTest {
         assertEquals("undefined:undefined", (result as JsRunResult.Success).returned)
     }
 
+    @Test fun es6ArrowFunctionsExecute() {
+        val result = CodeRunner.runJs("[1, 2].map(x => x * 2).join(',');")
+        assertTrue(result is JsRunResult.Success)
+        assertEquals("2,4", (result as JsRunResult.Success).returned)
+    }
+
 }
