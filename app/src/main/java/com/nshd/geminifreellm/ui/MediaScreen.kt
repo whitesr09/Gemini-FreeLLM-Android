@@ -43,6 +43,8 @@ fun MediaScreen(settings: AppSettings, onBack: () -> Unit) {
     var exportItem by remember { mutableStateOf<MediaViewModel.JobItem?>(null) }
     var preview by remember { mutableStateOf<Attachment?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+    // A fresh ViewModel result (especially a generation failure) supersedes stale local export notices.
+    LaunchedEffect(state.notice) { if (state.notice != null) notice = null }
     val profile = choices.firstOrNull { it.provider.name == provider }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
