@@ -16,12 +16,14 @@ object OfficeDocumentParser {
 
     fun extract(file: File): String {
         val name = file.name.lowercase()
-        return when {
+        val text = when {
             name.endsWith(".docx") -> extractDocx(file)
             name.endsWith(".pptx") -> extractPptx(file)
             name.endsWith(".xlsx") -> extractXlsx(file)
             else -> ""
-        }.take(MAX_OUTPUT_CHARS)
+        }
+        require(text.length <= MAX_OUTPUT_CHARS) { "The document contains too much text. Attach a shorter excerpt." }
+        return text
     }
 
     private fun extractDocx(file: File): String {
@@ -53,7 +55,7 @@ object OfficeDocumentParser {
         val sheets = mutableListOf<Pair<String, ByteArray>>()
         readXmlEntries(file) { path, xml ->
             when {
-                path == "xl/sharedStrings.xml" -> sharedStrings = parseSharedStrings(xml)
+                path == "xl/sharedstrings.xml" -> sharedStrings = parseSharedStrings(xml)
                 path.startsWith("xl/worksheets/") && path.endsWith(".xml") -> {
                     sheets += path.substringAfterLast('/') to xml
                 }
@@ -66,7 +68,7 @@ object OfficeDocumentParser {
     }
 
     private fun parseXml(xml: ByteArray, output: StringBuilder, type: String) {
-        val parser = XmlPullParserFactory.newInstance().newPullParser()
+        val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser()
         parser.setInput(ByteArrayInputStream(xml), "UTF-8")
         var event = parser.eventType
         var currentParagraph = StringBuilder()
@@ -79,11 +81,10 @@ object OfficeDocumentParser {
                 XmlPullParser.START_TAG -> when (parser.name) {
                     "p" -> {
                         currentParagraph = StringBuilder()
-                        heading = type == "DOCX" && (
-                            parser.getAttributeValue("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "rsidR") != null ||
-                                parser.getAttributeValue(null, "style")?.contains("Heading", true) == true
-                            )
+                        heading = false
                     }
+                    "pStyle" -> heading = type == "DOCX" &&
+                        parser.getAttributeValue("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "val")?.startsWith("Heading", true) == true
                     "t" -> inText = true
                     "tab" -> currentParagraph.append("\t")
                     "br", "cr" -> currentParagraph.append("\n")
@@ -110,21 +111,21 @@ object OfficeDocumentParser {
 
     private fun parseSharedStrings(xml: ByteArray): List<String> {
         val strings = mutableListOf<String>()
-        val parser = XmlPullParserFactory.newInstance().newPullParser()
+        val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser()
         parser.setInput(ByteArrayInputStream(xml), "UTF-8")
         var event = parser.eventType
         var inText = false
         var current = StringBuilder()
         while (event != XmlPullParser.END_DOCUMENT) {
             when (event) {
-                XmlPullParser.START_TAG -> if (parser.name == "t") inText = true
+                XmlPullParser.START_TAG -> when (parser.name) {
+                    "si" -> current = StringBuilder()
+                    "t" -> inText = true
+                }
                 XmlPullParser.TEXT -> if (inText) current.append(parser.text)
-                XmlPullParser.END_TAG -> if (parser.name == "t") {
-                    inText = false
-                    if (current.isNotEmpty()) {
-                        strings += current.toString()
-                        current = StringBuilder()
-                    }
+                XmlPullParser.END_TAG -> when (parser.name) {
+                    "t" -> inText = false
+                    "si" -> strings += current.toString()
                 }
             }
             event = parser.next()
@@ -134,7 +135,7 @@ object OfficeDocumentParser {
 
     private fun parseWorksheet(xml: ByteArray, sharedStrings: List<String>): List<String> {
         val rows = mutableListOf<String>()
-        val parser = XmlPullParserFactory.newInstance().newPullParser()
+        val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser()
         parser.setInput(ByteArrayInputStream(xml), "UTF-8")
         var event = parser.eventType
         var currentRow = StringBuilder()
@@ -164,7 +165,8 @@ object OfficeDocumentParser {
             }
             event = parser.next()
         }
-        return rows.take(400)
+        require(rows.size <= 400) { "The spreadsheet has more than 400 rows. Attach a smaller sheet or a CSV excerpt." }
+        return rows
     }
 
     private fun readXmlEntries(file: File, block: (String, ByteArray) -> Unit) {
@@ -194,10 +196,19 @@ object OfficeDocumentParser {
                         require(total <= MAX_TOTAL_BYTES) { "Office archive expands beyond the safe limit." }
                         output.write(buffer, 0, read)
                     }
-                    block(path.lowercase(), output.toByteArray())
+                    val xml = output.toByteArray()
+                    require(!String(xml, StandardCharsets.UTF_8).contains("<!DOCTYPE", ignoreCase = true)) { "Office XML contains an unsupported document type." }
+                    block(path.lowercase(), xml)
                 } else {
                     val buffer = ByteArray(8 * 1024)
-                    while (zip.read(buffer) >= 0) Unit
+                    var count = 0L
+                    while (true) {
+                        val read = zip.read(buffer)
+                        if (read < 0) break
+                        count += read
+                        total += read
+                        require(count <= MAX_ENTRY_BYTES && total <= MAX_TOTAL_BYTES) { "Office archive expands beyond the safe limit." }
+                    }
                 }
                 zip.closeEntry()
             }

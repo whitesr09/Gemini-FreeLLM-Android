@@ -2,6 +2,7 @@ package com.nshd.geminifreellm.data
 
 import kotlinx.coroutines.CancellationException
 import org.mozilla.javascript.BaseFunction
+import org.mozilla.javascript.ClassShutter
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.ContextFactory
 import org.mozilla.javascript.RhinoException
@@ -23,6 +24,7 @@ sealed interface JsRunResult {
 object CodeRunner {
     const val TIMEOUT_MS = 8000L
     private const val MAX_CHARS = 120_000
+    private const val MAX_OUTPUT_CHARS = 64 * 1024
 
     fun isRunnable(language: String) = language.lowercase() in setOf("js", "javascript", "mjs")
     fun isPreviewable(language: String) = language.lowercase() in setOf("html", "htm")
@@ -32,32 +34,45 @@ object CodeRunner {
     fun runJs(code: String): JsRunResult {
         if (code.length > MAX_CHARS) return JsRunResult.Failure("Code exceeds $MAX_CHARS characters", 0)
         val output = StringBuilder()
+        var outputTruncated = false
         val start = System.currentTimeMillis()
         val factory = object : ContextFactory() {
             override fun observeInstructionCount(cx: Context, instructionCount: Int) {
                 if (System.currentTimeMillis() - start > TIMEOUT_MS) throw JsTimeoutException()
             }
-
             override fun makeContext(): Context = super.makeContext().apply {
                 // Interpreted mode is required on Android (no JIT classloading).
                 optimizationLevel = -1
-                // Keep the instruction watchdog enabled through the public API.
                 instructionObserverThreshold = 20_000
+                languageVersion = Context.VERSION_ES6
                 maximumInterpreterStackDepth = 256
+                // Java/Android classes must never be visible to model-provided snippets.
+                setClassShutter(ClassShutter { false })
             }
         }
         return try {
             var returned: String? = null
             factory.call { cx ->
-                val scope: Scriptable = cx.initStandardObjects()
+                val scope: Scriptable = cx.initSafeStandardObjects()
                 val logFn = object : BaseFunction() {
-                    override fun call(
-                        cx: Context,
-                        scope: Scriptable,
-                        thisObj: Scriptable,
-                        args: Array<out Any?>
-                    ): Any {
-                        output.appendLine(args.joinToString(" ") { Context.toString(it) })
+                    override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<out Any?>): Any {
+                        if (output.length >= MAX_OUTPUT_CHARS) {
+                            outputTruncated = true
+                        } else {
+                            args.forEachIndexed { index, argument ->
+                                if (index > 0 && output.length < MAX_OUTPUT_CHARS) output.append(' ')
+                                if (output.length < MAX_OUTPUT_CHARS) {
+                                    val value = Context.toString(argument)
+                                    val remaining = MAX_OUTPUT_CHARS - output.length
+                                    output.append(value.take(remaining))
+                                    if (value.length > remaining) outputTruncated = true
+                                } else {
+                                    outputTruncated = true
+                                }
+                            }
+                            if (output.length < MAX_OUTPUT_CHARS) output.append('\n')
+                            else outputTruncated = true
+                        }
                         return Context.getUndefinedValue()
                     }
                 }
@@ -67,10 +82,16 @@ object CodeRunner {
                 ScriptableObject.putProperty(scope, "console", consoleObj)
                 ScriptableObject.putProperty(scope, "print", logFn)
                 val result = cx.evaluateString(scope, code, "code", 1, null)
-                if (result !== Context.getUndefinedValue()) returned = Context.toString(result)
+                if (result !== Context.getUndefinedValue()) {
+                    val value = Context.toString(result)
+                    returned = if (value.length > MAX_OUTPUT_CHARS)
+                        value.take(MAX_OUTPUT_CHARS) + "\n[Return value truncated at $MAX_OUTPUT_CHARS characters]"
+                    else value
+                }
                 null
             }
-            JsRunResult.Success(output.toString().trimEnd(), returned)
+            val text = output.toString().trimEnd()
+            JsRunResult.Success(if (outputTruncated) "$text\n[Output truncated at $MAX_OUTPUT_CHARS characters]" else text, returned)
         } catch (e: RhinoException) {
             JsRunResult.Failure((e.message ?: "Script error").take(500), e.lineNumber())
         } catch (e: JsTimeoutException) {
