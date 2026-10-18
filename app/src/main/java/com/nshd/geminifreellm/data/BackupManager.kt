@@ -70,7 +70,7 @@ object BackupManager {
     private fun isAllowedEntry(name: String): Boolean =
         name == MANIFEST || name == HISTORY || name == CREDENTIALS ||
             (name.startsWith("$ATTACHMENTS/") &&
-                name.removePrefix("$ATTACHMENTS/").let { it.isNotBlank() && '/' !in it && '\\\\' !in it && it != "." && it != ".." })
+                name.removePrefix("$ATTACHMENTS/").let { it.isNotBlank() && '/' !in it && '\\' !in it && it != "." && it != ".." })
 
     /** Validates a backup and restores it over the current data. */
     suspend fun import(context: Context, uri: Uri) = withContext(Dispatchers.IO) {
