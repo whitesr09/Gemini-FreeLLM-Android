@@ -432,6 +432,11 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
             list.scrollBy(lastSize.toFloat())
         }
     }
+    // Scroll position changes frequently. Derive the jump affordance separately so
+    // unrelated message content does not need to recompose on every scroll delta.
+    val showJumpToLatest by remember(list, follow) {
+        derivedStateOf { !follow && list.canScrollForward }
+    }
     val lastText = chat.messages.lastOrNull()?.text
     LaunchedEffect(dragging) { if (dragging) follow = false }
     LaunchedEffect(list) { snapshotFlow { list.canScrollForward }.collect { if (!it && !dragging) follow = true } }
@@ -447,7 +452,7 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
                     onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings, showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = vm::continueReply)
             }
         }
-        AnimatedVisibility(visible = !follow && list.canScrollForward,
+        AnimatedVisibility(visible = showJumpToLatest,
             modifier = Modifier.align(Alignment.BottomCenter), enter = fadeIn(tween(if (settings.reducedMotion) 0 else 160)), exit = fadeOut(tween(if (settings.reducedMotion) 0 else 120))) {
         SmallFloatingActionButton(onClick = {
             follow = true; scope.launch { scrollToLatest() }
