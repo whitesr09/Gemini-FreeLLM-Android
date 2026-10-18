@@ -51,6 +51,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var generationToken: String? = null
     private val saves = Channel<Triple<Int, List<Conversation>, String>>(Channel.CONFLATED)
     private var persistEpoch = 0
+    private var restoringBackup = false
 
     init {
         reload()
@@ -95,7 +96,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun persist() {
         val value = mutable.value
-        if (!value.loading && !value.storageBlocked) saves.trySend(Triple(persistEpoch, value.chats, value.activeId))
+        if (!restoringBackup && !value.loading && !value.storageBlocked) saves.trySend(Triple(persistEpoch, value.chats, value.activeId))
     }
 
     private fun changeChat(id: String = mutable.value.activeId, save: Boolean = true, update: (Conversation) -> Conversation) {
@@ -317,6 +318,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             // Invalidate queued snapshots and stop producers before touching the files they
             // persist. The mutex also waits for an already-running synchronous disk write.
             persistEpoch++
+            restoringBackup = true
             draftSave?.cancel()
             draftSave = null
             generation?.cancel()
@@ -335,6 +337,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: Exception) {
                 withContext(Dispatchers.IO) { diagnostics.record("Backup", error = error) }
                 notice(if (error is BackupException) error.message ?: "Could not read the backup file." else "Restore failed.")
+            } finally {
+                restoringBackup = false
             }
         }
     }
