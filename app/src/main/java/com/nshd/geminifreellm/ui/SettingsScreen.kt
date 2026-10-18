@@ -149,8 +149,10 @@ fun SettingsScreen(settings: AppSettings, client: FreeLlmApiClient, onSave: susp
                                 client.generate(probeProfile, listOf(ChatMessage(text = "Reply with OK only.", role = ChatMessage.Role.USER))) {}
                             } catch (auth: ApiException) {
                                 when (auth.access) {
-                                    AccessState.AUTH, AccessState.MODEL_REJECTED ->
+                                    AccessState.AUTH ->
                                         throw ApiException("The API key was rejected. Check the key for ${selected.label}.", auth.access, auth.statusCode)
+                                    AccessState.MODEL_REJECTED ->
+                                        throw ApiException("The key may be valid, but this account or model is not permitted. Check model access and provider permissions.", auth.access, auth.statusCode)
                                     AccessState.QUOTA ->
                                         throw ApiException("The key works, but this provider's quota or balance is exhausted.", auth.access, auth.statusCode)
                                     AccessState.UNAVAILABLE ->
