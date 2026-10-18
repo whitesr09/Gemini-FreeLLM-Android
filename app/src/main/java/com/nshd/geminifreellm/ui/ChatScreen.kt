@@ -472,14 +472,22 @@ private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Bool
         // ChatGPT-like restraint: only name the model when we actually know it.
         if (!user && !error && message.model.isNotBlank()) Text(message.model, style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = Design.small))
-        Surface(color = when { error -> MaterialTheme.colorScheme.surfaceContainerLow; user -> MaterialTheme.colorScheme.surfaceContainer; else -> MaterialTheme.colorScheme.surface },
-            shape = Design.card, modifier = if (user) Modifier.widthIn(max = 580.dp) else Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(Design.small)) {
+        Surface(
+            color = when {
+                error -> MaterialTheme.colorScheme.errorContainer
+                user -> MaterialTheme.colorScheme.primaryContainer
+                else -> MaterialTheme.colorScheme.surfaceContainerLow
+            },
+            shape = if (user) RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 6.dp, bottomEnd = 20.dp) else Design.card,
+            border = if (user) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+            modifier = if (user) Modifier.widthIn(max = 580.dp) else Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(Design.small)) {
                 message.attachments.forEach { file -> AttachmentLabel(file) }
                 when {
-                    error -> Text(message.text, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    error -> Text(message.text, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     message.text.isEmpty() && generating -> ThinkingIndicator()
-                    user -> SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge) }
+                    user -> SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer) }
                     else -> StreamingContent(message.text, generating, onCanvas)
                 }
                 if (!generating && message.interrupted) Text("Reply incomplete", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
