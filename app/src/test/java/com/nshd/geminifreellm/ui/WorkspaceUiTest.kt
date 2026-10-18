@@ -71,6 +71,15 @@ class WorkspaceUiTest {
         Assert.assertNull(parseVoiceAppLaunchCommand("I want to open WhatsApp"))
     }
 
+    @Test fun jarvisShortcutOpensDedicatedAssistantScreenAndReturnsToChat() {
+        ready()
+        compose.onNodeWithContentDescription("Open Jarvis assistant").performClick()
+        compose.onNodeWithText("YOUR PERSONAL AI").assertExists()
+        compose.onNodeWithText("TAP TO TALK TO JARVIS").assertExists()
+        compose.onNodeWithContentDescription("Back to chat").performClick()
+        compose.onNodeWithContentDescription("Message").assertExists()
+    }
+
     @Test fun homeDrawerAndVersionRender() {
         ready()
         compose.onNodeWithContentDescription("Message").assertExists()
