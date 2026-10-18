@@ -2,6 +2,7 @@ package com.nshd.geminifreellm.data
 
 import kotlinx.coroutines.CancellationException
 import org.mozilla.javascript.BaseFunction
+import org.mozilla.javascript.ClassShutter
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.ContextFactory
 import org.mozilla.javascript.RhinoException
@@ -45,12 +46,14 @@ object CodeRunner {
                 setInstructionObserverThreshold(20_000)
                 languageVersion = Context.VERSION_ES6
                 maximumInterpreterStackDepth = 256
+                // Java/Android classes must never be visible to model-provided snippets.
+                setClassShutter(ClassShutter { false })
             }
         }
         return try {
             var returned: String? = null
             factory.call { cx ->
-                val scope: Scriptable = cx.initStandardObjects()
+                val scope: Scriptable = cx.initSafeStandardObjects()
                 val logFn = object : BaseFunction() {
                     override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<out Any?>): Any {
                         if (output.length >= MAX_OUTPUT_CHARS) {
