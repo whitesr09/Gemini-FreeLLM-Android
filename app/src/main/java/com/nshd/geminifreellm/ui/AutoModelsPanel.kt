@@ -43,7 +43,7 @@ fun ColumnScope.AutoModelsPanel(state: ChatViewModel.State, vm: ChatViewModel, o
                 }
                 Text(if (state.settings.autoRouting) "On · automatically checks, selects and switches models" else "Off · using ${state.settings.active.model}", style = MaterialTheme.typography.titleSmall)
                 Text("${models.size} models from ${state.settings.profiles.size} configured providers", style = MaterialTheme.typography.bodyMedium)
-                Text("Turning Auto on sends short availability checks (up to 6). Normal API charges apply. Chats and agent context can go to any enabled provider. Failed replies automatically switch; partial replies are preserved separately.", style = MaterialTheme.typography.bodySmall)
+                Text("Turning Auto on sends short availability checks (up to 8). Normal API charges apply. Chats and agent context can go to any enabled provider. Failed replies automatically switch; partial replies continue in the same bubble when possible.", style = MaterialTheme.typography.bodySmall)
                 state.autoChoice?.let { Text("Ready model: $it", style = MaterialTheme.typography.titleSmall) }
                 Text(state.autoStatus, style = MaterialTheme.typography.bodySmall)
                 if (state.autoChecking) LinearProgressIndicator(Modifier.fillMaxWidth())
