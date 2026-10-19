@@ -50,7 +50,7 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         // Keep the picker stable while scrolling long model catalogs. Close through the
         // explicit X button, Back, or tapping outside instead of accidental drag dismissal.
-        sheetGesturesEnabled = false,
+        sheetGestureEnabled = false,
         dragHandle = null
     ) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding().widthIn(max = Design.readingWidth)) {
