@@ -256,7 +256,7 @@ private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) 
                         // Keep an explicit glyph on blank logical lines so their number
                         // remains visible, including the final line after a trailing newline.
                         append(line.ifEmpty { " " })
-                        if (index != visibleLines.lastIndex) append('\\n')
+                        if (index != visibleLines.lastIndex) append('\n')
                     }
                 }
             }
