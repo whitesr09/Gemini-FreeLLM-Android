@@ -54,6 +54,7 @@ enum class Provider(val label: String, val endpoint: String, val defaultModel: S
     MISTRAL("Mistral", "https://api.mistral.ai/v1", "mistral-small-latest", ApiProtocol.OPENAI),
     XAI("xAI", "https://api.x.ai/v1", "grok-3-mini", ApiProtocol.OPENAI),
     OLLAMA("Ollama / local", "http://10.0.2.2:11434/v1", "", ApiProtocol.OPENAI),
+    DSHA("DSHA · Our Free Model", "http://127.0.0.1:18900/v1", "deepseek-v4.1-flash", ApiProtocol.OPENAI),
     CUSTOM("OpenAI-compatible / unified", "", "", ApiProtocol.OPENAI)
 }
 
