@@ -36,6 +36,7 @@ Open **Settings**, choose a provider, enter its API key and exact model ID, then
 | Mistral | `https://api.mistral.ai/v1` | Mistral API key |
 | xAI | `https://api.x.ai/v1` | xAI API key |
 | Ollama | `http://10.0.2.2:11434/v1` (emulator) or your LAN address | Usually empty; follow server configuration |
+| DSHA · Our Free Model | Use the Base URL shown in DSHA → Settings → Our Free Model → Local forward (usually `http://127.0.0.1:18900/v1`) | The generated local-forward API key |
 | Other / local | Provider's OpenAI-compatible API base URL | Provider key, or empty if server permits |
 
 OpenAI-compatible gateways must support `/chat/completions`; model discovery additionally needs `/models`. Gemini and Anthropic use their native protocols. Proprietary protocols require a dedicated adapter. OpenAI Responses-only models are not supported by the chat-completions adapter.
@@ -45,6 +46,15 @@ For FreeLLMAPI, keep upstream provider keys on your server and enter its **unifi
 On a phone, `127.0.0.1` means the phone itself. For a computer on your network, use its LAN address. The Android emulator can reach a host service through `10.0.2.2`. Remote HTTP endpoints are rejected when an API key is configured, preventing credentials from being sent in cleartext. Localhost HTTP and keyless HTTP endpoints remain allowed; use HTTPS for remote authenticated APIs. The app never forwards credentials across redirects.
 
 Enable **Image input** only for a vision-capable model. Switching to a text-only profile will require a new chat or re-enabling vision if the conversation contains images. Turn **Stream responses** off for servers that only support complete JSON replies.
+
+
+### Connect DSHA on the same Android phone
+
+1. In DSHA, open **Settings → Our Free Model → Local forward**, enable it, and copy the actual Base URL and generated API key. The port may change if the requested port is occupied; use the port shown by DSHA, not an assumed value.
+2. In this app, open **Settings → Connection → DSHA · Our Free Model**. Paste that Base URL and key, tap **Test connection & find models**, and choose an ID returned by `/v1/models`.
+3. Keep DSHA running while using the provider. The app sends OpenAI-compatible `GET /v1/models` and `POST /v1/chat/completions` requests with `Authorization: Bearer <key>`. Streaming can be disabled for compatible gateways that only return JSON.
+
+The local-forward key is a gateway credential; keep it private. Loopback HTTP is suitable only for the same device. For a remote/LAN host, prefer HTTPS or a trusted private network and do not expose the forward port to the public internet. DSHA free-model availability, upstream quotas and privacy terms are controlled by its upstream services.
 
 ## Models, canvas and media
 
