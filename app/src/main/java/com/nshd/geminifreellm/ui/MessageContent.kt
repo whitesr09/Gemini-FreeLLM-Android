@@ -10,6 +10,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Preview
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -185,6 +186,7 @@ private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) 
     var running by remember { mutableStateOf(false) }
     var runResult by remember { mutableStateOf<JsRunResult?>(null) }
     var preview by remember { mutableStateOf(false) }
+    var moreActions by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
     val language = block.language.orEmpty()
     fun run() {
@@ -197,10 +199,22 @@ private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) 
     }
     Surface(shape = Design.card, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Column {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = Design.medium), verticalAlignment = Alignment.CenterVertically) {
-                Text(language.ifBlank { "Code" }, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
-                if (allLines.size > 8) TextButton(onClick = { userChangedExpanded = true; expanded = !expanded }) {
-                    Text(if (expanded) "Collapse" else "Expand · ${allLines.size} lines")
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = Design.tiny),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    language.ifBlank { "Code" },
+                    Modifier.weight(1f).padding(start = Design.small),
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                if (allLines.size > 8) TextButton(
+                    onClick = { userChangedExpanded = true; expanded = !expanded },
+                    contentPadding = PaddingValues(horizontal = Design.tiny)
+                ) {
+                    Text(if (expanded) "Collapse" else "Expand · ${allLines.size}")
                 }
                 if (CodeRunner.isRunnable(language)) IconButton(onClick = ::run, enabled = !running) {
                     if (running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -209,26 +223,50 @@ private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) 
                 if (CodeRunner.isPreviewable(language)) IconButton(onClick = { preview = true }) {
                     Icon(Icons.Outlined.Preview, "Preview HTML on this device")
                 }
-                IconButton(onClick = { onCanvas(block.text, language) }, enabled = block.text.length <= 120_000) { Icon(Icons.Outlined.Code, "Open code in canvas", Modifier.size(20.dp)) }
-                TextButton(onClick = { clipboard.setText(AnnotatedString(block.text)); copied = true }) {
-                    Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(Design.small)); Text(if (copied) "Copied" else "Copy code")
+                IconButton(onClick = { clipboard.setText(AnnotatedString(block.text)); copied = true }) {
+                    Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                        if (copied) "Code copied" else "Copy full code", Modifier.size(20.dp))
+                }
+                Box {
+                    IconButton(onClick = { moreActions = true }) {
+                        Icon(Icons.Outlined.MoreHoriz, "More code actions")
+                    }
+                    DropdownMenu(expanded = moreActions, onDismissRequest = { moreActions = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Open in code canvas") },
+                            leadingIcon = { Icon(Icons.Outlined.Code, null) },
+                            enabled = block.text.length <= 120_000,
+                            onClick = { moreActions = false; onCanvas(block.text, language) }
+                        )
+                    }
                 }
             }
             if (running || runResult != null) RunConsole(running, runResult, Modifier.fillMaxWidth().padding(horizontal = Design.medium)) { runResult = null }
-            Row(Modifier.fillMaxWidth()) {
-                // Line-number gutter: excluded from selection and the horizontal scroll.
-                val gutterStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
-                Column(Modifier.padding(vertical = Design.medium).padding(start = Design.medium)) {
-                    repeat(visibleLines.size) { index ->
-                        Text("%4d".format(Locale.US, index + 1), style = gutterStyle,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f))
+            val gutterColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+            val gutterStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
+            // Render gutter and source in one text layout. Separate columns drift when a
+            // final newline, font scaling, or line wrapping changes the visual line count.
+            val numberedCode = remember(visibleLines, gutterColor) {
+                buildAnnotatedString {
+                    val numberWidth = maxOf(3, visibleLines.size.toString().length)
+                    visibleLines.forEachIndexed { index, line ->
+                        val start = length
+                        append((index + 1).toString().padStart(numberWidth, ' ') + " │ ")
+                        addStyle(SpanStyle(color = gutterColor), start, length)
+                        // Keep an explicit glyph on blank logical lines so their number
+                        // remains visible, including the final line after a trailing newline.
+                        append(line.ifEmpty { " " })
+                        if (index != visibleLines.lastIndex) append('\\n')
                     }
                 }
-                SelectionContainer(Modifier.weight(1f)) {
-                    Text(visibleText, Modifier.horizontalScroll(rememberScrollState()).padding(Design.medium),
-                        style = gutterStyle, softWrap = false)
-                }
+            }
+            SelectionContainer(Modifier.fillMaxWidth()) {
+                Text(
+                    numberedCode,
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = Design.medium, vertical = Design.small),
+                    style = gutterStyle,
+                    softWrap = false
+                )
             }
             if (allLines.size > 8) Text(
                 if (expanded) "${allLines.size} lines · full code" else "Showing first 8 of ${allLines.size} lines",
