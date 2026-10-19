@@ -11,6 +11,20 @@ class CanvasOffsetMappingTest {
         assertEquals(listOf("one", "", "three"), canvasCodeLines("one\n\nthree"))
     }
 
+    @Test fun renderedCodeGutterKeepsTheFinalBlankLine() {
+        assertEquals(
+            listOf("  1 │ one", "  2 │ two", "  3 │ "),
+            numberedCodeLines(canvasCodeLines("one\ntwo\n"))
+        )
+    }
+
+    @Test fun renderedCodeGutterKeepsInteriorBlankLines() {
+        assertEquals(
+            listOf("  1 │ one", "  2 │ ", "  3 │ three"),
+            numberedCodeLines(canvasCodeLines("one\n\nthree"))
+        )
+    }
+
     @Test fun trailingNewlineGetsItsOwnGutterLine() {
         val source = "one\ntwo\n"
         val mapping = CanvasOffsetMapping(source, 7)
