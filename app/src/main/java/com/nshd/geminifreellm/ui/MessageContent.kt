@@ -32,6 +32,14 @@ import kotlinx.coroutines.withContext
 
 internal data class MarkdownBlock(val text: String, val language: String? = null)
 
+/** Formats every logical source line, including the empty line after a trailing newline. */
+internal fun numberedCodeLines(lines: List<String>): List<String> {
+    val width = maxOf(3, lines.size.toString().length)
+    return lines.mapIndexed { index, line ->
+        (index + 1).toString().padStart(width, ' ') + " │ " + line
+    }
+}
+
 private val MARKDOWN_FENCE_OPEN = Regex("^(`{3,}|~{3,})(.*)$")
 private val MARKDOWN_HEADING = Regex("^(#{1,6})\\s+.*$")
 private val MARKDOWN_HEADING_CONTENT = Regex("^(#{1,6})\\s+(.*)")
@@ -245,18 +253,16 @@ private fun CodeBlock(block: MarkdownBlock, onCanvas: (String, String) -> Unit) 
             val gutterColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
             val gutterStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
             // Render gutter and source in one text layout. Separate columns drift when a
-            // final newline, font scaling, or line wrapping changes the visual line count.
-            val numberedCode = remember(visibleLines, gutterColor) {
+            // final newline or font scaling changes the visual line count.
+            val numberedLines = remember(visibleLines) { numberedCodeLines(visibleLines) }
+            val numberWidth = maxOf(3, visibleLines.size.toString().length)
+            val numberedCode = remember(numberedLines, gutterColor, numberWidth) {
                 buildAnnotatedString {
-                    val numberWidth = maxOf(3, visibleLines.size.toString().length)
-                    visibleLines.forEachIndexed { index, line ->
+                    numberedLines.forEachIndexed { index, line ->
                         val start = length
-                        append((index + 1).toString().padStart(numberWidth, ' ') + " │ ")
-                        addStyle(SpanStyle(color = gutterColor), start, length)
-                        // Keep an explicit glyph on blank logical lines so their number
-                        // remains visible, including the final line after a trailing newline.
-                        append(line.ifEmpty { " " })
-                        if (index != visibleLines.lastIndex) append('\n')
+                        append(line)
+                        addStyle(SpanStyle(color = gutterColor), start, start + numberWidth + 3)
+                        if (index != numberedLines.lastIndex) append('\n')
                     }
                 }
             }
