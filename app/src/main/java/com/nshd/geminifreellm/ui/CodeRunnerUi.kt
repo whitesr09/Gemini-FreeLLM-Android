@@ -1,6 +1,9 @@
 package com.nshd.geminifreellm.ui
 
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -79,13 +82,34 @@ fun HtmlPreviewDialog(html: String, onDismiss: () -> Unit) {
                     Text("Preview", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                     IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "Close preview") }
                 }
-                AndroidView(factory = { context ->
-                    WebView(context).apply {
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                AndroidView(
+                    factory = { context ->
+                        WebView(context).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.loadsImagesAutomatically = true
+                            settings.allowFileAccess = false
+                            settings.allowContentAccess = false
+                            settings.allowFileAccessFromFileURLs = false
+                            settings.allowUniversalAccessFromFileURLs = false
+                            settings.javaScriptCanOpenWindowsAutomatically = false
+                            settings.setSupportMultipleWindows(false)
+                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                            settings.textZoom = 100
+                            webViewClient = WebViewClient()
+                            webChromeClient = WebChromeClient()
+                            tag = html
+                            loadDataWithBaseURL("https://preview.local/", html, "text/html", "UTF-8", null)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    update = { webView ->
+                        if (webView.tag != html) {
+                            webView.tag = html
+                            webView.loadDataWithBaseURL("https://preview.local/", html, "text/html", "UTF-8", null)
+                        }
                     }
-                }, modifier = Modifier.fillMaxSize())
+                )
             }
         }
     }
