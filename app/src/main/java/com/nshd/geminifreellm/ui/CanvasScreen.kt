@@ -118,6 +118,7 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
     var running by remember { mutableStateOf(false) }
     var runResult by remember { mutableStateOf<JsRunResult?>(null) }
     var preview by rememberSaveable { mutableStateOf(false) }
+    var editorMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -220,9 +221,15 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                 OutlinedTextField(language, { language = it.take(30) }, Modifier.width(112.dp), label = { Text("Language") }, singleLine = true)
             }
             if (editorExpanded) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(enabled = undo.isNotEmpty(), onClick = { redo = (redo + code).takeLast(12); code = undo.last(); undo = undo.dropLast(1) }) { Icon(Icons.AutoMirrored.Outlined.Undo, "Undo") }
-                IconButton(enabled = redo.isNotEmpty(), onClick = { undo = (undo + code).takeLast(12); code = redo.last(); redo = redo.dropLast(1) }) { Icon(Icons.AutoMirrored.Outlined.Redo, "Redo") }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    enabled = undo.isNotEmpty(),
+                    onClick = { redo = (redo + code).takeLast(12); code = undo.last(); undo = undo.dropLast(1) }
+                ) { Icon(Icons.AutoMirrored.Outlined.Undo, "Undo") }
+                IconButton(
+                    enabled = redo.isNotEmpty(),
+                    onClick = { undo = (undo + code).takeLast(12); code = redo.last(); redo = redo.dropLast(1) }
+                ) { Icon(Icons.AutoMirrored.Outlined.Redo, "Redo") }
                 if (CodeRunner.isRunnable(language)) IconButton(onClick = ::runCode, enabled = code.isNotBlank() && !running) {
                     if (running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Outlined.PlayArrow, "Run JavaScript on this device")
@@ -230,11 +237,35 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                 if (CodeRunner.isPreviewable(language)) IconButton(onClick = { preview = true }, enabled = code.isNotBlank()) {
                     Icon(Icons.Outlined.Preview, "Preview HTML on this device")
                 }
-                IconButton(onClick = { clipboard.setText(AnnotatedString(code)); status = "Code copied" }) { Icon(Icons.Outlined.ContentCopy, "Copy canvas") }
-                IconButton(onClick = { export.launch(title.ifBlank { "code.txt" }) }) { Icon(Icons.Outlined.FileDownload, "Export canvas file") }
-                IconButton(onClick = { importFile.launch(arrayOf("*/*")) }) { Icon(Icons.Outlined.FileUpload, "Import canvas file") }
-                FilterChip(replaceOpen, { replaceOpen = !replaceOpen }, label = { Text("Find / replace") })
-                IconButton(enabled = code.isNotEmpty(), onClick = { clear = true }) { Icon(Icons.Outlined.DeleteOutline, "Clear canvas") }
+                IconButton(onClick = { clipboard.setText(AnnotatedString(code)); status = "Code copied" }) {
+                    Icon(Icons.Outlined.ContentCopy, "Copy canvas")
+                }
+                Box {
+                    IconButton(onClick = { editorMenu = true }) { Icon(Icons.Outlined.MoreHoriz, "More editor actions") }
+                    DropdownMenu(expanded = editorMenu, onDismissRequest = { editorMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(if (replaceOpen) "Hide find / replace" else "Find / replace") },
+                            leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                            onClick = { editorMenu = false; replaceOpen = !replaceOpen }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export file") },
+                            leadingIcon = { Icon(Icons.Outlined.FileDownload, null) },
+                            onClick = { editorMenu = false; export.launch(title.ifBlank { "code.txt" }) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Import file") },
+                            leadingIcon = { Icon(Icons.Outlined.FileUpload, null) },
+                            onClick = { editorMenu = false; importFile.launch(arrayOf("*/*")) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Clear canvas") },
+                            leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
+                            enabled = code.isNotEmpty(),
+                            onClick = { editorMenu = false; clear = true }
+                        )
+                    }
+                }
             }
             }
             if (editorExpanded) {
@@ -247,16 +278,32 @@ fun CanvasScreen(initial: CanvasDocument, onSave: (CanvasDocument) -> Unit, onAs
                     TextButton(enabled = matches > 0, onClick = { replaceConfirm = true }) { Text("Replace all") }
                 }
             }
-            OutlinedTextField(code, { value ->
-                if (value.length <= 120_000) {
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (undo.isEmpty() || now - lastUndo > 700 || kotlin.math.abs(value.length - code.length) > 1) { undo = (undo + code).takeLast(12); lastUndo = now }
-                    redo = emptyList(); code = value; status = "Autosave enabled"
-                } else status = "Canvas limit is 120,000 characters"
-            }, modifier = Modifier.weight(1f).fillMaxWidth().horizontalScroll(rememberScrollState()),
-                visualTransformation = transform, textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            OutlinedTextField(
+                value = code,
+                onValueChange = { value ->
+                    if (value.length <= 120_000) {
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (undo.isEmpty() || now - lastUndo > 700 || kotlin.math.abs(value.length - code.length) > 1) {
+                            undo = (undo + code).takeLast(12)
+                            lastUndo = now
+                        }
+                        redo = emptyList()
+                        code = value
+                        status = "Autosave enabled"
+                    } else status = "Canvas limit is 120,000 characters"
+                },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                visualTransformation = transform,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false),
-                placeholder = { Text("Write code here, or open a code block from a reply.") })
+                shape = Design.card,
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                ),
+                placeholder = { Text("Write code here, or open a code block from a reply.") }
+            )
             Text(status ?: "${code.count { it == '\n' } + 1} lines · ${code.length} characters · JavaScript runs on-device · HTML previews in-app",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
