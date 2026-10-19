@@ -14,6 +14,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -329,8 +333,25 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
     
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Design.small)) {
                         ThemeMode.entries.forEach { mode ->
-                            FilterChip(selected = theme == mode.name, onClick = { theme = mode.name }, label = { Text(mode.label) },
-                                leadingIcon = { if (theme == mode.name) Icon(Icons.Outlined.Check, null, Modifier.size(18.dp)) })
+                            val previewColor = when (mode) {
+                                ThemeMode.SYSTEM -> Color(0xFF64748B)
+                                ThemeMode.LIGHT -> Color(0xFF176B87)
+                                ThemeMode.DARK -> Color(0xFF8BD8F0)
+                                ThemeMode.AMOLED -> Color(0xFF11191D)
+                                ThemeMode.VIOLET -> Color(0xFF783EC8)
+                                ThemeMode.CHATGPT -> Color(0xFF16856B)
+                            }
+                            FilterChip(
+                                selected = theme == mode.name,
+                                onClick = { theme = mode.name },
+                                label = {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Design.small)) {
+                                        Box(Modifier.size(12.dp).clip(CircleShape).background(previewColor))
+                                        Text(mode.label)
+                                    }
+                                },
+                                leadingIcon = { if (theme == mode.name) Icon(Icons.Outlined.Check, null, Modifier.size(18.dp)) }
+                            )
                         }
                     }
                     SettingSwitch("Reduce motion", "Use static indicators and immediate transitions.", reducedMotion) { reducedMotion = it }
