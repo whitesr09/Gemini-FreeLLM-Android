@@ -11,6 +11,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,15 +49,26 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
             selecting = false
         }
     }
+    // Let the model list consume its own downward scroll. Only absorb the unconsumed
+    // downward delta at the top of nested content, so a tiny pull-to-scroll cannot drag
+    // the entire sheet to Hidden. Deliberate handle drags, Back and outside taps remain.
+    val protectModelScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = if (available.y > 0f) Offset(0f, available.y) else Offset.Zero
+        }
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        // Keep the picker stable while scrolling long model catalogs. Close through the
-        // explicit X button, Back, or tapping outside instead of accidental drag dismissal.
-        sheetGestureEnabled = false,
-        dragHandle = null
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding().widthIn(max = Design.readingWidth)) {
+        Column(
+            Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding()
+                .widthIn(max = Design.readingWidth).nestedScroll(protectModelScroll)
+        ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = Design.page), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Choose your AI", style = MaterialTheme.typography.titleLarge)
