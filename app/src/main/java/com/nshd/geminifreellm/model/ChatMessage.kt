@@ -64,13 +64,17 @@ data class ProviderProfile(
     val model: String = provider.defaultModel,
     val stream: Boolean = true,
     val vision: Boolean = false,
-    val fastReplies: Boolean = false
+    val fastReplies: Boolean = false,
+    /** Stable connection identity; several profiles may use the CUSTOM protocol. */
+    val id: String = newId(),
+    /** User-facing label for this saved connection. */
+    val name: String = provider.label
 )
 
 data class AppSettings(
     val profiles: List<ProviderProfile> = listOf(ProviderProfile()),
     val selected: Provider = Provider.FREELLM,
-    val theme: String = "SYSTEM",
+    val theme: String = "LIGHT",
     val reducedMotion: Boolean = false,
     val showTimestamps: Boolean = false,
     val compactSpacing: Boolean = false,
@@ -78,9 +82,20 @@ data class AppSettings(
     val favorites: List<String> = emptyList(),
     val autoRouting: Boolean = false,
     val autoExcluded: List<Provider> = emptyList(),
-    val agent: AgentConfig = AgentConfig()
+    val agent: AgentConfig = AgentConfig(),
+    /** Stable active connection identity; null keeps compatibility with older settings files. */
+    val activeProfileId: String? = null
 ) {
-    val active: ProviderProfile get() = profiles.firstOrNull { it.provider == selected } ?: ProviderProfile(selected)
+    val active: ProviderProfile get() =
+        activeProfileId?.let { id -> profiles.firstOrNull { it.id == id && it.provider == selected } }
+            ?: profiles.firstOrNull { it.provider == selected }
+            ?: ProviderProfile(selected)
+
+    /** Select an existing saved connection while preserving every other endpoint. */
+    fun withActiveProfile(profileId: String): AppSettings? {
+        val target = profiles.firstOrNull { it.id == profileId } ?: return null
+        return copy(selected = target.provider, activeProfileId = target.id, autoRouting = false)
+    }
 }
 
 

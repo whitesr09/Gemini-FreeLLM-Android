@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, phase2/settings-canvas-compact]
   pull_request:
   workflow_dispatch:
 
@@ -39,20 +39,20 @@ jobs:
       # Secrets are never exposed to pull-request builds from untrusted code.
       - name: Decode CI signing keystore
         id: signing
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: (github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || (github.ref == 'refs/heads/phase2/settings-canvas-compact' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
         env:
-          CI_KEYSTORE_BASE64: ${{ secrets.CI_KEYSTORE_BASE64 }}
-          CI_KEYSTORE_PASSWORD: ${{ secrets.CI_KEYSTORE_PASSWORD }}
-          CI_KEY_ALIAS: ${{ secrets.CI_KEY_ALIAS }}
-          CI_KEY_PASSWORD: ${{ secrets.CI_KEY_PASSWORD }}
+          ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
+          ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
         run: |
-          if [ -n "$CI_KEYSTORE_BASE64" ] && [ -n "$CI_KEYSTORE_PASSWORD" ] && [ -n "$CI_KEY_ALIAS" ] && [ -n "$CI_KEY_PASSWORD" ]; then
-            printf '%s' "$CI_KEYSTORE_BASE64" | base64 --decode > app/ci-signing.keystore
+          if [ -n "$ANDROID_SIGNING_KEYSTORE_B64" ] && [ -n "$ANDROID_SIGNING_STORE_PASSWORD" ] && [ -n "$ANDROID_SIGNING_KEY_ALIAS" ] && [ -n "$ANDROID_SIGNING_KEY_PASSWORD" ]; then
+            printf '%s' "$ANDROID_SIGNING_KEYSTORE_B64" | base64 --decode > app/ci-signing.keystore
             test -s app/ci-signing.keystore
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "CI signing secrets are not all configured; this trusted build will produce an unsigned release APK."
+            echo "Android signing secrets are missing; APKs from this run are not upgrade-compatible with the signed installation."
           fi
 
       - name: Validate and build pull request APKs
@@ -63,17 +63,17 @@ jobs:
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --stacktrace
 
       - name: Validate and build trusted APKs
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: (github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || (github.ref == 'refs/heads/phase2/settings-canvas-compact' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-          CI_KEYSTORE_PASSWORD: ${{ secrets.CI_KEYSTORE_PASSWORD }}
-          CI_KEY_ALIAS: ${{ secrets.CI_KEY_ALIAS }}
-          CI_KEY_PASSWORD: ${{ secrets.CI_KEY_PASSWORD }}
+          ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --stacktrace
 
       - name: Validate and build non-main branch APKs
-        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/phase2/settings-canvas-compact' && github.event_name != 'workflow_dispatch'
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -86,7 +86,7 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload signed release APK
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.signing.outputs.configured == 'true'
+        if: ((github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || (github.ref == 'refs/heads/phase2/settings-canvas-compact' && github.event_name == 'push') || github.event_name == 'workflow_dispatch') && steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Gemini-FreeLLM-release-signed

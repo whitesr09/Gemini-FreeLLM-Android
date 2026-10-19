@@ -103,12 +103,14 @@ class LocalStore(private val context: Context) {
 }
 
 internal fun settingsToJson(settings: AppSettings) = JSONObject().put("selected", settings.selected.name)
+    .put("activeProfileId", settings.activeProfileId ?: JSONObject.NULL)
     .put("autoRouting", settings.autoRouting).put("autoExcluded", JSONArray(settings.autoExcluded.map { it.name }))
     .put("agent", agentToJson(settings.agent))
     .put("theme", settings.theme).put("reducedMotion", settings.reducedMotion)
     .put("showTimestamps", settings.showTimestamps).put("compactSpacing", settings.compactSpacing)
     .put("haptics", settings.haptics).put("favorites", JSONArray(settings.favorites)).put("profiles", JSONArray(settings.profiles.map {
-        JSONObject().put("provider", it.provider.name).put("baseUrl", it.baseUrl).put("apiKey", it.apiKey)
+        JSONObject().put("id", it.id).put("name", it.name)
+            .put("provider", it.provider.name).put("baseUrl", it.baseUrl).put("apiKey", it.apiKey)
             .put("model", it.model).put("stream", it.stream).put("vision", it.vision).put("fastReplies", it.fastReplies)
     }))
 
@@ -118,6 +120,7 @@ internal fun settingsFromJson(json: JSONObject): AppSettings = AppSettings(
     agent = runCatching { agentFromJson(json.optJSONObject("agent") ?: JSONObject()) }.getOrNull() ?: AgentConfig(),
     // Unknown/missing enum names fall back to defaults instead of bricking the whole load.
     selected = runCatching { Provider.valueOf(json.getString("selected")) }.getOrNull() ?: Provider.FREELLM,
+    activeProfileId = json.opt("activeProfileId")?.let { if (it == JSONObject.NULL) null else it.toString() },
     theme = json.optString("theme", "SYSTEM"),
     reducedMotion = json.optBoolean("reducedMotion"), showTimestamps = json.optBoolean("showTimestamps"),
     compactSpacing = json.optBoolean("compactSpacing"), haptics = json.optBoolean("haptics", true),
@@ -126,7 +129,9 @@ internal fun settingsFromJson(json: JSONObject): AppSettings = AppSettings(
         runCatching {
             val provider = Provider.valueOf(obj.getString("provider"))
             ProviderProfile(provider, obj.getString("baseUrl"), obj.optString("apiKey"),
-                obj.getString("model"), obj.optBoolean("stream", true), obj.optBoolean("vision", false), obj.optBoolean("fastReplies", false))
+                obj.getString("model"), obj.optBoolean("stream", true), obj.optBoolean("vision", false), obj.optBoolean("fastReplies", false),
+                id = obj.optString("id").takeIf { it.isNotBlank() && it != "null" } ?: newId(),
+                name = obj.optString("name").takeIf { it.isNotBlank() && it != "null" } ?: provider.label)
         }.getOrNull()
     }.orEmpty().ifEmpty { listOf(ProviderProfile()) }
 )

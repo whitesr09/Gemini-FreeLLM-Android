@@ -19,6 +19,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -49,6 +50,88 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
+
+/** Routes explicit phone actions first; all other recognized speech remains normal chat dictation. */
+internal fun handleVoiceTranscript(
+    context: android.content.Context,
+    transcript: String,
+    onDraft: (String) -> Unit,
+    onNotice: (String?) -> Unit
+) {
+    if (!executeVoiceAppLaunch(context, transcript) { onNotice(it) }) {
+        onDraft(transcript.trim())
+    }
+}
+
+/** Parses explicit, direct app-launch phrases; other speech remains ordinary chat dictation. */
+internal enum class VoiceSystemAction { GENERAL_SETTINGS, WIFI_SETTINGS, BLUETOOTH_SETTINGS }
+
+/** Recognizes only explicit settings-navigation requests; it never toggles radios silently. */
+internal fun parseVoiceSystemAction(transcript: String): VoiceSystemAction? {
+    val normalized = transcript.trim().lowercase()
+        .replace(Regex("[.!?]+$"), "")
+        .replace(Regex("\\s+"), " ")
+    return when (normalized) {
+        "open settings", "open phone settings", "launch settings", "start settings" -> VoiceSystemAction.GENERAL_SETTINGS
+        "open wi-fi settings", "open wifi settings", "open wi fi settings", "open wi-fi", "open wifi" -> VoiceSystemAction.WIFI_SETTINGS
+        "open bluetooth settings", "open bluetooth" -> VoiceSystemAction.BLUETOOTH_SETTINGS
+        else -> null
+    }
+}
+
+internal fun parseVoiceAppLaunchCommand(transcript: String): String? {
+    val match = Regex("^(?:please\\s+)?(?:open|launch|start|switch to)\\s+(.+?)[.!?]*$", RegexOption.IGNORE_CASE)
+        .matchEntire(transcript.trim()) ?: return null
+    return match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+}
+
+/** Executes only an explicit app-launch request, using Android's launcher-visible apps. */
+private fun executeVoiceAppLaunch(context: android.content.Context, transcript: String, onNotice: (String) -> Unit): Boolean {
+    val systemAction = parseVoiceSystemAction(transcript)
+    if (systemAction != null) {
+        val action = when (systemAction) {
+            VoiceSystemAction.GENERAL_SETTINGS -> android.provider.Settings.ACTION_SETTINGS
+            VoiceSystemAction.WIFI_SETTINGS -> android.provider.Settings.ACTION_WIFI_SETTINGS
+            VoiceSystemAction.BLUETOOTH_SETTINGS -> android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+        }
+        return try {
+            context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (_: ActivityNotFoundException) {
+            onNotice("This Android version doesn't provide that settings screen.")
+            true
+        } catch (_: SecurityException) {
+            onNotice("Android blocked opening that settings screen.")
+            true
+        }
+    }
+    val requestedApp = parseVoiceAppLaunchCommand(transcript) ?: return false
+    val packageManager = context.packageManager
+    val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    val matchingApp = packageManager.queryIntentActivities(launcherIntent, 0).firstOrNull { resolve ->
+        resolve.loadLabel(packageManager).toString().trim().equals(requestedApp, ignoreCase = true)
+    }
+    if (matchingApp == null) {
+        onNotice("I couldn't find an installed app named \"$requestedApp\". Try the app's exact launcher name.")
+        return true
+    }
+    val launchIntent = packageManager.getLaunchIntentForPackage(matchingApp.activityInfo.packageName)
+    if (launchIntent == null) {
+        onNotice("Android did not provide a launch action for $requestedApp.")
+        return true
+    }
+    return try {
+        context.startActivity(launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (_: ActivityNotFoundException) {
+        onNotice("I couldn't open $requestedApp.")
+        true
+    } catch (_: SecurityException) {
+        onNotice("Android blocked opening $requestedApp.")
+        true
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FreeLlmApp(vm: ChatViewModel) {
@@ -56,7 +139,7 @@ fun FreeLlmApp(vm: ChatViewModel) {
     var settings by rememberSaveable { mutableStateOf(false) }
     var diagnostics by rememberSaveable { mutableStateOf(false) }
     var settingsProvider by rememberSaveable { mutableStateOf<String?>(null) }
-    val mode = runCatching { ThemeMode.valueOf(state.settings.theme) }.getOrDefault(ThemeMode.SYSTEM)
+    val mode = runCatching { ThemeMode.valueOf(state.settings.theme) }.getOrDefault(ThemeMode.LIGHT)
     GeminiTheme(mode, state.settings.reducedMotion) {
         when {
             state.loading -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
@@ -85,8 +168,13 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
     var canvas by rememberSaveable { mutableStateOf(false) }
     var pendingCanvas by remember { mutableStateOf<CanvasDocument?>(null) }
     var media by rememberSaveable { mutableStateOf(false) }
+    var jarvis by rememberSaveable { mutableStateOf(false) }
     if (canvas) { CanvasScreen(chat.canvas, vm::saveCanvas, vm::askAboutCanvas, { canvas = false }); return }
     if (media) { MediaScreen(state.settings, { media = false }); return }
+    if (jarvis) {
+        JarvisScreen(state.settings, vm, onBack = { jarvis = false }, onSettings = { jarvis = false; onSettings() }, onChat = { jarvis = false })
+        return
+    }
     val keyboard = LocalSoftwareKeyboardController.current
     val haptics = LocalHapticFeedback.current
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -99,8 +187,8 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
     val chatScrollStates = rememberSaveableStateHolder()
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::attach) }
     val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let {
-            vm.draft(listOf(vm.state.value.active?.draft.orEmpty(), it).filter { value -> value.isNotBlank() }.joinToString(" "))
+        if (result.resultCode == Activity.RESULT_OK) result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { transcript ->
+            handleVoiceTranscript(context, transcript, vm::draft, vm::notice)
         }
     }
     LaunchedEffect(state.notice) {
@@ -126,6 +214,9 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
                 IconButton(onClick = { scope.launch { drawer.open() } }) { Icon(Icons.AutoMirrored.Outlined.MenuOpen, "Open chat history") }
             }, actions = {
                 IconButton(onClick = { vm.newChat(); keyboard?.hide() }) { Icon(Icons.Outlined.Edit, "New chat") }
+                IconButton(onClick = { keyboard?.hide(); jarvis = true }) {
+                    Icon(Icons.Outlined.AutoAwesome, "Open Jarvis assistant", tint = MaterialTheme.colorScheme.primary)
+                }
                 var overflow by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { overflow = true }) { Icon(Icons.Outlined.MoreHoriz, "Chat options") }
@@ -140,7 +231,7 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
             })
         }, bottomBar = {
             Box(Modifier.fillMaxWidth().imePadding().navigationBarsPadding(), contentAlignment = Alignment.Center) {
-                Composer(chat, busy, state.preparing, vm::draft, { if (state.settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); vm.send() }, vm::stop,
+                Composer(chat, busy, state.settings.reducedMotion, state.preparing, vm::draft, { if (state.settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); vm.send() }, vm::stop,
                     skills = state.settings.agent.invokableSkills(),
                     onAttach = { attachmentPicker.launch(arrayOf("image/*", "text/*", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/json")) },
                     onVoice = {
@@ -342,6 +433,11 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
             list.scrollBy(lastSize.toFloat())
         }
     }
+    // Scroll position changes frequently. Derive the jump affordance separately so
+    // unrelated message content does not need to recompose on every scroll delta.
+    val showJumpToLatest by remember(list, follow) {
+        derivedStateOf { !follow && list.canScrollForward }
+    }
     val lastText = chat.messages.lastOrNull()?.text
     LaunchedEffect(dragging) { if (dragging) follow = false }
     LaunchedEffect(list) { snapshotFlow { list.canScrollForward }.collect { if (!it && !dragging) follow = true } }
@@ -357,7 +453,7 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
                     onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings, showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = vm::continueReply)
             }
         }
-        AnimatedVisibility(visible = !follow && list.canScrollForward,
+        AnimatedVisibility(visible = showJumpToLatest,
             modifier = Modifier.align(Alignment.BottomCenter), enter = fadeIn(tween(if (settings.reducedMotion) 0 else 160)), exit = fadeOut(tween(if (settings.reducedMotion) 0 else 120))) {
         SmallFloatingActionButton(onClick = {
             follow = true; scope.launch { scrollToLatest() }
@@ -382,14 +478,22 @@ private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Bool
         // ChatGPT-like restraint: only name the model when we actually know it.
         if (!user && !error && message.model.isNotBlank()) Text(message.model, style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = Design.small))
-        Surface(color = when { error -> MaterialTheme.colorScheme.surfaceContainerLow; user -> MaterialTheme.colorScheme.surfaceContainer; else -> MaterialTheme.colorScheme.surface },
-            shape = Design.card, modifier = if (user) Modifier.widthIn(max = 580.dp) else Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(Design.small)) {
+        Surface(
+            color = when {
+                error -> MaterialTheme.colorScheme.errorContainer
+                user -> MaterialTheme.colorScheme.primaryContainer
+                else -> MaterialTheme.colorScheme.surfaceContainerLow
+            },
+            shape = if (user) RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 6.dp, bottomEnd = 20.dp) else Design.card,
+            border = if (user) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+            modifier = if (user) Modifier.widthIn(max = 580.dp) else Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(Design.small)) {
                 message.attachments.forEach { file -> AttachmentLabel(file) }
                 when {
-                    error -> Text(message.text, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    error -> Text(message.text, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     message.text.isEmpty() && generating -> ThinkingIndicator()
-                    user -> SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge) }
+                    user -> SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer) }
                     else -> StreamingContent(message.text, generating, onCanvas)
                 }
                 if (!generating && message.interrupted) Text("Reply incomplete", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -435,7 +539,7 @@ private fun AttachmentLabel(file: Attachment, onRemove: (() -> Unit)? = null) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Composer(chat: Conversation, busy: Boolean, preparing: Boolean, onChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit,
+private fun Composer(chat: Conversation, busy: Boolean, reducedMotion: Boolean, preparing: Boolean, onChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit,
                      onAttach: () -> Unit, onVoice: () -> Unit, onRemove: (String) -> Unit, skills: List<AgentSkill> = emptyList()) {
     Column(Modifier.widthIn(max = Design.readingWidth).fillMaxWidth().padding(horizontal = Design.medium, vertical = Design.small), verticalArrangement = Arrangement.spacedBy(Design.small)) {
         if (chat.attachments.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(Design.small)) {
@@ -448,7 +552,11 @@ private fun Composer(chat: Conversation, busy: Boolean, preparing: Boolean, onCh
             if (slashQuery == null) emptyList()
             else skills.filter { it.name.contains(slashQuery, ignoreCase = true) }.take(5)
         }
-        if (skillMatches.isNotEmpty() && !busy) {
+        AnimatedVisibility(
+            visible = skillMatches.isNotEmpty() && !busy,
+            enter = if (reducedMotion) EnterTransition.None else expandVertically() + fadeIn(tween(140)),
+            exit = if (reducedMotion) ExitTransition.None else shrinkVertically() + fadeOut(tween(100))
+        ) {
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
                 Column(Modifier.padding(vertical = Design.tiny)) {
                     skillMatches.forEach { skill ->
@@ -461,7 +569,8 @@ private fun Composer(chat: Conversation, busy: Boolean, preparing: Boolean, onCh
                 }
             }
         }
-        Surface(shape = Design.composer, color = MaterialTheme.colorScheme.surfaceContainer, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Surface(shape = Design.composer, color = MaterialTheme.colorScheme.surfaceContainer, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.animateContentSize(animationSpec = tween(if (reducedMotion) 0 else 180))) {
             Row(Modifier.padding(Design.tiny), verticalAlignment = Alignment.Bottom) {
                 IconButton(onClick = onAttach, enabled = !busy && !preparing) { Icon(Icons.Outlined.Add, "Attach a file") }
                 BasicTextField(chat.draft, onChange, modifier = Modifier.weight(1f).heightIn(min = Design.touch)

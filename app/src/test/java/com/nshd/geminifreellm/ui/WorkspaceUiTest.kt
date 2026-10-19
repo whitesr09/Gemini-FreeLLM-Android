@@ -43,6 +43,43 @@ class WorkspaceUiTest {
         }
         compose.waitUntil(10_000) { compose.onAllNodesWithText("What can I help with?").fetchSemanticsNodes().isNotEmpty() }
     }
+
+    @Test fun voiceTranscriptRoutesPhoneCommandsWithoutDraftingThem() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        var draft: String? = null
+        var notice: String? = null
+        handleVoiceTranscript(context, "Turn Wi-Fi off", { draft = it }, { notice = it })
+        Assert.assertEquals("Turn Wi-Fi off", draft)
+        Assert.assertNull(notice)
+    }
+
+    @Test fun voiceSystemSettingsParserAcceptsNavigationOnly() {
+        Assert.assertEquals(VoiceSystemAction.GENERAL_SETTINGS, parseVoiceSystemAction("Open settings"))
+        Assert.assertEquals(VoiceSystemAction.WIFI_SETTINGS, parseVoiceSystemAction("Open Wi-Fi settings!"))
+        Assert.assertEquals(VoiceSystemAction.WIFI_SETTINGS, parseVoiceSystemAction("open wifi"))
+        Assert.assertEquals(VoiceSystemAction.BLUETOOTH_SETTINGS, parseVoiceSystemAction("Open Bluetooth."))
+        Assert.assertNull(parseVoiceSystemAction("Turn Wi-Fi off"))
+        Assert.assertNull(parseVoiceSystemAction("Enable Bluetooth"))
+    }
+
+    @Test fun voiceAppLaunchParserOnlyAcceptsExplicitLaunchPhrases() {
+        Assert.assertEquals("WhatsApp", parseVoiceAppLaunchCommand("Open WhatsApp"))
+        Assert.assertEquals("Settings", parseVoiceAppLaunchCommand("please launch Settings"))
+        Assert.assertEquals("YouTube", parseVoiceAppLaunchCommand("switch to YouTube"))
+        Assert.assertNull(parseVoiceAppLaunchCommand("What is the weather today?"))
+        Assert.assertNull(parseVoiceAppLaunchCommand("open"))
+        Assert.assertNull(parseVoiceAppLaunchCommand("I want to open WhatsApp"))
+    }
+
+    @Test fun jarvisShortcutOpensDedicatedAssistantScreenAndReturnsToChat() {
+        ready()
+        compose.onNodeWithContentDescription("Open Jarvis assistant").performClick()
+        compose.onNodeWithText("YOUR PERSONAL AI").assertExists()
+        compose.onNodeWithText("TAP TO TALK TO JARVIS").assertExists()
+        compose.onNodeWithContentDescription("Back to chat").performClick()
+        compose.onNodeWithContentDescription("Message").assertExists()
+    }
+
     @Test fun homeDrawerAndVersionRender() {
         ready()
         compose.onNodeWithContentDescription("Message").assertExists()
@@ -198,6 +235,8 @@ class WorkspaceUiTest {
         compose.runOnIdle { (compose.activity.application as FreeLlmApplication).diagnostics.record("Storage", error = IllegalStateException("synthetic-private-message")) }
         compose.onNodeWithContentDescription("Chat options").performClick()
         compose.onNode(hasText("Settings") and hasAnyAncestor(isPopup())).performClick()
+        compose.onNodeWithContentDescription("About settings, collapsed").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Error log & AI troubleshooting").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Error log & AI troubleshooting").performScrollTo().performClick()
         compose.onNodeWithText("Ask AI to explain").performClick()
         compose.onNodeWithText("Review in chat").performClick()

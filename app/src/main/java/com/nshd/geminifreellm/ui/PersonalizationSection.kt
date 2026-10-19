@@ -2,6 +2,8 @@ package com.nshd.geminifreellm.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -12,6 +14,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -31,57 +35,113 @@ import kotlin.coroutines.resumeWithException
  * on demand by typing "/" in chat. No character limits on any field.
  */
 @Composable
-fun PersonalizationSection(agent: AgentConfig, onChange: (AgentConfig) -> Unit) {
+fun PersonalizationSection(agent: AgentConfig, onChange: (AgentConfig) -> Unit, showSkills: Boolean = false) {
     var editing by rememberSaveable { mutableStateOf(false) }
     var editId by rememberSaveable { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(Design.medium), verticalArrangement = Arrangement.spacedBy(Design.small)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Personalize every model", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                Switch(agent.enabled, { onChange(agent.copy(enabled = it)) })
-            }
-            Text("Persona, instructions and memory travel with each chat request, including Auto fallbacks. Saved encrypted on this device. Models may follow instructions differently.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-    OutlinedTextField(agent.persona, { onChange(agent.copy(persona = it)) }, Modifier.fillMaxWidth(),
-        label = { Text("Persona") }, placeholder = { Text("A patient coding partner who explains decisions") }, minLines = 2)
-    OutlinedTextField(agent.instructions, { onChange(agent.copy(instructions = it)) }, Modifier.fillMaxWidth(),
-        label = { Text("Instructions") }, placeholder = { Text("How should your assistant respond and work?") }, minLines = 3)
-    OutlinedTextField(agent.memory, { onChange(agent.copy(memory = it)) }, Modifier.fillMaxWidth(),
-        label = { Text("Memory") }, placeholder = { Text("Preferences, project context and facts to remember") }, minLines = 3,
-        supportingText = { Text("You control memory. Edit or delete facts here; chats are not silently added.") })
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = Design.small)) {
-        Text("Skills · ${agent.skills.size}/20", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-        TextButton(enabled = agent.skills.size < 20, onClick = { editId = null; error = null; editing = true }) { Text("Add skill") }
-    }
-    Text("Type \"/\" in any chat to list your enabled skills and attach one to a message. Imports accept plain text: paste, choose a file (including SKILL.md, JSON or YAML), or use an HTTPS raw-text link. Scripts, plugins and tools are not executed.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    agent.skills.forEach { skill ->
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(Design.medium), verticalArrangement = Arrangement.spacedBy(Design.tiny)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(skill.name.ifBlank { "Untitled skill" }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                    Switch(skill.enabled, { value ->
-                        onChange(agent.copy(skills = agent.skills.map { if (it.id == skill.id) it.copy(enabled = value) else it }))
-                    })
-                }
-                Text("${skill.content.length} characters · ${if (skill.enabled) "type \"/${skill.name}\" in chat to use" else "disabled"}",
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row {
-                    TextButton(onClick = { editId = skill.id; error = null; editing = true }) { Text("Edit") }
-                    TextButton(onClick = { onChange(agent.copy(skills = agent.skills.filterNot { it.id == skill.id })) }) { Text("Remove") }
-                }
-            }
-        }
-    }
-    Text("${agent.basePrompt().length} characters sent with every request",
-        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+    var personaExpanded by rememberSaveable { mutableStateOf(false) }
+    var instructionsExpanded by rememberSaveable { mutableStateOf(false) }
+    var memoryExpanded by rememberSaveable { mutableStateOf(false) }
+    var expandedSkills by remember { mutableStateOf(setOf<String>()) }
 
-    if (editing) {
+    if (!showSkills) {
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(Design.medium), verticalArrangement = Arrangement.spacedBy(Design.small)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Personalize every model", style = MaterialTheme.typography.titleSmall)
+                        Text("Saved on this device · included with requests when enabled",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(agent.enabled, { onChange(agent.copy(enabled = it)) },
+                        modifier = Modifier.semantics { contentDescription = "Enable personalization" })
+                }
+            }
+        }
+        ExpandableTextSetting(
+            title = "Persona",
+            summary = if (agent.persona.isBlank()) "Not configured" else "${agent.persona.length} characters",
+            expanded = personaExpanded,
+            onToggle = { personaExpanded = !personaExpanded }
+        ) {
+            OutlinedTextField(agent.persona, { onChange(agent.copy(persona = it)) }, Modifier.fillMaxWidth(),
+                label = { Text("Persona") }, placeholder = { Text("A patient coding partner who explains decisions") }, minLines = 2)
+        }
+        ExpandableTextSetting(
+            title = "Instructions",
+            summary = if (agent.instructions.isBlank()) "Not configured" else "${agent.instructions.length} characters",
+            expanded = instructionsExpanded,
+            onToggle = { instructionsExpanded = !instructionsExpanded }
+        ) {
+            OutlinedTextField(agent.instructions, { onChange(agent.copy(instructions = it)) }, Modifier.fillMaxWidth(),
+                label = { Text("Instructions") }, placeholder = { Text("How should your assistant respond and work?") }, minLines = 3)
+        }
+        ExpandableTextSetting(
+            title = "Memory",
+            summary = if (agent.memory.isBlank()) "No saved facts" else "${agent.memory.length} characters",
+            expanded = memoryExpanded,
+            onToggle = { memoryExpanded = !memoryExpanded }
+        ) {
+            OutlinedTextField(agent.memory, { onChange(agent.copy(memory = it)) }, Modifier.fillMaxWidth(),
+                label = { Text("Memory") }, placeholder = { Text("Preferences, project context and facts to remember") }, minLines = 3,
+                supportingText = { Text("You control memory. Edit or delete facts here; chats are not silently added.") })
+        }
+        Text("Persona, instructions and memory can accompany each chat request, including Auto fallbacks. Models may follow instructions differently.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = Design.small)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Skills · ${agent.skills.size}/20", style = MaterialTheme.typography.titleSmall)
+                Text("Type \"/\" in chat to invoke an enabled skill.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            TextButton(enabled = agent.skills.size < 20, onClick = { editId = null; error = null; editing = true }) { Text("Add skill") }
+        }
+        Text("Import plain text by pasting, choosing a file (including SKILL.md, JSON or YAML), or using an HTTPS raw-text link. Scripts, plugins and tools are not executed.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (agent.skills.isEmpty()) {
+            Text("No skills yet. Add a skill to create reusable instructions for your chats.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        agent.skills.forEach { skill ->
+            Card(
+                Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column {
+                    Surface(onClick = {
+                        expandedSkills = if (skill.id in expandedSkills) expandedSkills - skill.id else expandedSkills + skill.id
+                    }, color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(horizontal = Design.medium, vertical = Design.small), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(skill.name.ifBlank { "Untitled skill" }, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                                Text(if (skill.enabled) "Enabled · ${skill.content.length} characters" else "Disabled · ${skill.content.length} characters",
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(skill.enabled, { value ->
+                                onChange(agent.copy(skills = agent.skills.map { if (it.id == skill.id) it.copy(enabled = value) else it }))
+                            }, modifier = Modifier.semantics { contentDescription = "Enable ${skill.name}" })
+                            Icon(if (skill.id in expandedSkills) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                                contentDescription = if (skill.id in expandedSkills) "Collapse skill" else "Expand skill")
+                        }
+                    }
+                    AnimatedVisibility(skill.id in expandedSkills) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = Design.small), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { editId = skill.id; error = null; editing = true }) { Text("Edit") }
+                            TextButton(onClick = { onChange(agent.copy(skills = agent.skills.filterNot { it.id == skill.id })); expandedSkills = expandedSkills - skill.id }) { Text("Remove") }
+                        }
+                    }
+                }
+            }
+        }
+        Text("${agent.basePrompt().length} characters sent with every request",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+    }
+
+    if (showSkills && editing) {
         SkillEditorDialog(
             initial = agent.skills.firstOrNull { it.id == editId },
             onDismiss = { editing = false },
@@ -93,6 +153,55 @@ fun PersonalizationSection(agent: AgentConfig, onChange: (AgentConfig) -> Unit) 
                 if (problem == null) { error = null; onChange(agent.copy(skills = next)); editing = false } else error = problem
             }
         )
+    }
+}
+
+@Composable
+fun SkillsSection(agent: AgentConfig, onChange: (AgentConfig) -> Unit) {
+    PersonalizationSection(agent, onChange, showSkills = true)
+}
+
+@Composable
+private fun ExpandableTextSetting(
+    title: String,
+    summary: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column {
+            Surface(
+                onClick = onToggle,
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 54.dp).padding(horizontal = Design.medium, vertical = Design.small),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(title, style = MaterialTheme.typography.titleSmall)
+                        Text(summary, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(
+                        if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Collapse $title" else "Expand $title"
+                    )
+                }
+            }
+            AnimatedVisibility(expanded) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = Design.medium).padding(bottom = Design.medium),
+                    verticalArrangement = Arrangement.spacedBy(Design.small),
+                    content = content
+                )
+            }
+        }
     }
 }
 

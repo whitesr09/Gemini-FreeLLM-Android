@@ -4,6 +4,36 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class CanvasOffsetMappingTest {
+    @Test fun codeLinesRetainTrailingBlankLines() {
+        assertEquals(listOf(""), canvasCodeLines(""))
+        assertEquals(listOf("one", ""), canvasCodeLines("one\n"))
+        assertEquals(listOf("one", "two", ""), canvasCodeLines("one\ntwo\n"))
+        assertEquals(listOf("one", "", "three"), canvasCodeLines("one\n\nthree"))
+    }
+
+    @Test fun renderedCodeGutterKeepsTheFinalBlankLine() {
+        assertEquals(
+            listOf("  1 │ one", "  2 │ two", "  3 │ "),
+            numberedCodeLines(canvasCodeLines("one\ntwo\n"))
+        )
+    }
+
+    @Test fun renderedCodeGutterKeepsInteriorBlankLines() {
+        assertEquals(
+            listOf("  1 │ one", "  2 │ ", "  3 │ three"),
+            numberedCodeLines(canvasCodeLines("one\n\nthree"))
+        )
+    }
+
+    @Test fun trailingNewlineGetsItsOwnGutterLine() {
+        val source = "one\ntwo\n"
+        val mapping = CanvasOffsetMapping(source, 7)
+
+        assertEquals(3, canvasCodeLines(source).size)
+        assertEquals(29, mapping.originalToTransformed(source.length))
+        assertEquals(source.length, mapping.transformedToOriginal(29))
+    }
+
     @Test fun mappingAccountsForEachLinesOwnGutter() {
         val mapping = CanvasOffsetMapping("ab\ncd", 7)
 

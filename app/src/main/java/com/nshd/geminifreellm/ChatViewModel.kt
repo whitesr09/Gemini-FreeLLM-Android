@@ -43,6 +43,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val historyMutex = Mutex()
     private val catalogJobs = mutableMapOf<Provider, Job>()
     private val catalogTokens = mutableMapOf<Provider, String>()
+    /** Catalog cache validity depends on the concrete endpoint, not just its provider kind. */
+    private val catalogProfileIds = mutableMapOf<Provider, String>()
     private var draftSave: Job? = null
     private var autoCheckJob: Job? = null
     val client = FreeLlmApiClient()
@@ -126,9 +128,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadCatalog(provider: Provider, force: Boolean = false) {
         val current = mutable.value
-        val profile = current.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)
+        val profile = current.settings.active.takeIf { current.settings.selected == provider }
+            ?: current.settings.profiles.firstOrNull { it.provider == provider }
+            ?: ProviderProfile(provider)
         val cached = current.catalogs[provider]
-        if (catalogJobs[provider]?.isActive == true || (!force && cached?.fetchedAt != null && cached.fetchedAt > System.currentTimeMillis() - 300_000)) return
+        val sameEndpoint = catalogProfileIds[provider] == profile.id
+        if (catalogJobs[provider]?.isActive == true && sameEndpoint) return
+        if (catalogJobs[provider]?.isActive == true && !sameEndpoint) catalogJobs[provider]?.cancel()
+        if (!force && sameEndpoint && cached != null && cached.fetchedAt > System.currentTimeMillis() - 300_000) return
+        catalogProfileIds[provider] = profile.id
         mutable.update { it.copy(catalogs = it.catalogs + (provider to (cached ?: ModelCatalog()).copy(loading = true, error = null))) }
         val token = newId()
         catalogTokens[provider] = token
@@ -149,11 +157,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Activate a saved connection without replacing its URL, key, model, or capabilities. */
+    suspend fun selectProfile(profileId: String): Boolean {
+        if (mutable.value.settings.profiles.none { it.id == profileId }) {
+            notice("That saved connection no longer exists. Refresh settings and try again.")
+            return false
+        }
+        return updateSettings { settings -> settings.withActiveProfile(profileId) ?: settings }
+    }
+
     suspend fun selectModel(provider: Provider, model: String): Boolean {
-        val profile = mutable.value.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)
-        FreeLlmApiClient.validate(profile.copy(model = model.trim()))?.let { notice(it); return false }
-        return updateSettings { current -> current.copy(selected = provider, autoRouting = false,
-            profiles = current.profiles.filterNot { it.provider == provider } + profile.copy(model = model.trim())) }
+        val current = mutable.value.settings
+        val profile = current.active.takeIf { current.selected == provider }
+            ?: current.profiles.firstOrNull { it.provider == provider }
+            ?: ProviderProfile(provider)
+        val updated = profile.copy(model = model.trim())
+        FreeLlmApiClient.validate(updated)?.let { notice(it); return false }
+        return updateSettings { settings ->
+            val exists = settings.profiles.any { it.id == updated.id }
+            settings.copy(selected = provider, activeProfileId = updated.id, autoRouting = false,
+                profiles = if (exists) settings.profiles.map { if (it.id == updated.id) updated else it }
+                    else settings.profiles + updated)
+        }
     }
 
     suspend fun setAutoEnabled(enabled: Boolean): Boolean {
@@ -285,7 +310,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkModel(provider: Provider, model: String) {
-        val profile = (mutable.value.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)).copy(model = model)
+        val current = mutable.value.settings
+        val profile = (current.active.takeIf { current.selected == provider }
+            ?: current.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)).copy(model = model)
         val key = modelKey(provider, model)
         if (mutable.value.autoChecking || key in mutable.value.checking || mutable.value.checking.isNotEmpty()) return
         mutable.update { it.copy(checking = it.checking + key) }
@@ -303,7 +330,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun markAccess(profile: ProviderProfile, access: AccessState, latencyMs: Long = 0) {
-        val configured = mutable.value.settings.profiles.firstOrNull { it.provider == profile.provider } ?: ProviderProfile(profile.provider)
+        val configured = mutable.value.settings.profiles.firstOrNull { it.id == profile.id }
+            ?: mutable.value.settings.profiles.firstOrNull { it.provider == profile.provider }
+            ?: ProviderProfile(profile.provider)
         if (configured.apiKey == profile.apiKey && configured.baseUrl == profile.baseUrl)
             mutable.update { it.copy(access = it.access + (modelKey(profile.provider, profile.model) to ModelAccess(access, latencyMs = latencyMs.coerceAtLeast(0))),
                 autoChoice = if (access != AccessState.USABLE && it.autoChoice == "${profile.provider.label} · ${profile.model}") null else it.autoChoice) }
@@ -401,15 +430,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }) }
         try {
             withContext(Dispatchers.IO) { store.saveSettings(settings) }
-            val changed = settings.profiles.filter { profile -> old.profiles.firstOrNull { it.provider == profile.provider }?.let {
+            val changed = settings.profiles.filter { profile -> old.profiles.firstOrNull { it.id == profile.id }?.let {
                 it.apiKey != profile.apiKey || it.baseUrl != profile.baseUrl
             } ?: true }.map { it.provider }.toSet()
-            if (changed.isNotEmpty() || old.autoExcluded != settings.autoExcluded || (old.autoRouting && !settings.autoRouting)) stopAutoCheck()
-            changed.forEach { catalogTokens.remove(it); catalogJobs.remove(it)?.cancel() }
+            // Catalogs/access for CUSTOM are endpoint-dependent. Switching between two saved
+            // compatible endpoints must never keep the previous endpoint's model list visible.
+            val activeProfileChanged = old.selected != settings.selected || old.active.id != settings.active.id
+            val invalidatedProviders = changed + if (activeProfileChanged) setOfNotNull(
+                old.selected.takeIf { it == Provider.CUSTOM },
+                settings.selected.takeIf { it == Provider.CUSTOM }
+            ) else emptySet()
+            if (invalidatedProviders.isNotEmpty() || old.autoExcluded != settings.autoExcluded || (old.autoRouting && !settings.autoRouting)) stopAutoCheck()
+            invalidatedProviders.forEach {
+                catalogTokens.remove(it)
+                catalogProfileIds.remove(it)
+                catalogJobs.remove(it)?.cancel()
+            }
             mutable.update { value -> value.copy(settings = settings,
-                autoChoice = if (changed.isNotEmpty() || old.autoExcluded != settings.autoExcluded) null else value.autoChoice,
-                catalogs = value.catalogs.filterKeys { it !in changed },
-                access = value.access.filterKeys { key -> changed.none { key.startsWith("${it.name}/") } }) }
+                autoChoice = if (invalidatedProviders.isNotEmpty() || old.autoExcluded != settings.autoExcluded) null else value.autoChoice,
+                catalogs = value.catalogs.filterKeys { it !in invalidatedProviders },
+                access = value.access.filterKeys { key -> invalidatedProviders.none { key.startsWith("${it.name}/") } }) }
             true
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) {

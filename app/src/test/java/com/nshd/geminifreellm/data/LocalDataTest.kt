@@ -24,6 +24,46 @@ class LocalDataTest {
         assertEquals(settings, settingsFromJson(settingsToJson(settings)))
     }
 
+    @Test fun multipleCompatibleAgentsRoundTripAndKeepTheActiveEndpoint() {
+        val first = ProviderProfile(
+            provider = Provider.CUSTOM, baseUrl = "https://gateway-one.example/v1",
+            apiKey = "synthetic-one", model = "model-one", id = "gateway-one", name = "Gateway One"
+        )
+        val second = ProviderProfile(
+            provider = Provider.CUSTOM, baseUrl = "https://gateway-two.example/v1",
+            apiKey = "synthetic-two", model = "model-two", id = "gateway-two", name = "Gateway Two",
+            vision = true, stream = false
+        )
+        val settings = AppSettings(
+            profiles = listOf(ProviderProfile(Provider.FREELLM), first, second),
+            selected = Provider.CUSTOM, activeProfileId = second.id, theme = "VIOLET"
+        )
+
+        val restored = settingsFromJson(settingsToJson(settings))
+        assertEquals(settings, restored)
+        assertEquals(3, restored.profiles.size)
+        assertEquals(second.id, restored.active.id)
+        assertEquals("Gateway Two", restored.active.name)
+        assertEquals("https://gateway-two.example/v1", restored.active.baseUrl)
+        assertTrue(restored.active.vision)
+        assertFalse(restored.active.stream)
+    }
+
+    @Test fun selectingSavedCompatibleAgentPreservesEveryConnection() {
+        val first = ProviderProfile(Provider.CUSTOM, "https://one.example/v1", "key-one", "model-one", id = "one", name = "One")
+        val second = ProviderProfile(Provider.CUSTOM, "https://two.example/v1", "key-two", "model-two", id = "two", name = "Two")
+        val settings = AppSettings(profiles = listOf(first, second), selected = Provider.CUSTOM,
+            activeProfileId = first.id, autoRouting = true)
+
+        val selected = settings.withActiveProfile(second.id)!!
+        assertEquals(listOf(first, second), selected.profiles)
+        assertEquals(second.id, selected.activeProfileId)
+        assertEquals(second, selected.active)
+        assertEquals("key-one", selected.profiles.first { it.id == first.id }.apiKey)
+        assertFalse(selected.autoRouting)
+        assertNull(settings.withActiveProfile("missing"))
+    }
+
     @Test fun pdfLiteralEscapesAreDecoded() {
         val file = File.createTempFile("test", ".pdf")
         try { file.writeText("%PDF-1.4\n(Hello\\nworld) Tj"); assertEquals("Hello world", PdfTextExtractor.extract(file)) }

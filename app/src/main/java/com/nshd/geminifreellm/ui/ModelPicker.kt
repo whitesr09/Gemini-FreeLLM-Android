@@ -11,6 +11,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,8 +49,26 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
             selecting = false
         }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding().widthIn(max = Design.readingWidth)) {
+    // Let the model list consume its own downward scroll. Only absorb the unconsumed
+    // downward delta at the top of nested content, so a tiny pull-to-scroll cannot drag
+    // the entire sheet to Hidden. Deliberate handle drags, Back and outside taps remain.
+    val protectModelScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = if (available.y > 0f) Offset(0f, available.y) else Offset.Zero
+        }
+    }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(
+            Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding()
+                .widthIn(max = Design.readingWidth).nestedScroll(protectModelScroll)
+        ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = Design.page), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Choose your AI", style = MaterialTheme.typography.titleLarge)
@@ -76,14 +98,17 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 providers.forEach { provider ->
                     val open = expanded == provider.name
-                    val profile = state.settings.profiles.firstOrNull { it.provider == provider } ?: ProviderProfile(provider)
+                    val profile = state.settings.active.takeIf { state.settings.selected == provider }
+                        ?: state.settings.profiles.firstOrNull { it.provider == provider }
+                        ?: ProviderProfile(provider)
                     val catalog = state.catalogs[provider] ?: ModelCatalog()
                     item(key = provider.name) {
                         Surface(shape = Design.card, color = if (open) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow) {
                             Row(Modifier.fillMaxWidth().clickable { expanded = if (open) "" else provider.name }.padding(Design.medium)
                                 .semantics { stateDescription = if (open) "Expanded" else "Collapsed" }, verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(provider.label, style = MaterialTheme.typography.titleMedium)
+                                    Text(if (provider == Provider.CUSTOM && state.settings.selected == provider) profile.name else provider.label,
+                                        style = MaterialTheme.typography.titleMedium)
                                     Text(if (catalog.models.isNotEmpty()) "${catalog.models.size} models" else if (profile.apiKey.isNotBlank()) "Key configured" else "Configure or browse",
                                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -95,6 +120,55 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
                     if (open) {
                         item(key = "controls/${provider.name}") {
                             Column {
+                                if (provider == Provider.CUSTOM) {
+                                    val connections = state.settings.profiles.filter { it.provider == Provider.CUSTOM }
+                                    if (connections.isNotEmpty()) {
+                                        Text("Saved compatible agents", style = MaterialTheme.typography.titleSmall,
+                                            modifier = Modifier.padding(top = Design.small))
+                                        Text("Each connection keeps its own endpoint, key and model. Choose Use to switch without deleting another connection.",
+                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        connections.forEach { connection ->
+                                            val isActiveConnection = state.settings.selected == Provider.CUSTOM &&
+                                                state.settings.active.id == connection.id
+                                            Surface(
+                                                shape = Design.card,
+                                                color = if (isActiveConnection) MaterialTheme.colorScheme.secondaryContainer
+                                                    else MaterialTheme.colorScheme.surfaceContainerLow,
+                                                modifier = Modifier.fillMaxWidth().padding(top = Design.tiny)
+                                            ) {
+                                                Row(Modifier.fillMaxWidth().padding(Design.medium),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(Design.small)) {
+                                                    Column(Modifier.weight(1f)) {
+                                                        Text(connection.name.ifBlank { "Compatible API" },
+                                                            style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        Text(connection.model.ifBlank { "No model selected" },
+                                                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        Text(connection.baseUrl.ifBlank { "Base URL not set" },
+                                                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    }
+                                                    if (isActiveConnection) {
+                                                        Text("Active", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                                    } else {
+                                                        TextButton(enabled = !selecting, onClick = {
+                                                            scope.launch {
+                                                                selecting = true
+                                                                if (vm.selectProfile(connection.id)) {
+                                                                    manual = ""
+                                                                    query = ""
+                                                                    vm.loadCatalog(Provider.CUSTOM, true)
+                                                                } else feedback = "Could not switch to this connection. Reopen Settings and check its configuration."
+                                                                selecting = false
+                                                            }
+                                                        }) { Text("Use") }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 if (state.settings.profiles.any { it.provider == provider }) Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Allow in Auto", Modifier.weight(1f))
                                     Switch(provider !in state.settings.autoExcluded, { enabled -> scope.launch { vm.setAutoProvider(provider, enabled) } })
