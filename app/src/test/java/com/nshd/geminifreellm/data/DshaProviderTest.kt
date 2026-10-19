@@ -82,7 +82,7 @@ class DshaProviderTest {
     }
 
     @Test fun dshaPresetDefaultsToLoopbackAndOpenAiProtocol() {
-        val profile = ProviderProfile(Provider.DSHA)
+        val profile = ProviderProfile(Provider.DSHA).copy(apiKey = "synthetic-test-key")
         assertEquals(ApiProtocol.OPENAI, profile.provider.protocol)
         assertEquals("http://127.0.0.1:18900/v1", profile.baseUrl)
         assertEquals(null, FreeLlmApiClient.validate(profile, requireModel = false))
