@@ -45,7 +45,14 @@ fun ModelPicker(state: ChatViewModel.State, vm: ChatViewModel, onDismiss: () -> 
             selecting = false
         }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        // Keep the picker stable while scrolling long model catalogs. Close through the
+        // explicit X button, Back, or tapping outside instead of accidental drag dismissal.
+        sheetGesturesEnabled = false,
+        dragHandle = null
+    ) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding().widthIn(max = Design.readingWidth)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = Design.page), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
