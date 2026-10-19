@@ -120,6 +120,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                 }
                 if (selected == Provider.DEEPSEEK) Text("Use a DeepSeek API key with api.deepseek.com. Keys from a gateway belong in that gateway's profile. Discover model IDs below; a chat subscription does not imply API credit.", style = MaterialTheme.typography.bodySmall)
                 if (selected == Provider.OLLAMA) Text("On a phone, use your computer's LAN address and enable server access. 10.0.2.2 is for Android emulators.", style = MaterialTheme.typography.bodySmall)
+                if (selected == Provider.DSHA) Text("Connect to DSHA → Settings → Our Free Model → Local forward. Enable forwarding, copy its actual Base URL and generated API key, then paste both below. Keep DSHA running. For same-phone access use the displayed loopback URL; if DSHA exposes a different port, use that exact port. This provider uses OpenAI-compatible Chat Completions and model discovery.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val url = profile.baseUrl.toHttpUrlOrNull()
                 OutlinedTextField(profile.baseUrl, { update(profile.copy(baseUrl = it)) }, Modifier.fillMaxWidth(),
                     label = { Text("API base URL") }, placeholder = { Text("https://your-provider.com/v1") }, singleLine = true,
