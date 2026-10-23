@@ -57,7 +57,7 @@ fun ColumnScope.AutoModelsPanel(state: ChatViewModel.State, vm: ChatViewModel, o
                 TextButton(enabled = !state.autoChecking && state.catalogs.values.none { it.loading }, onClick = { vm.refreshAutoCatalogs(true) }) { Text("Refresh models") }
             }
         }
-        items(state.settings.profiles, key = { "provider/${it.provider}" }) { profile ->
+        items(state.settings.profiles.distinctBy { it.provider }, key = { "provider/${it.provider}" }) { profile ->
             val catalog = state.catalogs[profile.provider]
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
