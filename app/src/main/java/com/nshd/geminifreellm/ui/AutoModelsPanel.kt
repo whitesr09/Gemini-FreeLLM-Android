@@ -57,7 +57,7 @@ fun ColumnScope.AutoModelsPanel(state: ChatViewModel.State, vm: ChatViewModel, o
                 TextButton(enabled = !state.autoChecking && state.catalogs.values.none { it.loading }, onClick = { vm.refreshAutoCatalogs(true) }) { Text("Refresh models") }
             }
         }
-        items(state.settings.profiles, key = { "provider/${it.provider}" }) { profile ->
+        items(state.settings.profiles, key = { "profile/${it.id}" }) { profile ->
             val catalog = state.catalogs[profile.provider]
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -75,7 +75,7 @@ fun ColumnScope.AutoModelsPanel(state: ChatViewModel.State, vm: ChatViewModel, o
             Text("Usable means a recent request succeeded; access can change. Unchecked models have not been verified. Account quota and free-tier expiry are not assumed.", style = MaterialTheme.typography.bodySmall)
         }
         if (filtered.isEmpty()) item { Text("No models found. Configure a provider in Settings or refresh its catalog.") }
-        items(filtered, key = { modelKey(it.provider, it.model) }, contentType = { "auto-model" }) { profile ->
+        items(filtered, key = { "profile-model/${it.id}/${it.model}" }, contentType = { "auto-model" }) { profile ->
             val key = modelKey(profile.provider, profile.model)
             val access = state.access[key]
             val providerBlocked = state.access.any { (otherKey, value) ->
