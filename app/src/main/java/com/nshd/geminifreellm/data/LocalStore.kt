@@ -128,7 +128,7 @@ internal fun settingsFromJson(json: JSONObject): AppSettings = AppSettings(
             ProviderProfile(provider, obj.getString("baseUrl"), obj.optString("apiKey"),
                 obj.getString("model"), obj.optBoolean("stream", true), obj.optBoolean("vision", false), obj.optBoolean("fastReplies", false))
         }.getOrNull()
-    }.orEmpty().ifEmpty { listOf(ProviderProfile()) }
+    }.orEmpty().distinctBy { it.provider }.ifEmpty { listOf(ProviderProfile()) }
 )
 
 internal fun conversationsToJson(chats: List<Conversation>) = JSONObject().put("version", 1)
