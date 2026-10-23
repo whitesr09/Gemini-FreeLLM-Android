@@ -13,7 +13,7 @@ object AutoRouter {
         settings.profiles.flatMap { profile ->
             (catalogs[profile.provider]?.models.orEmpty().map { it.id } + profile.model)
                 .filter { it.isNotBlank() }.distinct().map { profile.copy(model = it) }
-        }
+        }.distinctBy { "${it.id}/${it.model}" }
 
     fun isTextModel(model: String) = !Regex("embedding|whisper|tts|dall-e|imagen|veo|moderation|rerank", RegexOption.IGNORE_CASE).containsMatchIn(model)
 
