@@ -133,7 +133,7 @@ internal fun settingsFromJson(json: JSONObject): AppSettings = AppSettings(
                 id = obj.optString("id").takeIf { it.isNotBlank() && it != "null" } ?: newId(),
                 name = obj.optString("name").takeIf { it.isNotBlank() && it != "null" } ?: provider.label)
         }.getOrNull()
-    }.orEmpty().ifEmpty { listOf(ProviderProfile()) }
+    }.orEmpty().distinctBy { it.id }.ifEmpty { listOf(ProviderProfile()) }
 )
 
 internal fun conversationsToJson(chats: List<Conversation>) = JSONObject().put("version", 1)
