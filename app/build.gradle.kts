@@ -14,8 +14,8 @@ android {
         applicationId = "com.nshd.geminifreellm"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "2.2.2"
+        versionCode = 9
+        versionName = "2.2.3"
     }
 
     compileOptions {
@@ -82,6 +82,53 @@ val generateAppIcon by tasks.registering {
 android.sourceSets.getByName("main").res.srcDir(layout.buildDirectory.dir("generated/res/appIcon"))
 tasks.named("preBuild").configure { dependsOn(generateAppIcon) }
 generateAppIcon.configure { mustRunAfter("clean") }
+
+// Alternate launcher icons use the same trick: base64 parts in app/icon-src/ (binary
+// files cannot be pushed with the current tooling) decoded at build time. Each part set
+// decodes to one drawable used by its adaptive-icon foreground.
+val generateAppIconGlow by tasks.registering {
+    val iconSrcDir = file("icon-src")
+    val generatedIcon = layout.buildDirectory.file("generated/res/appIconGlow/drawable-nodpi/ic_logo_glow.png")
+    inputs.files(fileTree(iconSrcDir) { include("ic_logo_glow.part*.b64") })
+    outputs.file(generatedIcon)
+    doLast {
+        if (file("src/main/res/drawable-nodpi/ic_logo_glow.png").exists()) return@doLast
+        val parts = iconSrcDir.listFiles { f -> f.name.matches(Regex("ic_logo_glow\\.part\\d+\\.b64")) }
+            ?.sortedBy { it.name }.orEmpty()
+        if (parts.isNotEmpty()) {
+            val encoded = parts.joinToString("") { it.readText().trim() }
+            generatedIcon.get().asFile.apply {
+                parentFile.mkdirs()
+                writeBytes(Base64.getDecoder().decode(encoded))
+            }
+        }
+    }
+}
+android.sourceSets.getByName("main").res.srcDir(layout.buildDirectory.dir("generated/res/appIconGlow"))
+tasks.named("preBuild").configure { dependsOn(generateAppIconGlow) }
+generateAppIconGlow.configure { mustRunAfter("clean") }
+
+val generateAppIconBlue by tasks.registering {
+    val iconSrcDir = file("icon-src")
+    val generatedIcon = layout.buildDirectory.file("generated/res/appIconBlue/drawable-nodpi/ic_logo_blue.png")
+    inputs.files(fileTree(iconSrcDir) { include("ic_logo_blue.part*.b64") })
+    outputs.file(generatedIcon)
+    doLast {
+        if (file("src/main/res/drawable-nodpi/ic_logo_blue.png").exists()) return@doLast
+        val parts = iconSrcDir.listFiles { f -> f.name.matches(Regex("ic_logo_blue\\.part\\d+\\.b64")) }
+            ?.sortedBy { it.name }.orEmpty()
+        if (parts.isNotEmpty()) {
+            val encoded = parts.joinToString("") { it.readText().trim() }
+            generatedIcon.get().asFile.apply {
+                parentFile.mkdirs()
+                writeBytes(Base64.getDecoder().decode(encoded))
+            }
+        }
+    }
+}
+android.sourceSets.getByName("main").res.srcDir(layout.buildDirectory.dir("generated/res/appIconBlue"))
+tasks.named("preBuild").configure { dependsOn(generateAppIconBlue) }
+generateAppIconBlue.configure { mustRunAfter("clean") }
 
 kotlin {
     jvmToolchain(17)
