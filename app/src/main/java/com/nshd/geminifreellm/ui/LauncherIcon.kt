@@ -30,13 +30,19 @@ object LauncherIcon {
     fun currentChoice(context: Context): Choice {
         val pm = context.packageManager
         val pkg = context.packageName
-        return choiceFor(
-            pm.getComponentEnabledSetting(ComponentName(pkg, pkg + GOLD_SUFFIX)),
-            pm.getComponentEnabledSetting(ComponentName(pkg, pkg + BLUE_SUFFIX))
-        )
+        return try {
+            choiceFor(
+                pm.getComponentEnabledSetting(ComponentName(pkg, pkg + GOLD_SUFFIX)),
+                pm.getComponentEnabledSetting(ComponentName(pkg, pkg + BLUE_SUFFIX))
+            )
+        } catch (e: IllegalArgumentException) {
+            // Alias missing from this build (e.g. a variant without them): never crash Settings.
+            Choice.CURRENT
+        }
     }
 
-    fun setChoice(context: Context, choice: Choice) {
+    /** Returns false instead of crashing if the components are unavailable in this build. */
+    fun setChoice(context: Context, choice: Choice): Boolean {
         val pm = context.packageManager
         val pkg = context.packageName
         val states = mapOf(
@@ -44,13 +50,18 @@ object LauncherIcon {
             GOLD_SUFFIX to (choice == Choice.GOLD),
             BLUE_SUFFIX to (choice == Choice.BLUE)
         )
-        for ((suffix, enabled) in states) {
-            pm.setComponentEnabledSetting(
-                ComponentName(pkg, pkg + suffix),
-                if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP
-            )
+        return try {
+            for ((suffix, enabled) in states) {
+                pm.setComponentEnabledSetting(
+                    ComponentName(pkg, pkg + suffix),
+                    if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                    else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP
+                )
+            }
+            true
+        } catch (e: IllegalArgumentException) {
+            false
         }
     }
 }
