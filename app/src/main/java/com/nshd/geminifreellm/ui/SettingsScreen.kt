@@ -364,13 +364,13 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                     var iconChoice by remember { mutableStateOf(LauncherIcon.currentChoice(context)) }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Design.small)) {
                         listOf(
-                            Triple("Current", R.drawable.ic_launcher_foreground, LauncherIcon.Choice.CURRENT),
-                            Triple("Gold", R.drawable.ic_launcher_glow_foreground, LauncherIcon.Choice.GOLD),
-                            Triple("Blue", R.drawable.ic_launcher_blue_foreground, LauncherIcon.Choice.BLUE)
+                            Triple("Current", R.drawable.ic_logo, LauncherIcon.Choice.CURRENT),
+                            Triple("Gold", R.drawable.ic_logo_glow, LauncherIcon.Choice.GOLD),
+                            Triple("Blue", R.drawable.ic_logo_blue, LauncherIcon.Choice.BLUE)
                         ).forEach { (label, drawable, choice) ->
                             val selected = iconChoice == choice
                             Surface(
-                                modifier = Modifier.weight(1f).clickable { iconChoice = choice; LauncherIcon.setChoice(context, choice) },
+                                modifier = Modifier.weight(1f).clickable { if (LauncherIcon.setChoice(context, choice)) iconChoice = choice },
                                 shape = Design.card,
                                 color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
                                 border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
