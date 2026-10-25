@@ -14,7 +14,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
+import com.nshd.geminifreellm.R
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -352,6 +356,33 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                                 },
                                 leadingIcon = { if (theme == mode.name) Icon(Icons.Outlined.Check, null, Modifier.size(18.dp)) }
                             )
+                        }
+                    }
+                    Text("App icon", style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
+                    Text("Switch the launcher icon. The launcher refreshes within a few seconds; the app itself keeps running.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    var iconChoice by remember { mutableStateOf(LauncherIcon.currentChoice(context)) }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Design.small)) {
+                        listOf(
+                            Triple("Current", R.drawable.ic_launcher_foreground, LauncherIcon.Choice.CURRENT),
+                            Triple("Gold", R.drawable.ic_launcher_glow_foreground, LauncherIcon.Choice.GOLD),
+                            Triple("Blue", R.drawable.ic_launcher_blue_foreground, LauncherIcon.Choice.BLUE)
+                        ).forEach { (label, drawable, choice) ->
+                            val selected = iconChoice == choice
+                            Surface(
+                                modifier = Modifier.weight(1f).clickable { iconChoice = choice; LauncherIcon.setChoice(context, choice) },
+                                shape = Design.card,
+                                color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                                border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                            ) {
+                                Column(Modifier.padding(Design.small), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Design.small)) {
+                                    Image(painterResource(drawable), contentDescription = label, modifier = Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)))
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Design.small)) {
+                                        if (selected) Icon(Icons.Outlined.Check, null, Modifier.size(16.dp))
+                                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            }
                         }
                     }
                     SettingSwitch("Reduce motion", "Use static indicators and immediate transitions.", reducedMotion) { reducedMotion = it }
