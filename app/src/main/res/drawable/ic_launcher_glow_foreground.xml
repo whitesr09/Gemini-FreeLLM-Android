@@ -1,0 +1,9 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Gold glow artwork, centered inside the adaptive-icon safe zone (72dp) so no
+         launcher mask (circle, squircle, rounded square) can crop the logo. -->
+    <item
+        android:width="72dp"
+        android:height="72dp"
+        android:gravity="center"
+        android:drawable="@drawable/ic_logo_glow" />
+</layer-list>
