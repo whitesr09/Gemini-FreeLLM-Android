@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
@@ -591,7 +592,7 @@ private fun Composer(chat: Conversation, busy: Boolean, reducedMotion: Boolean, 
         }
         Surface(shape = if (aurora) Design.auroraComposer else Design.composer,
             color = if (aurora) scheme.surface.copy(alpha = 0.72f) else MaterialTheme.colorScheme.surfaceContainer,
-            border = BorderStroke(1.dp, if (aurora) tokens.glassBorder else MaterialTheme.colorScheme.outlineVariant),
+            border = if (aurora) BorderStroke(1.dp, tokens.glassBorder) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier
                 .then(if (aurora) Modifier.shadow(if (composerFocused) 16.dp else 0.dp, Design.auroraComposer,
                     ambientColor = tokens.composerGlow, spotColor = tokens.composerGlow) else Modifier)
@@ -648,7 +649,7 @@ private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry
     LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
     // Only the newest message animates in; older rows stay static (no scroll replay).
     AnimatedVisibility(visible = true, label = "aurora-row",
-        enter = if (isLatest) fadeIn(tween(220)) + slideInVertically(tween(220)) { 12.dp.roundToPx() }
+        enter = if (isLatest) fadeIn(tween(220)) + slideInVertically(tween(220)) { density -> with(density) { 12.dp.roundToPx() } }
         else EnterTransition.None) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
             if (!user && !error && message.model.isNotBlank()) Row(
