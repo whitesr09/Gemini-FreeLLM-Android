@@ -1,7 +1,6 @@
 package com.nshd.geminifreellm.data
 
 import com.nshd.geminifreellm.model.*
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
