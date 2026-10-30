@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -31,14 +32,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nshd.geminifreellm.ChatViewModel
 import com.nshd.geminifreellm.BuildConfig
@@ -184,6 +193,7 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
     var export by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val busy = state.generatingId == chat.id
+    val auroraChat = state.settings.chatStyle == ChatStyle.AURORA.name
     val chatScrollStates = rememberSaveableStateHolder()
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::attach) }
     val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -238,7 +248,7 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
                         try { voice.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM).putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your message")) }
                         catch (_: android.content.ActivityNotFoundException) { vm.notice("Speech input is not installed. You can use your keyboard's microphone.") }
-                    }, onRemove = vm::removeAttachment)
+                    }, onRemove = vm::removeAttachment, aurora = auroraChat)
             }
         }) { padding ->
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
@@ -320,21 +330,21 @@ private fun HistoryDrawer(state: ChatViewModel.State, vm: ChatViewModel, onClose
         Text("Developer", Modifier.padding(start = Design.page, top = Design.medium), style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.fillMaxWidth().padding(horizontal = Design.small, vertical = Design.tiny),
-            horizontalArrangement = Arrangement.spacedBy(Design.tiny, Alignment.CenterHorizontally)) {
+            horizontalArrangement = Arrangement.spacedBy(Design.small, Alignment.CenterHorizontally)) {
             val context = LocalContext.current
-            listOf(
-                Triple(Icons.Outlined.PhotoCamera, "Instagram", "https://www.instagram.com/__nshd.__?stkn=emExd3hxZndzN21o"),
-                Triple(Icons.Outlined.ChatBubbleOutline, "WhatsApp", "https://wa.me/+918590455801"),
-                Triple(Icons.Outlined.Send, "Telegram", "https://t.me/nshd_0"),
-                Triple(Icons.Outlined.Email, "Email", "mailto:nishadahammed081@gmail.com"),
-                Triple(Icons.Outlined.Phone, "Phone", "tel:+918590455801")
-            ).forEach { (icon, label, url) ->
-                IconButton(onClick = {
-                    try { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                    catch (_: ActivityNotFoundException) { vm.notice("No app can open this link.") }
-                }) { Icon(icon, label, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            fun open(url: String) {
+                try { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                catch (_: ActivityNotFoundException) { vm.notice("No app can open this link.") }
             }
+            BrandIconButton({ InstagramBadge(Modifier.size(40.dp)) }, "Instagram") { open("https://www.instagram.com/__nshd.__?stkn=emExd3hxZndzN21o") }
+            BrandIconButton({ WhatsAppBadge(Modifier.size(40.dp)) }, "WhatsApp") { open("https://wa.me/+918590455801") }
+            BrandIconButton({ TelegramBadge(Modifier.size(40.dp)) }, "Telegram") { open("https://t.me/nshd_0") }
+            BrandIconButton({ EmailBadge(Modifier.size(40.dp)) }, "Email") { open("mailto:nishadahammed081@gmail.com") }
+            BrandIconButton({ PhoneBadge(Modifier.size(40.dp)) }, "Phone") { open("tel:+918590455801") }
         }
+        Text("Developed by NSHD", modifier = Modifier.fillMaxWidth().padding(top = Design.small, bottom = Design.small),
+            textAlign = TextAlign.Center, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
         Text("FreeLLM AI · ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             modifier = Modifier.padding(horizontal = Design.page, vertical = Design.small),
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -421,6 +431,7 @@ private fun WelcomeState(onPrompt: (String) -> Unit, onSettings: () -> Unit, nee
 
 @Composable
 private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatViewModel, onSettings: () -> Unit, settings: AppSettings, onCanvas: (String, String) -> Unit) {
+    val aurora = settings.chatStyle == ChatStyle.AURORA.name
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var follow by rememberSaveable { mutableStateOf(true) }
@@ -446,11 +457,17 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
         if (follow && !dragging && chat.messages.isNotEmpty()) { withFrameNanos { }; scrollToLatest() }
     }
     Box(Modifier.widthIn(max = Design.readingWidth).fillMaxSize()) {
-        LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(Design.page), verticalArrangement = Arrangement.spacedBy(if (settings.compactSpacing) Design.medium else Design.page)) {
-            items(chat.messages, key = { it.id }, contentType = { it.role }) { message ->
-                MessageRow(message, busy && message == chat.messages.lastOrNull(),
-                    canRetry = !busy && message == chat.messages.lastOrNull() && message.role != ChatMessage.Role.USER,
-                    onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings, showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = vm::continueReply)
+        LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(Design.page), verticalArrangement = Arrangement.spacedBy(if (aurora) 14.dp else if (settings.compactSpacing) Design.medium else Design.page)) {
+            itemsIndexed(chat.messages, key = { _, it -> it.id }, contentType = { _, it -> it.role }) { index, message ->
+                val rowBusy = busy && message == chat.messages.lastOrNull()
+                val rowCanRetry = !busy && message == chat.messages.lastOrNull() && message.role != ChatMessage.Role.USER
+                if (aurora) AuroraMessageRow(message, rowBusy, canRetry = rowCanRetry,
+                    onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings,
+                    showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = vm::continueReply,
+                    isLatest = index == chat.messages.lastIndex)
+                else MessageRow(message, rowBusy, canRetry = rowCanRetry,
+                    onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings,
+                    showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = vm::continueReply)
             }
         }
         AnimatedVisibility(visible = showJumpToLatest,
@@ -540,7 +557,10 @@ private fun AttachmentLabel(file: Attachment, onRemove: (() -> Unit)? = null) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Composer(chat: Conversation, busy: Boolean, reducedMotion: Boolean, preparing: Boolean, onChange: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit,
-                     onAttach: () -> Unit, onVoice: () -> Unit, onRemove: (String) -> Unit, skills: List<AgentSkill> = emptyList()) {
+                     onAttach: () -> Unit, onVoice: () -> Unit, onRemove: (String) -> Unit, skills: List<AgentSkill> = emptyList(), aurora: Boolean = false) {
+    val scheme = MaterialTheme.colorScheme
+    val tokens = rememberAuroraTokens()
+    var composerFocused by remember { mutableStateOf(false) }
     Column(Modifier.widthIn(max = Design.readingWidth).fillMaxWidth().padding(horizontal = Design.medium, vertical = Design.small), verticalArrangement = Arrangement.spacedBy(Design.small)) {
         if (chat.attachments.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(Design.small)) {
             items(chat.attachments, key = { it.id }) { file -> Box(Modifier.width(240.dp)) { AttachmentLabel(file) { onRemove(file.id) } } }
@@ -569,16 +589,35 @@ private fun Composer(chat: Conversation, busy: Boolean, reducedMotion: Boolean, 
                 }
             }
         }
-        Surface(shape = Design.composer, color = MaterialTheme.colorScheme.surfaceContainer, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.animateContentSize(animationSpec = tween(if (reducedMotion) 0 else 180))) {
+        Surface(shape = if (aurora) Design.auroraComposer else Design.composer,
+            color = if (aurora) scheme.surface.copy(alpha = 0.72f) else MaterialTheme.colorScheme.surfaceContainer,
+            border = BorderStroke(1.dp, if (aurora) tokens.glassBorder else MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier
+                .then(if (aurora) Modifier.shadow(if (composerFocused) 16.dp else 0.dp, Design.auroraComposer,
+                    ambientColor = tokens.composerGlow, spotColor = tokens.composerGlow) else Modifier)
+                .animateContentSize(animationSpec = tween(if (reducedMotion) 0 else 180))) {
             Row(Modifier.padding(Design.tiny), verticalAlignment = Alignment.Bottom) {
                 IconButton(onClick = onAttach, enabled = !busy && !preparing) { Icon(Icons.Outlined.Add, "Attach a file") }
                 BasicTextField(chat.draft, onChange, modifier = Modifier.weight(1f).heightIn(min = Design.touch)
-                    .padding(vertical = Design.medium).semantics { contentDescription = "Message" }, maxLines = 6,
+                    .padding(vertical = Design.medium).onFocusChanged { composerFocused = it.isFocused }
+                    .semantics { contentDescription = "Message" }, maxLines = 6,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     decorationBox = { inner -> Box { if (chat.draft.isEmpty()) Text("Ask anything", color = MaterialTheme.colorScheme.onSurfaceVariant); inner() } })
                 if (chat.draft.isBlank() && chat.attachments.isEmpty() && !busy) {
-                    IconButton(onClick = onVoice) { Icon(Icons.Outlined.MicNone, "Dictate a message") }
+                    if (aurora) Surface(shape = CircleShape, color = scheme.tertiary.copy(alpha = 0.16f)) {
+                        IconButton(onClick = onVoice) { Icon(Icons.Outlined.MicNone, "Dictate a message", tint = scheme.tertiary) }
+                    } else IconButton(onClick = onVoice) { Icon(Icons.Outlined.MicNone, "Dictate a message") }
+                } else if (aurora) {
+                    val corner by animateDpAsState(if (busy) 12.dp else 24.dp, tween(if (reducedMotion) 0 else 200), label = "sendCorner")
+                    val sendEnabled = busy || (!preparing && (chat.draft.isNotBlank() || chat.attachments.isNotEmpty()))
+                    Box(Modifier.size(Design.touch).clip(RoundedCornerShape(corner))
+                        .background(Brush.linearGradient(listOf(scheme.primary, scheme.tertiary)))
+                        .clickable(enabled = sendEnabled, onClickLabel = if (busy) "Stop generating" else "Send message",
+                            role = Role.Button) { if (busy) onStop() else onSend() },
+                        contentAlignment = Alignment.Center) {
+                        Icon(if (busy) Icons.Outlined.Stop else Icons.Outlined.ArrowUpward,
+                            if (busy) "Stop generating" else "Send message", tint = Color.White)
+                    }
                 } else {
                     FilledIconButton(onClick = if (busy) onStop else onSend,
                         enabled = busy || (!preparing && (chat.draft.isNotBlank() || chat.attachments.isNotEmpty())), modifier = Modifier.size(Design.touch)) {
@@ -588,6 +627,90 @@ private fun Composer(chat: Conversation, busy: Boolean, reducedMotion: Boolean, 
             }
         }
         if (!WindowInsets.isImeVisible) Text("AI can make mistakes. Check important information.", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            style = if (aurora) MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp) else MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (aurora) 0.6f else 1f))
     }
+}
+
+/**
+ * Aurora chat-style message row. Classic [MessageRow] is untouched; the chat
+ * style setting picks which one renders.
+ */
+@Composable
+private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit, showTimestamps: Boolean, onCanvas: (String, String) -> Unit, onContinue: () -> Unit, isLatest: Boolean) {
+    val tokens = rememberAuroraTokens()
+    val scheme = MaterialTheme.colorScheme
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    var edit by remember { mutableStateOf(false) }
+    val user = message.role == ChatMessage.Role.USER
+    val error = message.role == ChatMessage.Role.ERROR
+    LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
+    // Only the newest message animates in; older rows stay static (no scroll replay).
+    AnimatedVisibility(visible = true, label = "aurora-row",
+        enter = if (isLatest) fadeIn(tween(220)) + slideInVertically(tween(220)) { density -> with(density) { 12.dp.roundToPx() } }
+        else EnterTransition.None) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
+            if (!user && !error && message.model.isNotBlank()) Row(
+                modifier = Modifier.padding(bottom = Design.small), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ThinkingSparkle(Modifier, 12.dp, animated = false, contentDescription = null)
+                Text(message.model, style = MaterialTheme.typography.labelSmall, color = scheme.primary)
+            }
+            if (user) {
+                val userShape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomStart = 8.dp, bottomEnd = 22.dp)
+                Box(Modifier.widthIn(max = 580.dp)
+                    .shadow(4.dp, userShape, ambientColor = scheme.primary.copy(alpha = 0.2f), spotColor = scheme.primary.copy(alpha = 0.2f))
+                    .clip(userShape)
+                    .background(tokens.userGrad)) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(Design.small)) {
+                        message.attachments.forEach { file -> AttachmentLabel(file) }
+                        SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge, color = scheme.onPrimaryContainer) }
+                    }
+                }
+            } else {
+                Surface(
+                    color = if (error) scheme.errorContainer else tokens.glassFill,
+                    shape = Design.auroraBubble,
+                    border = if (error) null else BorderStroke(1.dp, tokens.glassBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp).auroraTopHighlight(),
+                        verticalArrangement = Arrangement.spacedBy(Design.small)) {
+                        message.attachments.forEach { file -> AttachmentLabel(file) }
+                        when {
+                            error -> Text(message.text, color = scheme.onErrorContainer, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                            message.text.isEmpty() && generating -> ThinkingSparkleIndicator()
+                            else -> StreamingContent(message.text, generating, onCanvas, aurora = true)
+                        }
+                        if (!generating && message.interrupted) Text("Reply incomplete", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if (!generating) Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { clipboard.setText(AnnotatedString(splitThink(message.text).first)); copied = true }) {
+                    Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, if (copied) "Copied" else "Copy message", Modifier.size(20.dp))
+                }
+                if (user && canEdit) IconButton(onClick = { edit = true }) { Icon(Icons.Outlined.Edit, "Edit message", Modifier.size(20.dp)) }
+                if (canRetry) IconButton(onClick = onRetry) { Icon(Icons.Outlined.Refresh, if (error) "Retry reply" else "Regenerate reply", Modifier.size(20.dp)) }
+                if (message.interrupted && canRetry) TextButton(onClick = onContinue) { Text("Continue") }
+                if (error) IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(20.dp)) }
+                if (showTimestamps) Text(remember(message.timestamp, message.elapsedMs) {
+                    DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.timestamp)) +
+                        if (message.elapsedMs > 0) " \u00b7 %.1fs".format(message.elapsedMs / 1000.0) else ""
+                }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+    if (edit) AlertDialog(onDismissRequest = { edit = false }, title = { Text("Edit this message?") },
+        text = { Text("This message and all following replies will be replaced when you edit. Its text and attachments return to the composer.") },
+        confirmButton = { TextButton(onClick = { edit = false; onEdit() }) { Text("Edit") } },
+        dismissButton = { TextButton(onClick = { edit = false }) { Text("Cancel") } })
+}
+
+/** 1dp top-edge inner highlight that sells the frosted-glass AI card. */
+private fun Modifier.auroraTopHighlight(): Modifier = drawBehind {
+    val inset = 22.dp.toPx()
+    if (size.width > inset * 2f) drawLine(Color.White.copy(alpha = 0.08f), Offset(inset, 1.dp.toPx()),
+        Offset(size.width - inset, 1.dp.toPx()), strokeWidth = 1.dp.toPx(), cap = StrokeCap.Round)
 }
