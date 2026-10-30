@@ -71,10 +71,13 @@ data class ProviderProfile(
     val name: String = provider.label
 )
 
+enum class ChatStyle(val label: String) { CLASSIC("Classic"), AURORA("Aurora") }
+
 data class AppSettings(
     val profiles: List<ProviderProfile> = listOf(ProviderProfile()),
     val selected: Provider = Provider.FREELLM,
     val theme: String = "LIGHT",
+    val chatStyle: String = "CLASSIC",
     val reducedMotion: Boolean = false,
     val showTimestamps: Boolean = false,
     val compactSpacing: Boolean = false,
