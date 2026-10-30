@@ -80,6 +80,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
     var timestamps by remember { mutableStateOf(settings.showTimestamps) }
     var compact by remember { mutableStateOf(settings.compactSpacing) }
     var haptics by remember { mutableStateOf(settings.haptics) }
+    var chatStyle by remember { mutableStateOf(settings.chatStyle) }
     var agent by remember { mutableStateOf(settings.agent) }
     var providerMenu by remember { mutableStateOf(false) }
     var expandedSection by rememberSaveable { mutableStateOf<String?>("Connection") }
@@ -115,7 +116,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
         profiles = profiles.map { if (it.id == profile.id) profile else it } +
             (if (profiles.none { it.id == profile.id }) listOf(profile) else emptyList()),
         selected = selected, activeProfileId = profile.id, theme = theme,
-        reducedMotion = reducedMotion, showTimestamps = timestamps, compactSpacing = compact, haptics = haptics, agent = agent)
+        reducedMotion = reducedMotion, showTimestamps = timestamps, compactSpacing = compact, haptics = haptics, chatStyle = chatStyle, agent = agent)
     fun leave() { if (!saving) { if (snapshot() != initialDraft) discard = true else onBack() } }
     val latestProfile by rememberUpdatedState(profile)
     fun update(value: ProviderProfile) {
@@ -381,6 +382,26 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                                         if (selected) Icon(Icons.Outlined.Check, null, Modifier.size(16.dp))
                                         Text(label, style = MaterialTheme.typography.bodyMedium)
                                     }
+                                }
+                            }
+                        }
+                    }
+                    Text("Chat style", style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
+                    Text("Classic keeps the current look. Aurora is the new glass redesign — switches instantly, no restart.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Design.small)) {
+                        ChatStyle.entries.forEach { style ->
+                            val selected = chatStyle == style.name
+                            Surface(
+                                modifier = Modifier.weight(1f).clickable { chatStyle = style.name },
+                                shape = Design.card,
+                                color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                                border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                            ) {
+                                Row(Modifier.padding(Design.medium), verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(Design.small, Alignment.CenterHorizontally)) {
+                                    if (selected) Icon(Icons.Outlined.Check, null, Modifier.size(16.dp))
+                                    Text(style.label, style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
                         }
