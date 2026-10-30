@@ -8,6 +8,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -16,9 +18,13 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.Dp
@@ -112,12 +118,12 @@ fun ThinkingIndicator() {
 }
 
 @Composable
-fun StreamingContent(text: String, streaming: Boolean, onCanvas: (String, String) -> Unit) {
+fun StreamingContent(text: String, streaming: Boolean, onCanvas: (String, String) -> Unit, aurora: Boolean = false) {
     // Reasoning models wrap chain-of-thought in <think>…</think>; DeepSeek-style:
     // collapse it behind a "Thinking / Thought" toggle instead of dumping it as a reply.
     val (body, think, thinkOpen) = remember(text) { splitThink(text) }
     Column(verticalArrangement = Arrangement.spacedBy(Design.tiny)) {
-        if (think.isNotEmpty() || thinkOpen) ThinkBlock(think, thinkOpen)
+        if (think.isNotEmpty() || thinkOpen) ThinkBlock(think, thinkOpen, aurora)
         // A short catch-up smooths network bursts; completed and long replies render immediately.
         val animated = motionEnabled() && streaming && body.length < 16_000
         val count by animateIntAsState(body.length, animationSpec = if (animated) tween(80, easing = LinearEasing) else snap(), label = "Streaming text")
@@ -125,8 +131,11 @@ fun StreamingContent(text: String, streaming: Boolean, onCanvas: (String, String
         if (end in 1 until body.length && body[end - 1].isHighSurrogate()) end--
         MessageContent(body.substring(0, end), onCanvas)
         if (streaming) {
-            val color = MaterialTheme.colorScheme.primary
-            Canvas(Modifier.size(8.dp).clearAndSetSemantics { }) { drawCircle(color) }
+            if (aurora) StreamingCaret()
+            else {
+                val color = MaterialTheme.colorScheme.primary
+                Canvas(Modifier.size(8.dp).clearAndSetSemantics { }) { drawCircle(color) }
+            }
         }
     }
 }
@@ -176,13 +185,13 @@ internal fun splitThink(text: String): Triple<String, String, Boolean> {
 }
 
 @Composable
-private fun ThinkBlock(think: String, open: Boolean) {
+private fun ThinkBlock(think: String, open: Boolean, aurora: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
     Column {
         Row(Modifier.clickable(onClickLabel = if (expanded) "Collapse reasoning" else "Expand reasoning") { expanded = !expanded }
             .padding(vertical = Design.tiny).clearAndSetSemantics { contentDescription = if (open) "Thinking" else "Thought" },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Design.small)) {
-            if (open) ThinkingOrb(Modifier, 18.dp)
+            if (open) { if (aurora) ThinkingSparkle(Modifier, 18.dp, contentDescription = null) else ThinkingOrb(Modifier, 18.dp) }
             Text(if (open) "Thinking…" else "Thought", style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
@@ -194,4 +203,97 @@ private fun ThinkBlock(think: String, open: Boolean) {
                 modifier = Modifier.padding(start = Design.small, bottom = Design.small))
         }
     }
+}
+
+/** Four-pointed AI sparkle path (classic concave star), centered at (cx, cy). */
+private fun sparklePath(cx: Float, cy: Float, r: Float): Path = Path().apply {
+    moveTo(cx, cy - r)
+    quadraticBezierTo(cx, cy, cx + r, cy)
+    quadraticBezierTo(cx, cy, cx, cy + r)
+    quadraticBezierTo(cx, cy, cx - r, cy)
+    quadraticBezierTo(cx, cy, cx, cy - r)
+    close()
+}
+
+/**
+ * Aurora "thinking" indicator: shimmering four-pointed sparkle with a breathing
+ * glow and an animated gradient sweep. Cheap on low-end devices (one Canvas +
+ * brush animations). Static frame when reduced motion is on.
+ */
+@Composable
+fun ThinkingSparkle(
+    modifier: Modifier = Modifier,
+    size: Dp = 22.dp,
+    animated: Boolean = true,
+    contentDescription: String? = "Thinking",
+) {
+    val tokens = rememberAuroraTokens()
+    val animate = animated && motionEnabled()
+    val glowAlpha: Float
+    val glowScale: Float
+    val sweep: Float
+    if (animate) {
+        val t = rememberInfiniteTransition(label = "sparkle")
+        glowAlpha = t.animateFloat(0.55f, 0.9f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "glowA").value
+        glowScale = t.animateFloat(1f, 1.12f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "glowS").value
+        sweep = t.animateFloat(-1f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing)), label = "sweep").value
+    } else {
+        glowAlpha = 0.7f; glowScale = 1f; sweep = 0f
+    }
+    val px = with(LocalDensity.current) { size.toPx() }
+    val sem = if (contentDescription != null) Modifier.clearAndSetSemantics { this.contentDescription = contentDescription }
+        else Modifier.clearAndSetSemantics { }
+    Canvas(modifier.size(size).then(sem)) {
+        val c = px / 2f
+        val r = px / 2f
+        val glowR = r * 2.4f * glowScale
+        drawCircle(
+            brush = Brush.radialGradient(listOf(tokens.sparkleColors[0].copy(alpha = glowAlpha * 0.5f), Color.Transparent), radius = glowR),
+            radius = glowR, center = Offset(c, c))
+        drawPath(
+            sparklePath(c, c, r * 0.94f),
+            brush = Brush.linearGradient(tokens.sparkleColors,
+                start = Offset(c - r + sweep * r, c - r), end = Offset(c + r + sweep * r, c + r)))
+    }
+}
+
+/** Aurora replacement for [ThinkingIndicator]: sparkle + shimmer-swept "Thinking" label. */
+@Composable
+fun ThinkingSparkleIndicator() {
+    var seconds by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { delay(1000); seconds++ } }
+    val tokens = rememberAuroraTokens()
+    val animate = motionEnabled()
+    val label = if (seconds < 10) "Thinking" else "Thinking \u00b7 ${seconds}s"
+    Row(
+        Modifier.heightIn(min = 36.dp).clearAndSetSemantics { contentDescription = "Thinking"; liveRegion = LiveRegionMode.Polite },
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Design.medium)) {
+        ThinkingSparkle(Modifier, 22.dp, animated = animate, contentDescription = null)
+        if (animate) {
+            val t = rememberInfiniteTransition(label = "think-label")
+            val x by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing)), label = "x")
+            Text(label,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    brush = Brush.linearGradient(
+                        listOf(tokens.sparkleColors[0], tokens.sparkleColors[1], tokens.sparkleColors[0]),
+                        start = Offset(-160f + x * 480f, 0f), end = Offset(x * 480f, 0f))),
+                color = Color.Unspecified)
+        } else {
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Pulsing gradient caret shown while an Aurora reply streams; static when reduced motion is on. */
+@Composable
+fun StreamingCaret() {
+    val tokens = rememberAuroraTokens()
+    val animate = motionEnabled()
+    val alpha: Float
+    if (animate) {
+        val t = rememberInfiniteTransition(label = "caret")
+        alpha = t.animateFloat(0.45f, 1f, infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a").value
+    } else alpha = 1f
+    Box(Modifier.size(3.dp, 18.dp).clip(RoundedCornerShape(2.dp)).background(tokens.sparkle)
+        .graphicsLayer { this.alpha = alpha }.clearAndSetSemantics { })
 }
