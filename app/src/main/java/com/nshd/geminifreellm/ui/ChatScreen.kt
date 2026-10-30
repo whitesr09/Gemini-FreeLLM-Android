@@ -15,6 +15,7 @@ import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -648,8 +649,11 @@ private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry
     val error = message.role == ChatMessage.Role.ERROR
     LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
     // Only the newest message animates in; older rows stay static (no scroll replay).
+    // (This Compose version passes the full height (Int) to the offset lambda,
+    // so dp->px uses the ambient density captured here.)
+    val density = LocalDensity.current
     AnimatedVisibility(visible = true, label = "aurora-row",
-        enter = if (isLatest) fadeIn(tween(220)) + slideInVertically(tween(220)) { density -> with(density) { 12.dp.roundToPx() } }
+        enter = if (isLatest) fadeIn(tween(220)) + slideInVertically(tween(220)) { with(density) { 12.dp.roundToPx() } }
         else EnterTransition.None) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
             if (!user && !error && message.model.isNotBlank()) Row(
