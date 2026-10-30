@@ -234,11 +234,12 @@ fun ThinkingSparkle(
     val sweep: Float
     if (animate) {
         val t = rememberInfiniteTransition(label = "sparkle")
-        glowAlpha = t.animateFloat(0.55f, 0.9f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "glowA").value
-        glowScale = t.animateFloat(1f, 1.12f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "glowS").value
+        // Calm, quick pulse: low glow alpha, small radius, ~1s cycle (was 1.6s).
+        glowAlpha = t.animateFloat(0.35f, 0.6f, infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "glowA").value
+        glowScale = t.animateFloat(1f, 1.08f, infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "glowS").value
         sweep = t.animateFloat(-1f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing)), label = "sweep").value
     } else {
-        glowAlpha = 0.7f; glowScale = 1f; sweep = 0f
+        glowAlpha = 0.5f; glowScale = 1f; sweep = 0f
     }
     val px = with(LocalDensity.current) { size.toPx() }
     val sem = if (contentDescription != null) Modifier.clearAndSetSemantics { this.contentDescription = contentDescription }
@@ -246,9 +247,9 @@ fun ThinkingSparkle(
     Canvas(modifier.size(size).then(sem)) {
         val c = px / 2f
         val r = px / 2f
-        val glowR = r * 2.4f * glowScale
+        val glowR = r * 1.5f * glowScale
         drawCircle(
-            brush = Brush.radialGradient(listOf(tokens.sparkleColors[0].copy(alpha = glowAlpha * 0.5f), Color.Transparent), radius = glowR),
+            brush = Brush.radialGradient(listOf(tokens.sparkleColors[0].copy(alpha = glowAlpha * 0.28f), Color.Transparent), radius = glowR),
             radius = glowR, center = Offset(c, c))
         drawPath(
             sparklePath(c, c, r * 0.94f),
