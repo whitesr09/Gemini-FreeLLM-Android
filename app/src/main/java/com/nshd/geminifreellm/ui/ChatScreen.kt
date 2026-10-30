@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.animation.*
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
+import androidx.annotation.DrawableRes
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -52,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nshd.geminifreellm.ChatViewModel
+import com.nshd.geminifreellm.R
 import com.nshd.geminifreellm.BuildConfig
 import com.nshd.geminifreellm.model.*
 import kotlinx.coroutines.Dispatchers
@@ -286,6 +289,12 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
         }) { Text("Share") } }, dismissButton = { TextButton(onClick = { export = false }) { Text("Cancel") } })
 }
 
+/** Flaticon PNG artwork for one drawer Developer-section social button (raw PNG drawable, never a layer-list). */
+@Composable
+private fun SocialIcon(@DrawableRes resId: Int, description: String) {
+    Image(painterResource(resId), description, modifier = Modifier.size(40.dp))
+}
+
 @Composable
 private fun HistoryDrawer(state: ChatViewModel.State, vm: ChatViewModel, onClose: () -> Unit, onSettings: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -338,11 +347,11 @@ private fun HistoryDrawer(state: ChatViewModel.State, vm: ChatViewModel, onClose
                 try { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 catch (_: ActivityNotFoundException) { vm.notice("No app can open this link.") }
             }
-            BrandIconButton({ InstagramBadge(Modifier.size(40.dp)) }, "Instagram") { open("https://www.instagram.com/__nshd.__?stkn=emExd3hxZndzN21o") }
-            BrandIconButton({ WhatsAppBadge(Modifier.size(40.dp)) }, "WhatsApp") { open("https://wa.me/+918590455801") }
-            BrandIconButton({ TelegramBadge(Modifier.size(40.dp)) }, "Telegram") { open("https://t.me/nshd_0") }
-            BrandIconButton({ EmailBadge(Modifier.size(40.dp)) }, "Email") { open("mailto:nishadahammed081@gmail.com") }
-            BrandIconButton({ PhoneBadge(Modifier.size(40.dp)) }, "Phone") { open("tel:+918590455801") }
+            BrandIconButton({ SocialIcon(R.drawable.social_instagram, "Instagram") }, "Instagram") { open("https://www.instagram.com/__nshd.__?stkn=emExd3hxZndzN21o") }
+            BrandIconButton({ SocialIcon(R.drawable.social_whatsapp, "WhatsApp") }, "WhatsApp") { open("https://wa.me/+918590455801") }
+            BrandIconButton({ SocialIcon(R.drawable.social_telegram, "Telegram") }, "Telegram") { open("https://t.me/nshd_0") }
+            BrandIconButton({ SocialIcon(R.drawable.social_email, "Email") }, "Email") { open("mailto:nishadahammed081@gmail.com") }
+            BrandIconButton({ SocialIcon(R.drawable.social_phone, "Phone") }, "Phone") { open("tel:+918590455801") }
         }
         Text("Developed by NSHD", modifier = Modifier.fillMaxWidth().padding(top = Design.small, bottom = Design.small),
             textAlign = TextAlign.Center, style = MaterialTheme.typography.labelSmall,
@@ -397,9 +406,9 @@ private fun WelcomeState(onPrompt: (String) -> Unit, onSettings: () -> Unit, nee
     Column(modifier.verticalScroll(rememberScrollState()).padding(Design.page), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Design.medium)) {
         Spacer(Modifier.height(40.dp))
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(64.dp)) {
-            Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp)) }
-        }
+        // Gold launcher artwork as the home mark (reuses the existing icon PNG; no new assets).
+        Image(painterResource(R.drawable.ic_logo_glow), "FreeLLM",
+            modifier = Modifier.size(72.dp).clip(RoundedCornerShape(18.dp)))
         Text("What can I help with?", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
         Text("Your ideas. Your choice of AI.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(Design.large))
@@ -418,7 +427,7 @@ private fun WelcomeState(onPrompt: (String) -> Unit, onSettings: () -> Unit, nee
                 enter = fadeIn(tween(280, delayMillis = index * staggerMs)) +
                     slideInVertically(tween(280, delayMillis = index * staggerMs)) { it / 5 },
                 exit = fadeOut()) {
-                Surface(onClick = { onPrompt(prompt) }, shape = Design.card, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                Surface(onClick = { onPrompt(if (label == "Build something") randomBuildPrompt() else prompt) }, shape = Design.card, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(Design.medium).heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(label, Modifier.padding(start = Design.medium), style = MaterialTheme.typography.bodyLarge)
@@ -429,6 +438,30 @@ private fun WelcomeState(onPrompt: (String) -> Unit, onSettings: () -> Unit, nee
         if (needsConnection) TextButton(onClick = onSettings) { Text("Connect your AI provider") }
         Spacer(Modifier.height(Design.medium))
     }
+}
+
+/** Pool of detailed "master prompts" for the "Build something" suggestion chip — a different one fills the composer on every tap. */
+private val buildMasterPrompts = listOf(
+    """Act as a senior mobile product designer and Android engineer. Design a complete concept for a habit-tracking app that plays like an RPG: the user creates a hero avatar, daily habits become quests with XP, streaks unlock gear and titles, and missed days trigger "boss battles" (recovery challenges instead of guilt). Cover: 1) one-line pitch, 2) the core daily loop, 3) XP/progression curve with 3 quest archetypes and concrete examples, 4) streak-recovery mechanics, 5) a dark-fantasy-meets-clean-minimal UI direction, 6) anti-churn mechanics, 7) an MVP feature list a solo dev could ship in Kotlin + Jetpack Compose in 6 weeks.""".trimIndent(),
+    """Act as a senior product strategist and full-stack engineer. Design an AI study planner for university students: it takes a syllabus + exam date and auto-generates a spaced-repetition schedule, adapts when the student falls behind, and quizzes them with generated questions. Cover: 1) one-line pitch, 2) onboarding flow (how it learns the syllabus), 3) the scheduling algorithm in plain steps, 4) the "fall behind" recovery UX, 5) quiz generation approach, 6) UI direction (calm, focused, exam-season aesthetic), 7) data model sketch, 8) MVP scope for a solo dev.""".trimIndent(),
+    """Act as a fintech product designer and engineer. Design a personal finance dashboard for a 22-year-old student with irregular income: automatic spend categorization from SMS/bank exports, a "safe to spend" daily number, and gentle nudges instead of shame. Cover: 1) one-line pitch, 2) data ingestion approach (manual import, no bank APIs), 3) the "safe to spend" calculation, 4) 3 behavioral nudges backed by real psychology, 5) dashboard layout and visual language, 6) privacy architecture (everything local-first), 7) MVP feature list.""".trimIndent(),
+    """Act as a senior UX designer and engineer. Design a minimalist journaling app with mood analytics: one-tap daily check-ins, freeform entries, and automatic insights ("your mood dips every Sunday evening"). Cover: 1) one-line pitch, 2) the 30-second daily entry flow, 3) what gets tracked vs. deliberately NOT tracked, 4) the insights engine (simple, explainable, no black boxes), 5) visual design (warm, paper-like, calm), 6) streak mechanics that don't punish, 7) export/backup story, 8) MVP scope.""".trimIndent(),
+    """Act as a product designer and engineer. Design a local-first recipe manager + weekly meal planner: save recipes from links, auto-generate a weekly plan from what's in the fridge, and produce one smart grocery list. Cover: 1) one-line pitch, 2) recipe import flow (link paste → clean parse), 3) the "cook from your fridge" matching logic, 4) weekly planner UX, 5) grocery list deduplication and aisle grouping, 6) visual direction (warm, food-magazine feel), 7) offline-first data architecture, 8) MVP scope.""".trimIndent(),
+    """Act as a game designer and Android engineer. Design a Pomodoro focus timer disguised as a game: each focus session grows a virtual creature/plant, distractions "attack" it, and friends can co-focus in shared rooms. Cover: 1) one-line pitch, 2) the core session loop, 3) the creature growth/evolution system, 4) distraction mechanics (gentle, not punishing), 5) social co-focus rooms, 6) art direction (cozy pixel-art meets modern minimal), 7) notification/Do-Not-Disturb integration strategy, 8) MVP scope for a solo dev.""".trimIndent(),
+    """Act as a senior web designer and creative developer. Design a portfolio website concept for a multi-skilled builder (developer + designer + student): a single-page site that feels like a premium product launch, not a resume. Cover: 1) the narrative arc of the page (section by section), 2) a distinctive visual identity (typography, color, motion), 3) 3 interactive moments that make visitors remember it, 4) project case-study template, 5) performance budget and tech approach (static, fast, free hosting), 6) what NOT to include.""".trimIndent(),
+    """Act as a learning-science expert and app engineer. Design a language-learning flashcard app built on real spaced repetition (SM-2/FSRS): smart card scheduling, sentence mining from anything the user reads, and pronunciation practice. Cover: 1) one-line pitch, 2) how FSRS scheduling works in plain language, 3) the "sentence mine" flow (text → cards in 3 taps), 4) daily review session UX that stays under 15 minutes, 5) motivation without streak-anxiety, 6) visual direction, 7) offline-first sync design, 8) MVP scope.""".trimIndent(),
+    """Act as a fitness coach and app engineer. Design a workout planner for beginners training at home with minimal equipment: adaptive plans that adjust to soreness feedback, video-free exercise guidance using animated diagrams, and progress photos with privacy. Cover: 1) one-line pitch, 2) the adaptive plan engine (how feedback changes next week's plan), 3) exercise instruction UX without videos, 4) rest-day and deload logic, 5) progress tracking that isn't just weight, 6) visual direction (energetic but not gym-bro), 7) MVP scope.""".trimIndent(),
+    """Act as a senior product designer and engineer. Design an offline-first personal knowledge base ("second brain") for a student: quick capture from anywhere, automatic linking between notes, and a weekly review ritual. Cover: 1) one-line pitch, 2) the 5-second capture flow, 3) how auto-linking works without being creepy, 4) the weekly review UX, 5) folder-vs-graph organization philosophy, 6) visual design (calm, paper-like, fast), 7) local-first sync architecture, 8) MVP scope for a solo dev."""
+)
+
+/** Picks a different master prompt every tap — "Build something" never repeats itself back-to-back. */
+private var lastBuildPromptIndex = -1
+private fun randomBuildPrompt(): String {
+    if (buildMasterPrompts.size < 2) return buildMasterPrompts.first()
+    var i: Int
+    do { i = buildMasterPrompts.indices.random() } while (i == lastBuildPromptIndex)
+    lastBuildPromptIndex = i
+    return buildMasterPrompts[i]
 }
 
 @Composable
@@ -610,9 +643,9 @@ private fun Composer(chat: Conversation, busy: Boolean, reducedMotion: Boolean, 
                         IconButton(onClick = onVoice) { Icon(Icons.Outlined.MicNone, "Dictate a message", tint = scheme.tertiary) }
                     } else IconButton(onClick = onVoice) { Icon(Icons.Outlined.MicNone, "Dictate a message") }
                 } else if (aurora) {
-                    val corner by animateDpAsState(if (busy) 12.dp else 24.dp, tween(if (reducedMotion) 0 else 200), label = "sendCorner")
+                    // Send/stop share one perfect circular container (48dp); no corner morph.
                     val sendEnabled = busy || (!preparing && (chat.draft.isNotBlank() || chat.attachments.isNotEmpty()))
-                    Box(Modifier.size(Design.touch).clip(RoundedCornerShape(corner))
+                    Box(Modifier.size(Design.touch).clip(CircleShape)
                         .background(Brush.linearGradient(listOf(scheme.primary, scheme.tertiary)))
                         .clickable(enabled = sendEnabled, onClickLabel = if (busy) "Stop generating" else "Send message",
                             role = Role.Button) { if (busy) onStop() else onSend() },
@@ -663,14 +696,13 @@ private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry
                 Text(message.model, style = MaterialTheme.typography.labelSmall, color = scheme.primary)
             }
             if (user) {
+                // Classic, understated user bubble: solid theme-aware fill, no gradient,
+                // no shadow — reads well on light and dark themes alike.
                 val userShape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomStart = 8.dp, bottomEnd = 22.dp)
-                Box(Modifier.widthIn(max = 580.dp)
-                    .shadow(4.dp, userShape, ambientColor = scheme.primary.copy(alpha = 0.2f), spotColor = scheme.primary.copy(alpha = 0.2f))
-                    .clip(userShape)
-                    .background(tokens.userGrad)) {
+                Surface(color = scheme.surfaceContainerHigh, shape = userShape, modifier = Modifier.widthIn(max = 580.dp)) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(Design.small)) {
                         message.attachments.forEach { file -> AttachmentLabel(file) }
-                        SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge, color = scheme.onPrimaryContainer) }
+                        SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface) }
                     }
                 }
             } else {
@@ -693,11 +725,13 @@ private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry
                 }
             }
             if (!generating) Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { clipboard.setText(AnnotatedString(splitThink(message.text).first)); copied = true }) {
+                // Quiet action row: icons sit at 45% alpha until needed.
+                val faded = Modifier.graphicsLayer { alpha = 0.45f }
+                IconButton(onClick = { clipboard.setText(AnnotatedString(splitThink(message.text).first)); copied = true }, modifier = faded) {
                     Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, if (copied) "Copied" else "Copy message", Modifier.size(20.dp))
                 }
-                if (user && canEdit) IconButton(onClick = { edit = true }) { Icon(Icons.Outlined.Edit, "Edit message", Modifier.size(20.dp)) }
-                if (canRetry) IconButton(onClick = onRetry) { Icon(Icons.Outlined.Refresh, if (error) "Retry reply" else "Regenerate reply", Modifier.size(20.dp)) }
+                if (user && canEdit) IconButton(onClick = { edit = true }, modifier = faded) { Icon(Icons.Outlined.Edit, "Edit message", Modifier.size(20.dp)) }
+                if (canRetry) IconButton(onClick = onRetry, modifier = faded) { Icon(Icons.Outlined.Refresh, if (error) "Retry reply" else "Regenerate reply", Modifier.size(20.dp)) }
                 if (message.interrupted && canRetry) TextButton(onClick = onContinue) { Text("Continue") }
                 if (error) IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(20.dp)) }
                 if (showTimestamps) Text(remember(message.timestamp, message.elapsedMs) {
