@@ -6,7 +6,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.activity.compose.LocalActivity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +32,8 @@ object Design {
     val readingWidth = 760.dp
     val card = RoundedCornerShape(18.dp)
     val composer = RoundedCornerShape(28.dp)
+    val auroraBubble = RoundedCornerShape(22.dp)
+    val auroraComposer = RoundedCornerShape(30.dp)
     const val fastMotion = 150
     const val normalMotion = 220
 }
@@ -167,6 +172,34 @@ fun GeminiTheme(mode: ThemeMode, reducedMotion: Boolean = false, content: @Compo
                 extraLarge = RoundedCornerShape(32.dp)
             ),
             content = content
+        )
+    }
+}
+
+/** Aurora chat-style tokens, resolved against the active color scheme (all 6 themes). */
+class AuroraTokens(
+    val glassFill: Color,
+    val glassBorder: Brush,
+    val userGrad: Brush,
+    val sparkleColors: List<Color>,
+    val sparkle: Brush,
+    val composerGlow: Color,
+)
+
+@Composable
+fun rememberAuroraTokens(): AuroraTokens {
+    val scheme = MaterialTheme.colorScheme
+    return remember(scheme) {
+        val dark = scheme.background.luminance() < 0.5f
+        val sparkleColors = if (dark) listOf(Color(0xFFB9E9FF), Color(0xFFD9C6FF))
+            else listOf(Color(0xFF3D9BD1), Color(0xFF7A68D8))
+        AuroraTokens(
+            glassFill = if (dark) Color.White.copy(alpha = 0.06f) else Color(0xFF0B2530).copy(alpha = 0.05f),
+            glassBorder = Brush.linearGradient(listOf(scheme.primary.copy(alpha = 0.35f), scheme.tertiary.copy(alpha = 0.35f))),
+            userGrad = Brush.linearGradient(listOf(scheme.primary.copy(alpha = 0.55f), if (dark) Color(0xFF2B7A94) else Color(0xFF0E6E8C))),
+            sparkleColors = sparkleColors,
+            sparkle = Brush.linearGradient(sparkleColors),
+            composerGlow = scheme.primary.copy(alpha = 0.25f),
         )
     }
 }
