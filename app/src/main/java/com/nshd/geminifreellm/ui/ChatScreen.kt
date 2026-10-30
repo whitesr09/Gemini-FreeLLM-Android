@@ -648,7 +648,7 @@ private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry
     LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
     // Only the newest message animates in; older rows stay static (no scroll replay).
     AnimatedVisibility(visible = true, label = "aurora-row",
-        enter = if (isLatest) fadeIn(tween(220)) + slideInVertically(tween(220)) { density -> with(density) { 12.dp.roundToPx() } }
+        enter = if (isLatest) fadeIn(tween(220)) + slideInVertically(tween(220)) { 12.dp.roundToPx() }
         else EnterTransition.None) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
             if (!user && !error && message.model.isNotBlank()) Row(
