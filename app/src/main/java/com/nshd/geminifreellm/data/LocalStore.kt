@@ -108,7 +108,7 @@ internal fun settingsToJson(settings: AppSettings) = JSONObject().put("selected"
     .put("agent", agentToJson(settings.agent))
     .put("theme", settings.theme).put("reducedMotion", settings.reducedMotion)
     .put("showTimestamps", settings.showTimestamps).put("compactSpacing", settings.compactSpacing)
-    .put("haptics", settings.haptics).put("favorites", JSONArray(settings.favorites)).put("profiles", JSONArray(settings.profiles.map {
+    .put("haptics", settings.haptics).put("chatStyle", settings.chatStyle).put("favorites", JSONArray(settings.favorites)).put("profiles", JSONArray(settings.profiles.map {
         JSONObject().put("id", it.id).put("name", it.name)
             .put("provider", it.provider.name).put("baseUrl", it.baseUrl).put("apiKey", it.apiKey)
             .put("model", it.model).put("stream", it.stream).put("vision", it.vision).put("fastReplies", it.fastReplies)
@@ -122,6 +122,7 @@ internal fun settingsFromJson(json: JSONObject): AppSettings = AppSettings(
     selected = runCatching { Provider.valueOf(json.getString("selected")) }.getOrNull() ?: Provider.FREELLM,
     activeProfileId = json.opt("activeProfileId")?.let { if (it == JSONObject.NULL) null else it.toString() },
     theme = json.optString("theme", "SYSTEM"),
+    chatStyle = json.optString("chatStyle", ChatStyle.CLASSIC.name).takeIf { it == ChatStyle.AURORA.name } ?: ChatStyle.CLASSIC.name,
     reducedMotion = json.optBoolean("reducedMotion"), showTimestamps = json.optBoolean("showTimestamps"),
     compactSpacing = json.optBoolean("compactSpacing"), haptics = json.optBoolean("haptics", true),
     favorites = runCatching { json.optJSONArray("favorites")?.let { array -> (0 until array.length()).map { array.getString(it) } } }.getOrNull().orEmpty(),
