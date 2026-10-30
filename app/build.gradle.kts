@@ -130,6 +130,36 @@ android.sourceSets.getByName("main").res.srcDir(layout.buildDirectory.dir("gener
 tasks.named("preBuild").configure { dependsOn(generateAppIconBlue) }
 generateAppIconBlue.configure { mustRunAfter("clean") }
 
+// Drawer "Developer" social icons use the same trick: base64 parts in app/icon-src/
+// (binary files cannot be pushed with the current tooling) decoded at build time.
+// Each social_<name>.part*.b64 set decodes to one raw PNG drawable.
+val generateSocialIcons by tasks.registering {
+    val iconSrcDir = file("icon-src")
+    val outDir = layout.buildDirectory.dir("generated/res/socialIcons/drawable-nodpi")
+    inputs.files(fileTree(iconSrcDir) { include("social_*.part*.b64") })
+    outputs.dir(outDir)
+    doLast {
+        val names = listOf("instagram", "whatsapp", "telegram", "email", "phone")
+        names.forEach { name ->
+            val target = file("src/main/res/drawable-nodpi/social_${name}.png")
+            val generated = outDir.get().asFile.resolve("social_${name}.png")
+            if (target.exists() || generated.exists()) return@forEach
+            val parts = iconSrcDir.listFiles { f -> f.name.matches(Regex("social_${name}\\.part\\d+\\.b64")) }
+                ?.sortedBy { it.name }.orEmpty()
+            if (parts.isNotEmpty()) {
+                val encoded = parts.joinToString("") { it.readText().trim() }
+                generated.apply {
+                    parentFile.mkdirs()
+                    writeBytes(Base64.getDecoder().decode(encoded))
+                }
+            }
+        }
+    }
+}
+android.sourceSets.getByName("main").res.srcDir(layout.buildDirectory.dir("generated/res/socialIcons"))
+tasks.named("preBuild").configure { dependsOn(generateSocialIcons) }
+generateSocialIcons.configure { mustRunAfter("clean") }
+
 kotlin {
     jvmToolchain(17)
 }
