@@ -180,7 +180,6 @@ fun GeminiTheme(mode: ThemeMode, reducedMotion: Boolean = false, content: @Compo
 class AuroraTokens(
     val glassFill: Color,
     val glassBorder: Brush,
-    val userGrad: Brush,
     val sparkleColors: List<Color>,
     val sparkle: Brush,
     val composerGlow: Color,
@@ -191,12 +190,13 @@ fun rememberAuroraTokens(): AuroraTokens {
     val scheme = MaterialTheme.colorScheme
     return remember(scheme) {
         val dark = scheme.background.luminance() < 0.5f
-        val sparkleColors = if (dark) listOf(Color(0xFFB9E9FF), Color(0xFFD9C6FF))
-            else listOf(Color(0xFF3D9BD1), Color(0xFF7A68D8))
+        // Sparkle colors are deliberately saturated so the thinking animation stays
+        // visible on both dark and light backgrounds (light themes get darker hues).
+        val sparkleColors = if (dark) listOf(Color(0xFF38D6F5), Color(0xFF9B5CFF))
+            else listOf(Color(0xFF0E9BD8), Color(0xFF7A3CFF))
         AuroraTokens(
             glassFill = if (dark) Color.White.copy(alpha = 0.06f) else Color(0xFF0B2530).copy(alpha = 0.05f),
             glassBorder = Brush.linearGradient(listOf(scheme.primary.copy(alpha = 0.35f), scheme.tertiary.copy(alpha = 0.35f))),
-            userGrad = Brush.linearGradient(listOf(scheme.primary.copy(alpha = 0.55f), if (dark) Color(0xFF2B7A94) else Color(0xFF0E6E8C))),
             sparkleColors = sparkleColors,
             sparkle = Brush.linearGradient(sparkleColors),
             composerGlow = scheme.primary.copy(alpha = 0.25f),
