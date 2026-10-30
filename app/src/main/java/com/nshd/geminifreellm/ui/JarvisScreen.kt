@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
+
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,11 +35,8 @@ import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Waves
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
+
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -78,7 +75,6 @@ private val JarvisMuted = Color(0xFF9B6E88)
 private val JarvisPink = Color(0xFFFF5D86)
 private val JarvisCoral = Color(0xFFFF886B)
 private val JarvisLilac = Color(0xFFB9A0F6)
-private val JarvisCream = Color(0xFFFFF0E9)
 
 /** Dedicated Jarvis home, opened from the chat toolbar. */
 @Composable
