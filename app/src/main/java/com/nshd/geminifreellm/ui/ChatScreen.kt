@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.speech.RecognizerIntent
-import androidx.core.net.toUri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,7 +14,6 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
-import androidx.annotation.DrawableRes
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -288,12 +286,6 @@ private fun ChatWorkspace(state: ChatViewModel.State, vm: ChatViewModel, onSetti
         }) { Text("Share") } }, dismissButton = { TextButton(onClick = { export = false }) { Text("Cancel") } })
 }
 
-/** Flaticon PNG artwork for one drawer Developer-section social button (raw PNG drawable, never a layer-list). */
-@Composable
-private fun SocialIcon(@DrawableRes resId: Int, description: String) {
-    Image(painterResource(resId), description, modifier = Modifier.size(40.dp))
-}
-
 @Composable
 private fun HistoryDrawer(state: ChatViewModel.State, vm: ChatViewModel, onClose: () -> Unit, onSettings: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -337,24 +329,6 @@ private fun HistoryDrawer(state: ChatViewModel.State, vm: ChatViewModel, onClose
         ListItem(headlineContent = { Text("Settings") }, supportingContent = { Text("Providers, appearance & privacy") },
             leadingContent = { Icon(Icons.Outlined.Settings, null) }, modifier = Modifier.clickable(onClick = onSettings),
             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow))
-        Text("Developer", Modifier.padding(start = Design.page, top = Design.medium), style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.fillMaxWidth().padding(horizontal = Design.small, vertical = Design.tiny),
-            horizontalArrangement = Arrangement.spacedBy(Design.small, Alignment.CenterHorizontally)) {
-            val context = LocalContext.current
-            fun open(url: String) {
-                try { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                catch (_: ActivityNotFoundException) { vm.notice("No app can open this link.") }
-            }
-            BrandIconButton({ SocialIcon(R.drawable.social_instagram, "Instagram") }, "Instagram") { open("https://www.instagram.com/__nshd.__?stkn=emExd3hxZndzN21o") }
-            BrandIconButton({ SocialIcon(R.drawable.social_whatsapp, "WhatsApp") }, "WhatsApp") { open("https://wa.me/+918590455801") }
-            BrandIconButton({ SocialIcon(R.drawable.social_telegram, "Telegram") }, "Telegram") { open("https://t.me/nshd_0") }
-            BrandIconButton({ SocialIcon(R.drawable.social_email, "Email") }, "Email") { open("mailto:nishadahammed081@gmail.com") }
-            BrandIconButton({ SocialIcon(R.drawable.social_phone, "Phone") }, "Phone") { open("tel:+918590455801") }
-        }
-        Text("Developed by NSHD", modifier = Modifier.fillMaxWidth().padding(top = Design.small, bottom = Design.small),
-            textAlign = TextAlign.Center, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
         Text("FreeLLM AI · ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             modifier = Modifier.padding(horizontal = Design.page, vertical = Design.small),
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -469,10 +443,6 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var follow by rememberSaveable { mutableStateOf(true) }
-    // Message whose Continue button was tapped, while its continuation is in
-    // flight; drives that button's loading state. Cleared when generation ends.
-    var continuingId by remember(chat.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(busy) { if (!busy) continuingId = null }
     // Continuation can only resume the tail of the conversation (anything
     // after the target may only be error notices) — the same rule the
     // ViewModel's continuation plan enforces.
@@ -507,17 +477,18 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
                 val rowBusy = busy && message == chat.messages.lastOrNull()
                 val rowCanRetry = !busy && message == chat.messages.lastOrNull() && message.role != ChatMessage.Role.USER
                 val rowContinueState = continueButtonState(message, isTail = index == lastContentIndex,
-                    isGeneratingThis = rowBusy, isContinuingThis = continuingId == message.id)
-                val rowOnContinue: (String) -> Unit = { id -> continuingId = id; vm.continueGeneration(id) }
+                    isGeneratingThis = rowBusy)
                 if (aurora) AuroraMessageRow(message, rowBusy, canRetry = rowCanRetry,
                     onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings,
-                    showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = rowOnContinue,
+                    showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = vm::continueGeneration,
                     continueState = rowContinueState,
+                    onToggleChecklist = { itemIndex -> vm.toggleChecklist(message.id, itemIndex) },
                     isLatest = index == chat.messages.lastIndex)
                 else MessageRow(message, rowBusy, canRetry = rowCanRetry,
                     onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings,
-                    showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = rowOnContinue,
-                    continueState = rowContinueState)
+                    showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = vm::continueGeneration,
+                    continueState = rowContinueState,
+                    onToggleChecklist = { itemIndex -> vm.toggleChecklist(message.id, itemIndex) })
             }
         }
         AnimatedVisibility(visible = showJumpToLatest,
@@ -531,19 +502,19 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
     }
 }
 
-/** Visibility/loading state of a message's Continue affordance. */
-internal enum class ContinueButtonState { HIDDEN, READY, CONTINUING }
+/** Visibility of a message's Continue affordance. */
+internal enum class ContinueButtonState { HIDDEN, READY }
 
 /**
  * A reply offers continuation only when [ChatMessage.isContinuable] says so
  * AND it is the tail of the conversation (nothing but error notices after
  * it) — the same rule ChatViewModel's continuation plan enforces, so the
- * button never appears when tapping it would do nothing. While this message
- * is the in-flight continuation, the button reads as a loading state; while
- * any other generation is in flight it stays hidden.
+ * button never appears when tapping it would do nothing. While any
+ * generation is in flight for this message — including its own
+ * continuation — the button renders nothing at all; the composer's stop
+ * control already signals the activity.
  */
-internal fun continueButtonState(message: ChatMessage, isTail: Boolean, isGeneratingThis: Boolean, isContinuingThis: Boolean): ContinueButtonState = when {
-    isGeneratingThis && isContinuingThis -> ContinueButtonState.CONTINUING
+internal fun continueButtonState(message: ChatMessage, isTail: Boolean, isGeneratingThis: Boolean): ContinueButtonState = when {
     isGeneratingThis -> ContinueButtonState.HIDDEN
     isTail && message.isContinuable -> ContinueButtonState.READY
     else -> ContinueButtonState.HIDDEN
@@ -553,34 +524,26 @@ internal fun continueButtonState(message: ChatMessage, isTail: Boolean, isGenera
  * The [ Continue generating ] affordance shown on its own line below an
  * unfinished assistant reply. Shared by the Classic and Aurora rows so both
  * chat styles behave identically; Aurora only restyles the container with
- * its glass token. The composer's stop control stays reachable while the
- * loading state is shown, so the user is never trapped.
+ * its glass token.
  */
 @Composable
 private fun ContinueGeneratingButton(state: ContinueButtonState, aurora: Boolean, onClick: () -> Unit) {
     val tokens = rememberAuroraTokens()
     if (state == ContinueButtonState.HIDDEN) return
     val colors = if (aurora) ButtonDefaults.filledTonalButtonColors(
-        containerColor = tokens.glassFill, contentColor = MaterialTheme.colorScheme.primary,
-        disabledContainerColor = tokens.glassFill, disabledContentColor = MaterialTheme.colorScheme.primary)
+        containerColor = tokens.glassFill, contentColor = MaterialTheme.colorScheme.primary)
     else ButtonDefaults.filledTonalButtonColors()
-    FilledTonalButton(onClick = onClick, enabled = state == ContinueButtonState.READY,
+    FilledTonalButton(onClick = onClick,
         modifier = Modifier.padding(top = Design.small).heightIn(min = 48.dp), colors = colors) {
-        if (state == ContinueButtonState.CONTINUING) {
-            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-            Spacer(Modifier.width(8.dp))
-            Text("Continuing…")
-        } else {
-            Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Continue generating")
-        }
+        Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("Continue generating")
     }
 }
 
 @Suppress("DEPRECATION")
 @Composable
-private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit, showTimestamps: Boolean, onCanvas: (String, String) -> Unit, onContinue: (String) -> Unit, continueState: ContinueButtonState) {
+private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit, showTimestamps: Boolean, onCanvas: (String, String) -> Unit, onContinue: (String) -> Unit, continueState: ContinueButtonState, onToggleChecklist: ((Int) -> Unit)? = null) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
@@ -608,17 +571,20 @@ private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Bool
                     error -> Text(message.text, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     message.text.isEmpty() && generating -> ThinkingIndicator()
                     user -> SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer) }
-                    else -> StreamingContent(message.text, generating, onCanvas)
+                    else -> StreamingContent(message.text, generating, onCanvas,
+                        onToggleChecklist = onToggleChecklist, checklistEnabled = !generating)
                 }
                 if (!generating && message.interrupted) Text("Reply incomplete", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (!generating) Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { clipboard.setText(AnnotatedString(splitThink(message.text).first)); copied = true }) {
+            // Quiet action row, same 45% alpha treatment as the Aurora style.
+            val faded = Modifier.graphicsLayer { alpha = 0.45f }
+            IconButton(onClick = { clipboard.setText(AnnotatedString(splitThink(message.text).first)); copied = true }, modifier = faded) {
                 Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, if (copied) "Copied" else "Copy message", Modifier.size(20.dp))
             }
-            if (user && canEdit) IconButton(onClick = { edit = true }) { Icon(Icons.Outlined.Edit, "Edit message", Modifier.size(20.dp)) }
-            if (canRetry) IconButton(onClick = onRetry) { Icon(Icons.Outlined.Refresh, if (error) "Retry reply" else "Regenerate reply", Modifier.size(20.dp)) }
+            if (user && canEdit) IconButton(onClick = { edit = true }, modifier = faded) { Icon(Icons.Outlined.Edit, "Edit message", Modifier.size(20.dp)) }
+            if (canRetry) IconButton(onClick = onRetry, modifier = faded) { Icon(Icons.Outlined.Refresh, if (error) "Retry reply" else "Regenerate reply", Modifier.size(20.dp)) }
             if (error) IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(20.dp)) }
             if (showTimestamps) Text(remember(message.timestamp, message.elapsedMs) {
                 DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.timestamp)) +
@@ -734,7 +700,7 @@ private fun Composer(chat: Conversation, busy: Boolean, reducedMotion: Boolean, 
  * style setting picks which one renders.
  */
 @Composable
-private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit, showTimestamps: Boolean, onCanvas: (String, String) -> Unit, onContinue: (String) -> Unit, continueState: ContinueButtonState, isLatest: Boolean) {
+private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit, showTimestamps: Boolean, onCanvas: (String, String) -> Unit, onContinue: (String) -> Unit, continueState: ContinueButtonState, isLatest: Boolean, onToggleChecklist: ((Int) -> Unit)? = null) {
     val tokens = rememberAuroraTokens()
     val scheme = MaterialTheme.colorScheme
     val clipboard = LocalClipboardManager.current
@@ -780,7 +746,8 @@ private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry
                         when {
                             error -> Text(message.text, color = scheme.onErrorContainer, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                             message.text.isEmpty() && generating -> ThinkingSparkleIndicator()
-                            else -> StreamingContent(message.text, generating, onCanvas, aurora = true)
+                            else -> StreamingContent(message.text, generating, onCanvas, aurora = true,
+                                onToggleChecklist = onToggleChecklist, checklistEnabled = !generating)
                         }
                         if (!generating && message.interrupted) Text("Reply incomplete", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
                     }
