@@ -2,7 +2,11 @@ package com.nshd.geminifreellm.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -11,6 +15,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -31,54 +39,194 @@ import kotlin.coroutines.resumeWithException
  * on demand by typing "/" in chat. No character limits on any field.
  */
 @Composable
-fun PersonalizationSection(agent: AgentConfig, onChange: (AgentConfig) -> Unit) {
+fun PersonalizationSection(agent: AgentConfig, onChange: (AgentConfig) -> Unit, showSkills: Boolean = true) {
+    var expandedField by rememberSaveable { mutableStateOf<String?>(null) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f))
+    ) {
+        Column(Modifier.padding(Design.medium), verticalArrangement = Arrangement.spacedBy(Design.small)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Personalize every model", style = MaterialTheme.typography.titleSmall)
+                    Text("Saved encrypted on this device", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(agent.enabled, { onChange(agent.copy(enabled = it)) },
+                    modifier = Modifier.semantics { contentDescription = "Enable personalization" })
+            }
+            Text(
+                "Persona, instructions and memory are sent with requests, including Auto fallbacks. Models may follow instructions differently.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    CompactTextSetting(
+        title = "Persona",
+        value = agent.persona,
+        placeholder = "A patient coding partner who explains decisions",
+        minLines = 2,
+        expanded = expandedField == "persona",
+        onToggle = { expandedField = if (expandedField == "persona") null else "persona" },
+        onValueChange = { onChange(agent.copy(persona = it)) }
+    )
+    CompactTextSetting(
+        title = "Instructions",
+        value = agent.instructions,
+        placeholder = "How should your assistant respond and work?",
+        minLines = 3,
+        expanded = expandedField == "instructions",
+        onToggle = { expandedField = if (expandedField == "instructions") null else "instructions" },
+        onValueChange = { onChange(agent.copy(instructions = it)) }
+    )
+    CompactTextSetting(
+        title = "Memory",
+        value = agent.memory,
+        placeholder = "Preferences, project context and facts to remember",
+        minLines = 3,
+        supportingText = "You control memory. Edit or delete facts here; chats are not silently added.",
+        expanded = expandedField == "memory",
+        onToggle = { expandedField = if (expandedField == "memory") null else "memory" },
+        onValueChange = { onChange(agent.copy(memory = it)) }
+    )
+    Text(
+        "${agent.basePrompt().length} characters sent with every request",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    if (showSkills) SkillsSection(agent, onChange)
+}
+
+@Composable
+private fun CompactTextSetting(
+    title: String,
+    value: String,
+    placeholder: String,
+    minLines: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onValueChange: (String) -> Unit,
+    supportingText: String? = null
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f))
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        value.ifBlank { placeholder },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (value.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (value.isNotBlank()) Text(
+                        "${value.length} characters",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    Icons.Outlined.ChevronRight,
+                    contentDescription = if (expanded) "Collapse $title editor" else "Expand $title editor",
+                    modifier = Modifier.size(22.dp).rotate(if (expanded) 90f else 0f),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(Design.tiny)) {
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(title) },
+                        placeholder = { Text(placeholder) },
+                        minLines = minLines
+                    )
+                    supportingText?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SkillsSection(agent: AgentConfig, onChange: (AgentConfig) -> Unit) {
     var editing by rememberSaveable { mutableStateOf(false) }
     var editId by rememberSaveable { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var expandedSkill by rememberSaveable { mutableStateOf<String?>(null) }
 
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(Design.medium), verticalArrangement = Arrangement.spacedBy(Design.small)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Personalize every model", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                Switch(agent.enabled, { onChange(agent.copy(enabled = it)) })
-            }
-            Text("Persona, instructions and memory travel with each chat request, including Auto fallbacks. Saved encrypted on this device. Models may follow instructions differently.",
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Your skills · ${agent.skills.size}/20", style = MaterialTheme.typography.titleSmall)
+            Text("Type \"/\" in chat to invoke an enabled skill.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        TextButton(enabled = agent.skills.size < 20, onClick = { editId = null; error = null; editing = true }) {
+            Text("Add skill")
+        }
     }
-    OutlinedTextField(agent.persona, { onChange(agent.copy(persona = it)) }, Modifier.fillMaxWidth(),
-        label = { Text("Persona") }, placeholder = { Text("A patient coding partner who explains decisions") }, minLines = 2)
-    OutlinedTextField(agent.instructions, { onChange(agent.copy(instructions = it)) }, Modifier.fillMaxWidth(),
-        label = { Text("Instructions") }, placeholder = { Text("How should your assistant respond and work?") }, minLines = 3)
-    OutlinedTextField(agent.memory, { onChange(agent.copy(memory = it)) }, Modifier.fillMaxWidth(),
-        label = { Text("Memory") }, placeholder = { Text("Preferences, project context and facts to remember") }, minLines = 3,
-        supportingText = { Text("You control memory. Edit or delete facts here; chats are not silently added.") })
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = Design.small)) {
-        Text("Skills · ${agent.skills.size}/20", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-        TextButton(enabled = agent.skills.size < 20, onClick = { editId = null; error = null; editing = true }) { Text("Add skill") }
-    }
-    Text("Type \"/\" in any chat to list your enabled skills and attach one to a message. Imports accept plain text: paste, choose a file (including SKILL.md, JSON or YAML), or use an HTTPS raw-text link. Scripts, plugins and tools are not executed.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     agent.skills.forEach { skill ->
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(Design.medium), verticalArrangement = Arrangement.spacedBy(Design.tiny)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(skill.name.ifBlank { "Untitled skill" }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f))
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        expandedSkill = if (expandedSkill == skill.id) null else skill.id
+                    }.padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(skill.name.ifBlank { "Untitled skill" }, style = MaterialTheme.typography.titleSmall,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${skill.content.length} characters · ${if (skill.enabled) "enabled" else "disabled"}",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     Switch(skill.enabled, { value ->
                         onChange(agent.copy(skills = agent.skills.map { if (it.id == skill.id) it.copy(enabled = value) else it }))
-                    })
+                    }, modifier = Modifier.semantics { contentDescription = "Enable ${skill.name}" })
+                    Icon(Icons.Outlined.ChevronRight, if (expandedSkill == skill.id) "Collapse ${skill.name}" else "Expand ${skill.name}",
+                        modifier = Modifier.size(20.dp).rotate(if (expandedSkill == skill.id) 90f else 0f))
                 }
-                Text("${skill.content.length} characters · ${if (skill.enabled) "type \"/${skill.name}\" in chat to use" else "disabled"}",
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row {
-                    TextButton(onClick = { editId = skill.id; error = null; editing = true }) { Text("Edit") }
-                    TextButton(onClick = { onChange(agent.copy(skills = agent.skills.filterNot { it.id == skill.id })) }) { Text("Remove") }
+                AnimatedVisibility(visible = expandedSkill == skill.id) {
+                    Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { editId = skill.id; error = null; editing = true }) { Text("Edit") }
+                        TextButton(onClick = { onChange(agent.copy(skills = agent.skills.filterNot { it.id == skill.id })) }) {
+                            Text("Remove")
+                        }
+                    }
                 }
             }
         }
     }
-    Text("${agent.basePrompt().length} characters sent with every request",
-        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
     if (editing) {
