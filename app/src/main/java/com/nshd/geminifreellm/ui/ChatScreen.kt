@@ -470,6 +470,14 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var follow by rememberSaveable { mutableStateOf(true) }
+    // Message whose Continue button was tapped, while its continuation is in
+    // flight; drives that button's loading state. Cleared when generation ends.
+    var continuingId by remember(chat.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(busy) { if (!busy) continuingId = null }
+    // Continuation can only resume the tail of the conversation (anything
+    // after the target may only be error notices) — the same rule the
+    // ViewModel's continuation plan enforces.
+    val lastContentIndex = chat.messages.indexOfLast { it.role != ChatMessage.Role.ERROR }
     val dragging by list.interactionSource.collectIsDraggedAsState()
     suspend fun scrollToLatest() {
         if (chat.messages.isNotEmpty()) {
@@ -496,13 +504,18 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
             itemsIndexed(chat.messages, key = { _, it -> it.id }, contentType = { _, it -> it.role }) { index, message ->
                 val rowBusy = busy && message == chat.messages.lastOrNull()
                 val rowCanRetry = !busy && message == chat.messages.lastOrNull() && message.role != ChatMessage.Role.USER
+                val rowContinueState = continueButtonState(message, isTail = index == lastContentIndex,
+                    isGeneratingThis = rowBusy, isContinuingThis = continuingId == message.id)
+                val rowOnContinue: (String) -> Unit = { id -> continuingId = id; vm.continueGeneration(id) }
                 if (aurora) AuroraMessageRow(message, rowBusy, canRetry = rowCanRetry,
                     onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings,
-                    showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = vm::continueReply,
+                    showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = rowOnContinue,
+                    continueState = rowContinueState,
                     isLatest = index == chat.messages.lastIndex)
                 else MessageRow(message, rowBusy, canRetry = rowCanRetry,
                     onRetry = vm::retry, onEdit = { vm.edit(message) }, canEdit = !busy, onSettings = onSettings,
-                    showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = vm::continueReply)
+                    showTimestamps = settings.showTimestamps, onCanvas = onCanvas, onContinue = rowOnContinue,
+                    continueState = rowContinueState)
             }
         }
         AnimatedVisibility(visible = showJumpToLatest,
@@ -516,9 +529,56 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
     }
 }
 
+/** Visibility/loading state of a message's Continue affordance. */
+internal enum class ContinueButtonState { HIDDEN, READY, CONTINUING }
+
+/**
+ * A reply offers continuation only when [ChatMessage.isContinuable] says so
+ * AND it is the tail of the conversation (nothing but error notices after
+ * it) — the same rule ChatViewModel's continuation plan enforces, so the
+ * button never appears when tapping it would do nothing. While this message
+ * is the in-flight continuation, the button reads as a loading state; while
+ * any other generation is in flight it stays hidden.
+ */
+internal fun continueButtonState(message: ChatMessage, isTail: Boolean, isGeneratingThis: Boolean, isContinuingThis: Boolean): ContinueButtonState = when {
+    isGeneratingThis && isContinuingThis -> ContinueButtonState.CONTINUING
+    isGeneratingThis -> ContinueButtonState.HIDDEN
+    isTail && message.isContinuable -> ContinueButtonState.READY
+    else -> ContinueButtonState.HIDDEN
+}
+
+/**
+ * The [ Continue generating ] affordance shown on its own line below an
+ * unfinished assistant reply. Shared by the Classic and Aurora rows so both
+ * chat styles behave identically; Aurora only restyles the container with
+ * its glass token. The composer's stop control stays reachable while the
+ * loading state is shown, so the user is never trapped.
+ */
+@Composable
+private fun ContinueGeneratingButton(state: ContinueButtonState, aurora: Boolean, onClick: () -> Unit) {
+    val tokens = rememberAuroraTokens()
+    if (state == ContinueButtonState.HIDDEN) return
+    val colors = if (aurora) ButtonDefaults.filledTonalButtonColors(
+        containerColor = tokens.glassFill, contentColor = MaterialTheme.colorScheme.primary,
+        disabledContainerColor = tokens.glassFill, disabledContentColor = MaterialTheme.colorScheme.primary)
+    else ButtonDefaults.filledTonalButtonColors()
+    FilledTonalButton(onClick = onClick, enabled = state == ContinueButtonState.READY,
+        modifier = Modifier.padding(top = Design.small).heightIn(min = 48.dp), colors = colors) {
+        if (state == ContinueButtonState.CONTINUING) {
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(8.dp))
+            Text("Continuing…")
+        } else {
+            Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Continue generating")
+        }
+    }
+}
+
 @Suppress("DEPRECATION")
 @Composable
-private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit, showTimestamps: Boolean, onCanvas: (String, String) -> Unit, onContinue: () -> Unit) {
+private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit, showTimestamps: Boolean, onCanvas: (String, String) -> Unit, onContinue: (String) -> Unit, continueState: ContinueButtonState) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
@@ -557,13 +617,13 @@ private fun MessageRow(message: ChatMessage, generating: Boolean, canRetry: Bool
             }
             if (user && canEdit) IconButton(onClick = { edit = true }) { Icon(Icons.Outlined.Edit, "Edit message", Modifier.size(20.dp)) }
             if (canRetry) IconButton(onClick = onRetry) { Icon(Icons.Outlined.Refresh, if (error) "Retry reply" else "Regenerate reply", Modifier.size(20.dp)) }
-            if (message.interrupted && canRetry) TextButton(onClick = onContinue) { Text("Continue") }
             if (error) IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(20.dp)) }
             if (showTimestamps) Text(remember(message.timestamp, message.elapsedMs) {
                 DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.timestamp)) +
                     if (message.elapsedMs > 0) " · %.1fs".format(message.elapsedMs / 1000.0) else ""
             }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        ContinueGeneratingButton(continueState, aurora = false) { onContinue(message.id) }
     }
     if (edit) AlertDialog(onDismissRequest = { edit = false }, title = { Text("Edit this message?") },
         text = { Text("This message and all following replies will be replaced when you edit. Its text and attachments return to the composer.") },
@@ -672,7 +732,7 @@ private fun Composer(chat: Conversation, busy: Boolean, reducedMotion: Boolean, 
  * style setting picks which one renders.
  */
 @Composable
-private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit, showTimestamps: Boolean, onCanvas: (String, String) -> Unit, onContinue: () -> Unit, isLatest: Boolean) {
+private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, canEdit: Boolean, onSettings: () -> Unit, showTimestamps: Boolean, onCanvas: (String, String) -> Unit, onContinue: (String) -> Unit, continueState: ContinueButtonState, isLatest: Boolean) {
     val tokens = rememberAuroraTokens()
     val scheme = MaterialTheme.colorScheme
     val clipboard = LocalClipboardManager.current
@@ -732,13 +792,13 @@ private fun AuroraMessageRow(message: ChatMessage, generating: Boolean, canRetry
                 }
                 if (user && canEdit) IconButton(onClick = { edit = true }, modifier = faded) { Icon(Icons.Outlined.Edit, "Edit message", Modifier.size(20.dp)) }
                 if (canRetry) IconButton(onClick = onRetry, modifier = faded) { Icon(Icons.Outlined.Refresh, if (error) "Retry reply" else "Regenerate reply", Modifier.size(20.dp)) }
-                if (message.interrupted && canRetry) TextButton(onClick = onContinue) { Text("Continue") }
                 if (error) IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(20.dp)) }
                 if (showTimestamps) Text(remember(message.timestamp, message.elapsedMs) {
                     DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.timestamp)) +
                         if (message.elapsedMs > 0) " \u00b7 %.1fs".format(message.elapsedMs / 1000.0) else ""
                 }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            ContinueGeneratingButton(continueState, aurora = true) { onContinue(message.id) }
         }
     }
     if (edit) AlertDialog(onDismissRequest = { edit = false }, title = { Text("Edit this message?") },
