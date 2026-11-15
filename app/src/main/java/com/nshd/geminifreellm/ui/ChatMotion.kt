@@ -118,7 +118,8 @@ fun ThinkingIndicator() {
 }
 
 @Composable
-fun StreamingContent(text: String, streaming: Boolean, onCanvas: (String, String) -> Unit, aurora: Boolean = false) {
+fun StreamingContent(text: String, streaming: Boolean, onCanvas: (String, String) -> Unit, aurora: Boolean = false,
+                     onToggleChecklist: ((Int) -> Unit)? = null, checklistEnabled: Boolean = true) {
     // Reasoning models wrap chain-of-thought in <think>…</think>; DeepSeek-style:
     // collapse it behind a "Thinking / Thought" toggle instead of dumping it as a reply.
     val (body, think, thinkOpen) = remember(text) { splitThink(text) }
@@ -129,7 +130,7 @@ fun StreamingContent(text: String, streaming: Boolean, onCanvas: (String, String
         val count by animateIntAsState(body.length, animationSpec = if (animated) tween(80, easing = LinearEasing) else snap(), label = "Streaming text")
         var end = if (animated) count.coerceIn(0, body.length) else body.length
         if (end in 1 until body.length && body[end - 1].isHighSurrogate()) end--
-        MessageContent(body.substring(0, end), onCanvas)
+        MessageContent(body.substring(0, end), onCanvas, onToggleChecklist, checklistEnabled)
         if (streaming) {
             if (aurora) StreamingCaret()
             else {
