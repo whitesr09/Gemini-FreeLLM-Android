@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -469,8 +470,10 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Text chat, coding canvas and compatible image/video APIs. Provider access and billing apply. Live voice calls are not supported.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Developer", style = MaterialTheme.typography.titleSmall)
-                    Text("Developed by NSHD", style = MaterialTheme.typography.bodyMedium,
+                    Text("Developer", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.titleSmall)
+                    Text("Developed by NSHD", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally)) {
                         BrandIconButton({ DeveloperSocialIcon(R.drawable.social_instagram, "Instagram") }, "Instagram") { openLink("https://www.instagram.com/__nshd.__?stkn=emExd3hxZndzN21o") }
@@ -480,6 +483,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                         BrandIconButton({ DeveloperSocialIcon(R.drawable.social_phone, "Phone") }, "Phone") { openLink("tel:+918590455801") }
                     }
                     Text("Social icons by Grow studio, Magnific & Indygo from flaticon.com",
+                        modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                     FreeLlmApiClient.validate(profile)?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                     }
