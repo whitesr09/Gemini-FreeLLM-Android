@@ -85,6 +85,72 @@ class ProviderClientTest {
         assertTrue(error!!.message!!.contains("before the reply finished"))
     }
 
+    @Test fun openAiTokenLimitFinishIsCaptured() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(
+            event("""{"choices":[{"delta":{"content":"Part"}}]}""") +
+                event("""{"choices":[{"delta":{"content":" one"},"finish_reason":"length"}]}""") + event("[DONE]")))
+        val result = client.generateDetailed(profile(), prompt) {}
+        assertEquals("Part one", result.text)
+        assertEquals("length", result.finishReason)
+        assertTrue(result.endedCleanly)
+        assertTrue(isTokenLimitFinish(result.finishReason))
+    }
+
+    @Test fun openAiNormalStopIsCapturedAndNotTokenLimit() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(
+            event("""{"choices":[{"delta":{"content":"Done"},"finish_reason":"stop"}]}""") + event("[DONE]")))
+        val result = client.generateDetailed(profile(), prompt) {}
+        assertEquals("Done", result.text)
+        assertEquals("stop", result.finishReason)
+        assertTrue(result.endedCleanly)
+        assertFalse(isTokenLimitFinish(result.finishReason))
+    }
+
+    @Test fun geminiMaxTokensFinishIsCaptured() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(
+            event("""{"candidates":[{"content":{"parts":[{"text":"Cut"}]}}]}""") +
+                event("""{"candidates":[{"content":{"parts":[{"text":" off"}]},"finishReason":"MAX_TOKENS"}]}""")))
+        val result = client.generateDetailed(profile(Provider.GEMINI), prompt) {}
+        assertEquals("Cut off", result.text)
+        assertEquals("MAX_TOKENS", result.finishReason)
+        assertTrue(result.endedCleanly)
+        assertTrue(isTokenLimitFinish(result.finishReason))
+    }
+
+    @Test fun anthropicMaxTokensFinishIsCapturedFromMessageDelta() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(
+            "event: content_block_delta\n" + event("""{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hi"}}""") +
+                event("""{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":4096}}""") +
+                event("""{"type":"message_stop"}""")))
+        val result = client.generateDetailed(profile(Provider.ANTHROPIC), prompt) {}
+        assertEquals("Hi", result.text)
+        assertEquals("max_tokens", result.finishReason)
+        assertTrue(result.endedCleanly)
+        assertTrue(isTokenLimitFinish(result.finishReason))
+    }
+
+    @Test fun nonStreamingFinishReasonIsCaptured() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/json")
+            .setBody("""{"choices":[{"message":{"content":"Cut off"},"finish_reason":"length"}]}"""))
+        val result = client.generateDetailed(profile(stream = false), prompt) {}
+        assertEquals("Cut off", result.text)
+        assertEquals("length", result.finishReason)
+        assertTrue(result.endedCleanly)
+    }
+
+    @Test fun truncatedStreamReturnsPartialAsNotCleanlyEnded() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(event("""{"choices":[{"delta":{"content":"Partial"}}]}""")))
+        val result = client.generateDetailed(profile(), prompt) {}
+        assertEquals("Partial", result.text)
+        assertNull(result.finishReason)
+        assertFalse(result.endedCleanly)
+        // …while the legacy wrapper keeps throwing for the same wire behavior.
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(event("""{"choices":[{"delta":{"content":"Partial"}}]}""")))
+        val error = runCatching { client.generate(profile(), prompt) {} }.exceptionOrNull()
+        assertTrue(error is ApiException)
+        assertTrue(error!!.message!!.contains("before the reply finished"))
+    }
+
     @Test fun providerErrorBodiesNeverExposeSecrets() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(401).setBody("synthetic-secret-response"))
         val error = runCatching { client.generate(profile(), prompt) {} }.exceptionOrNull()!!
