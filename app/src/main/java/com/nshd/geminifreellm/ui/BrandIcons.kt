@@ -13,12 +13,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
- * Tappable brand badge used in the navigation drawer's Developer section.
- * The artwork is a Flaticon PNG loaded via [SocialIcon] in ChatScreen.kt.
+ * Tappable brand badge used in the Settings → About Developer section.
+ * The artwork is a Flaticon PNG loaded via DeveloperSocialIcon in
+ * SettingsScreen.kt. The 44dp circle keeps the tap target comfortably
+ * above the 40dp minimum while the glyph inside stays visually small.
  */
 @Composable
 fun BrandIconButton(icon: @Composable () -> Unit, label: String, onClick: () -> Unit) {
-    Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick, onClickLabel = label)
+    Box(Modifier.size(44.dp).clip(CircleShape).clickable(onClick = onClick, onClickLabel = label)
         .semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
         icon()
     }
