@@ -19,6 +19,17 @@ import kotlin.coroutines.resumeWithException
 
 class ApiException(message: String, val access: AccessState = AccessState.ERROR, val statusCode: Int? = null) : IOException(message)
 
+/**
+ * Outcome of one generation: the accumulated [text], the provider's raw finish
+ * value ([finishReason], e.g. "stop", "length", "end_turn", "max_tokens",
+ * "STOP", "MAX_TOKENS"; null when the provider reported none), and whether the
+ * response ended with a proper completion marker ([endedCleanly]). A stream
+ * that ends mid-reply without a marker returns its partial text with
+ * [endedCleanly] = false instead of throwing, so callers can preserve the
+ * partial and offer an in-place continuation.
+ */
+data class GenerateResult(val text: String, val finishReason: String?, val endedCleanly: Boolean)
+
 /** All provider-specific wire formats live here; UI and history remain provider independent. */
 class FreeLlmApiClient(
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -26,7 +37,27 @@ class FreeLlmApiClient(
         .callTimeout(180, TimeUnit.SECONDS).retryOnConnectionFailure(false)
         .followRedirects(false).followSslRedirects(false).build()
 ) {
-    suspend fun generate(profile: ProviderProfile, messages: List<ChatMessage>, systemPrompt: String = "", onText: (String) -> Unit): String =
+    /**
+     * Legacy text-only contract, kept for AutoRouter failover, model probes and
+     * connection tests: a stream that ends without a completion marker is an
+     * error, exactly as before this result type existed.
+     */
+    suspend fun generate(profile: ProviderProfile, messages: List<ChatMessage>, systemPrompt: String = "", onText: (String) -> Unit): String {
+        val result = generateDetailed(profile, messages, systemPrompt, onText)
+        if (!result.endedCleanly) throw ApiException("The connection ended before the reply finished. You can retry.")
+        return result.text
+    }
+
+    /**
+     * Generation that reports how the provider ended the reply. Unlike
+     * [generate], a stream that ends without a completion marker but with
+     * partial text does NOT throw: the partial is returned with
+     * [GenerateResult.endedCleanly] = false so it can be preserved and later
+     * continued in place. Genuine failures (HTTP errors, provider error
+     * events, empty replies, oversize) still throw [ApiException], and
+     * coroutine cancellation still cancels the underlying call.
+     */
+    suspend fun generateDetailed(profile: ProviderProfile, messages: List<ChatMessage>, systemPrompt: String = "", onText: (String) -> Unit): GenerateResult =
         withContext(Dispatchers.IO) {
             validate(profile)?.let { throw ApiException(it) }
             val request = buildRequest(profile, messages, systemPrompt)
@@ -40,7 +71,7 @@ class FreeLlmApiClient(
                     }
                     override fun onResponse(call: Call, response: Response) {
                         try {
-                            val result = response.use {
+                            val outcome = response.use {
                                 if (!it.isSuccessful) throw responseError(it)
                                 val body = it.body ?: throw ApiException("The provider returned an empty response.")
                                 if (it.header("Content-Type").orEmpty().contains("text/event-stream")) {
@@ -48,12 +79,17 @@ class FreeLlmApiClient(
                                         if (continuation.isActive) onText(text)
                                     }
                                 } else {
-                                    parseResponse(profile.provider.protocol, JSONObject(readBounded(body)))
-                                        .also { text -> if (continuation.isActive) onText(text) }
+                                    val json = JSONObject(readBounded(body))
+                                    StreamOutcome(parseResponse(profile.provider.protocol, json),
+                                        parseFinishReason(profile.provider.protocol, json), complete = true)
+                                        .also { parsed -> if (continuation.isActive) onText(parsed.text) }
                                 }
                             }
-                            if (result.isBlank()) throw ApiException("The model returned no text. Choose a text model or try another prompt.")
-                            if (continuation.isActive) continuation.resume(result)
+                            if (outcome.text.isBlank()) throw ApiException(
+                                if (!outcome.complete) "The connection ended before the reply finished. You can retry."
+                                else "The model returned no text. Choose a text model or try another prompt.")
+                            if (continuation.isActive) continuation.resume(
+                                GenerateResult(outcome.text, outcome.finishReason, outcome.complete))
                         } catch (e: Exception) {
                             if (continuation.isActive) continuation.resumeWithException(
                                 if (e is ApiException) e else ApiException("The provider returned an unreadable or interrupted response. Try again.")
@@ -249,6 +285,17 @@ class FreeLlmApiClient(
         ApiProtocol.GEMINI -> textParts(json.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts"))
     }
 
+    /** Raw finish value of a non-streaming response, or null when the provider reported none. */
+    internal fun parseFinishReason(protocol: ApiProtocol, json: JSONObject): String? = when (protocol) {
+        ApiProtocol.OPENAI -> json.optJSONArray("choices")?.optJSONObject(0)?.let { choice ->
+            if (choice.isNull("finish_reason")) null else choice.optString("finish_reason").takeIf { it.isNotBlank() }
+        }
+        ApiProtocol.ANTHROPIC -> if (json.isNull("stop_reason")) null else json.optString("stop_reason").takeIf { it.isNotBlank() }
+        ApiProtocol.GEMINI -> json.optJSONArray("candidates")?.optJSONObject(0)?.let { candidate ->
+            if (candidate.isNull("finishReason")) null else candidate.optString("finishReason").takeIf { it.isNotBlank() }
+        }
+    }
+
     private fun textParts(parts: JSONArray?): String = buildString {
         if (parts != null) for (i in 0 until parts.length()) {
             val part = parts.optJSONObject(i) ?: continue
@@ -256,12 +303,16 @@ class FreeLlmApiClient(
         }
     }
 
-    private fun readEvents(body: ResponseBody, protocol: ApiProtocol, onText: (String) -> Unit): String {
+    /** Raw stream outcome: accumulated text, the provider's finish value, and whether a completion marker arrived. */
+    private data class StreamOutcome(val text: String, val finishReason: String?, val complete: Boolean)
+
+    private fun readEvents(body: ResponseBody, protocol: ApiProtocol, onText: (String) -> Unit): StreamOutcome {
         val output = StringBuilder()
         val event = StringBuilder()
         var lastUpdate = 0L
         var wireBytes = 0L
         var complete = false
+        var finishReason: String? = null
         fun dispatch() {
             if (event.isEmpty()) return
             val data = event.toString().trim()
@@ -271,16 +322,29 @@ class FreeLlmApiClient(
             if (json.has("error") || json.optString("type") == "error") throw ApiException("The provider interrupted this reply. Try again.")
             val delta = when (protocol) {
                 ApiProtocol.OPENAI -> json.optJSONArray("choices")?.optJSONObject(0)?.let {
-                    if (!it.isNull("finish_reason") && it.optString("finish_reason").isNotBlank()) complete = true
+                    if (!it.isNull("finish_reason") && it.optString("finish_reason").isNotBlank()) {
+                        complete = true
+                        finishReason = it.optString("finish_reason")
+                    }
                     it.optJSONObject("delta")?.optString("content").orEmpty()
                 }.orEmpty()
                 ApiProtocol.ANTHROPIC -> {
                     if (json.optString("type") == "message_stop") complete = true
+                    // The finish value rides on message_delta; message_stop alone carries none.
+                    if (json.optString("type") == "message_delta") {
+                        val reason = json.optJSONObject("delta")?.takeIf { delta -> !delta.isNull("stop_reason") }
+                            ?.optString("stop_reason").orEmpty()
+                        if (reason.isNotBlank()) finishReason = reason
+                    }
                     json.optJSONObject("delta")?.optString("text").orEmpty()
                 }
                 ApiProtocol.GEMINI -> {
                     val candidate = json.optJSONArray("candidates")?.optJSONObject(0)
-                    if (candidate?.has("finishReason") == true) complete = true
+                    if (candidate?.has("finishReason") == true) {
+                        complete = true
+                        if (!candidate.isNull("finishReason")) candidate.optString("finishReason")
+                            .takeIf { it.isNotBlank() }?.let { finishReason = it }
+                    }
                     textParts(candidate?.optJSONObject("content")?.optJSONArray("parts"))
                 }
             }
@@ -304,9 +368,11 @@ class FreeLlmApiClient(
             }
         }
         dispatch()
-        if (!complete) throw ApiException("The connection ended before the reply finished. You can retry.")
+        // No completion marker: report the partial instead of throwing it away.
+        // Callers that need the old throw-on-truncation contract (generate())
+        // re-check `complete` themselves.
         onText(output.toString())
-        return output.toString()
+        return StreamOutcome(output.toString(), finishReason, complete)
     }
 
     private fun readBounded(body: ResponseBody, limit: Int = MAX_RESPONSE): String {
