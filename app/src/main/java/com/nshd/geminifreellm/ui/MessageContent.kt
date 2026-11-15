@@ -1,6 +1,7 @@
 package com.nshd.geminifreellm.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -21,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -157,6 +159,97 @@ private fun matchListItem(line: String): RawListEntry? {
     )
 }
 
+private val CHECKLIST_MARKER = Regex("^(\\s*[-*+]\\s+\\[)([ xX])(\\])")
+
+/**
+ * Returns [text] with its [itemIndex]-th checklist item flipped between
+ * `[ ]` and `[x]`, or null when no such item exists. Only the marker
+ * character changes; every other byte is preserved. Counting mirrors the
+ * render pipeline exactly — fenced code is skipped with the same fence
+ * rules as [markdownBlocks], chunks (or chunk tails) that parse as a table
+ * contribute nothing, and an item is a non-ordered list line whose content
+ * starts with a checkbox marker ([matchListItem]) — so the index the
+ * renderer assigns a checkbox is the index this function flips.
+ */
+internal fun toggleChecklistItem(text: String, itemIndex: Int): String? {
+    if (itemIndex < 0) return null
+    val lines = text.lines().toMutableList()
+    var seen = -1
+    var index = 0
+    var inCode = false
+    var fenceChar: Char? = null
+    var fenceLength = 0
+    while (index < lines.size) {
+        val trimmed = lines[index].trimStart()
+        if (!inCode) {
+            val opening = MARKDOWN_FENCE_OPEN.matchEntire(trimmed)
+            if (opening != null) {
+                inCode = true
+                fenceChar = opening.groupValues[1].first()
+                fenceLength = opening.groupValues[1].length
+                index++
+                continue
+            }
+        } else {
+            val marker = fenceChar
+            val markerCount = if (marker == null) 0 else trimmed.takeWhile { it == marker }.length
+            if (marker != null && markerCount >= fenceLength && trimmed.drop(markerCount).isBlank()) {
+                inCode = false
+                fenceChar = null
+                fenceLength = 0
+            }
+            index++
+            continue
+        }
+        // One blank-line-separated prose chunk, mirroring proseUnits.
+        if (lines[index].isBlank()) { index++; continue }
+        val chunkStart = index
+        while (index < lines.size && lines[index].isNotBlank() &&
+            MARKDOWN_FENCE_OPEN.matchEntire(lines[index].trimStart()) == null) index++
+        val chunk = lines.subList(chunkStart, index)
+        if (markdownTable(chunk.joinToString("\n")) == null) {
+            var textRunEmpty = true
+            var lastItemIndent: Int? = null
+            var i = 0
+            while (i < chunk.size) {
+                val line = chunk[i]
+                val item = matchListItem(line)
+                val indent = line.takeWhile { it == ' ' || it == '\t' }.length
+                if (lastItemIndent != null && item == null && indent > lastItemIndent!!) {
+                    // Indented continuation of the current list item: the
+                    // parser's list run consumes it before headings, quotes
+                    // or tables are ever considered for the line.
+                    i++
+                    continue
+                }
+                if (item == null) lastItemIndent = null
+                when {
+                    MARKDOWN_HEADING_CONTENT.matchEntire(line) != null -> textRunEmpty = true
+                    line.trimStart().startsWith(">") -> textRunEmpty = true
+                    item != null -> {
+                        textRunEmpty = true
+                        lastItemIndent = item.indent
+                        if (item.checked != null) {
+                            seen++
+                            if (seen == itemIndex) {
+                                lines[chunkStart + i] = CHECKLIST_MARKER.replace(line) { match ->
+                                    match.groupValues[1] + (if (match.groupValues[2] == " ") "x" else " ") + match.groupValues[3]
+                                }
+                                return lines.joinToString("\n")
+                            }
+                        }
+                    }
+                    textRunEmpty && line.contains('|') &&
+                        markdownTable(chunk.drop(i).joinToString("\n")) != null -> break
+                    else -> textRunEmpty = false
+                }
+                i++
+            }
+        }
+    }
+    return null
+}
+
 /**
  * Splits one prose block into typed units. Line-oriented and total: any input —
  * including half-streamed Markdown (a header row without its separator, a checklist
@@ -252,20 +345,36 @@ internal fun proseUnits(text: String): List<ProseUnit> {
 }
 
 @Composable
-fun MessageContent(text: String, onCanvas: (String, String) -> Unit = { _, _ -> }) {
+fun MessageContent(text: String, onCanvas: (String, String) -> Unit = { _, _ -> },
+                   onToggleChecklist: ((Int) -> Unit)? = null, checklistEnabled: Boolean = true) {
     val blocks = remember(text) { markdownBlocks(text) }
+    val blockUnits = remember(blocks) {
+        blocks.map { block -> if (block.language == null) proseUnits(block.text) else null }
+    }
+    // Checklist items are numbered in document order across the whole
+    // message, so a tap maps back to the stored Markdown (toggleChecklistItem
+    // counts exactly the same items in exactly the same order).
+    val blockChecklistCounts = remember(blockUnits) {
+        blockUnits.map { units -> units.orEmpty().filterIsInstance<ProseUnit.ListBlock>()
+            .sumOf { list -> list.items.count { it.checked != null } } }
+    }
+    var nextChecklistIndex = 0
     Column(verticalArrangement = Arrangement.spacedBy(Design.medium)) {
         blocks.forEachIndexed { index, block ->
+            val checklistStart = nextChecklistIndex
+            nextChecklistIndex += blockChecklistCounts[index]
             key(index) {
                 if (block.language != null) {
                     CodeBlock(block, onCanvas)
                 } else {
-                    val units = remember(block.text) { proseUnits(block.text) }
+                    val units = blockUnits[index].orEmpty()
                     SelectionContainer {
                         Column(verticalArrangement = Arrangement.spacedBy(Design.medium)) {
                             // Prose units keep long responses inexpensive; no composable per token.
                             units.forEachIndexed { unitIndex, unit ->
-                                ProseUnitContent(unit, first = unitIndex == 0)
+                                ProseUnitContent(unit, first = unitIndex == 0,
+                                    checklistStart = checklistStart, onToggleChecklist = onToggleChecklist,
+                                    checklistEnabled = checklistEnabled)
                             }
                         }
                     }
@@ -284,7 +393,8 @@ private fun headingStyle(level: Int): TextStyle = when (level) {
 }
 
 @Composable
-private fun ProseUnitContent(unit: ProseUnit, first: Boolean) {
+private fun ProseUnitContent(unit: ProseUnit, first: Boolean, checklistStart: Int = 0,
+                             onToggleChecklist: ((Int) -> Unit)? = null, checklistEnabled: Boolean = true) {
     when (unit) {
         ProseUnit.Rule -> HorizontalDivider(Modifier.padding(vertical = Design.small))
         is ProseUnit.Table -> MarkdownTable(unit.data)
@@ -300,7 +410,7 @@ private fun ProseUnitContent(unit: ProseUnit, first: Boolean) {
                 .padding(Design.medium),
             style = MaterialTheme.typography.bodyLarge
         )
-        is ProseUnit.ListBlock -> MarkdownList(unit.items)
+        is ProseUnit.ListBlock -> MarkdownList(unit.items, checklistStart, onToggleChecklist, checklistEnabled)
         is ProseUnit.Paragraph -> Text(
             inlineMarkdown(unit.text),
             style = MaterialTheme.typography.bodyLarge
@@ -309,18 +419,35 @@ private fun ProseUnitContent(unit: ProseUnit, first: Boolean) {
 }
 
 @Composable
-private fun MarkdownList(items: List<MarkdownListEntry>) {
+private fun MarkdownList(items: List<MarkdownListEntry>, checklistStart: Int = 0,
+                         onToggleChecklist: ((Int) -> Unit)? = null, checklistEnabled: Boolean = true) {
+    var checklistIndex = checklistStart
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         items.forEach { item ->
             Row(Modifier.padding(start = (item.level * 18).dp)) {
                 when {
-                    item.checked != null -> Icon(
-                        imageVector = if (item.checked) Icons.Outlined.CheckBox else Icons.Outlined.CheckBoxOutlineBlank,
-                        contentDescription = if (item.checked) "Completed item" else "Open item",
-                        modifier = Modifier.padding(top = 3.dp, end = 6.dp).size(20.dp),
-                        tint = if (item.checked) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    item.checked != null -> {
+                        val itemIndex = checklistIndex++
+                        val toggle = onToggleChecklist
+                        Box(
+                            Modifier.padding(end = 6.dp)
+                                .size(26.dp)
+                                .then(if (toggle != null) Modifier.clickable(
+                                    enabled = checklistEnabled,
+                                    role = Role.Checkbox,
+                                    onClickLabel = if (item.checked) "Mark item as not done" else "Mark item as done"
+                                ) { toggle(itemIndex) } else Modifier),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (item.checked) Icons.Outlined.CheckBox else Icons.Outlined.CheckBoxOutlineBlank,
+                                contentDescription = if (item.checked) "Completed item" else "Open item",
+                                modifier = Modifier.size(20.dp),
+                                tint = if (item.checked) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     item.ordered -> Text(
                         item.marker,
                         Modifier.width(28.dp).padding(end = 6.dp),
