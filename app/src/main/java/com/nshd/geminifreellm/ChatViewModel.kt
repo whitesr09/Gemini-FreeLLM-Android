@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nshd.geminifreellm.data.*
 import com.nshd.geminifreellm.model.*
+import com.nshd.geminifreellm.ui.toggleChecklistItem
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +40,27 @@ internal fun continuationPlan(messages: List<ChatMessage>, messageId: String): P
     val display = messages.take(index + 1)
     return display to display + ChatMessage(text = CONTINUATION_INSTRUCTION, role = ChatMessage.Role.USER)
 }
+
+/** Drafts that mean nothing but "keep going" when typed on their own. */
+private val BARE_CONTINUATION_DRAFTS = setOf("continue", "continue.", "go on", "resume", "keep going", "carry on")
+
+/**
+ * True when [draft] is a bare continuation intent: nothing but a keep-going
+ * phrase once trimmed and lowercased. Anything longer or more specific is a
+ * real message and is never intercepted.
+ */
+internal fun isBareContinuation(draft: String): Boolean =
+    draft.trim().lowercase() in BARE_CONTINUATION_DRAFTS
+
+/**
+ * Send-path routing decision: a bare continuation draft routes to the
+ * in-place continuation of the chat's tail reply instead of becoming a new
+ * user message (which would make Auto pick a model afresh and restart the
+ * answer). Requires no attachments (a file makes it a real message), no
+ * generation already running, and a continuable tail reply.
+ */
+internal fun shouldRouteToContinuation(draft: String, hasAttachments: Boolean, busy: Boolean, tailContinuable: Boolean): Boolean =
+    !busy && !hasAttachments && tailContinuable && isBareContinuation(draft)
 
 /** Owns requests across rotation. Requests are bound to a conversation and a unique generation ID. */
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -486,6 +508,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val value = mutable.value
         val chat = value.active ?: return
         if (value.generatingId != null || value.preparing || value.storageBlocked || (chat.draft.isBlank() && chat.attachments.isEmpty())) return
+        // A bare "continue" resumes the tail reply in place instead of
+        // becoming a new user turn, which would restart the answer afresh.
+        val tail = chat.messages.lastOrNull { it.role != ChatMessage.Role.ERROR }
+        if (tail != null && shouldRouteToContinuation(chat.draft, hasAttachments = chat.attachments.isNotEmpty(),
+                busy = value.generatingId != null || value.preparing, tailContinuable = tail.isContinuable)) {
+            changeChat { it.copy(draft = "") }
+            continueGeneration(tail.id)
+            return
+        }
         if (!value.settings.autoRouting) FreeLlmApiClient.validate(value.settings.active)?.let { notice(it); return }
         if (!value.settings.autoRouting && !value.settings.active.vision && chat.attachments.any { it.isImage }) {
             notice("Enable image input for a vision-capable model in settings before sending images."); return
@@ -532,6 +563,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // message itself stays untouched and keeps its identity.
         if (displayHistory.size != chat.messages.size) changeChat(chat.id) { it.copy(messages = displayHistory) }
         generate(chat.id, displayHistory, value, apiHistory = requestHistory, continueMessageId = messageId)
+    }
+
+    /**
+     * Flips the [itemIndex]-th checklist item (document order, checklist
+     * items only — the same counting the renderer uses) of an assistant
+     * message between open and done, editing its stored Markdown in place
+     * and persisting through the normal save path. No-op while that very
+     * message is being generated or continued: its text is owned by the
+     * stream.
+     */
+    fun toggleChecklist(messageId: String, itemIndex: Int) {
+        if (messageId == generationToken) return
+        val chat = mutable.value.chats.firstOrNull { candidate -> candidate.messages.any { it.id == messageId } } ?: return
+        val message = chat.messages.first { it.id == messageId }
+        if (message.role != ChatMessage.Role.ASSISTANT) return
+        val updated = toggleChecklistItem(message.text, itemIndex) ?: return
+        if (updated != message.text) changeChat(chat.id) { conversation ->
+            conversation.copy(messages = conversation.messages.map { if (it.id == messageId) it.copy(text = updated) else it })
+        }
     }
 
     fun retry() {
@@ -604,14 +654,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }
-                // How the provider ended this generation (manual path only; the
-                // Auto path resolves interruptions through its own failover and
-                // a returned reply there counts as a clean completion).
+                // How the provider ended this generation. The manual path reads
+                // it straight off its single call; the Auto path captures each
+                // attempt's ending and adopts the WINNER's, so an Auto reply
+                // that stopped at a token limit is marked incomplete — and
+                // continuable — exactly like a manual one.
                 var resultFinishReason: String? = null
                 var resultEndedCleanly = true
                 val text = try {
                     if (snapshot.settings.autoRouting) {
                         var continuationPrefix = ""
+                        val attemptEndings = mutableMapOf<String, GenerateResult>()
                         val (winner, reply) = AutoRouter.generate(candidates,
                             onAttempt = { selected, attempt ->
                                 profile = selected
@@ -628,7 +681,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 markAccess(slow, AccessState.USABLE, latencyMs)
                             }, request = { selected, emit ->
                                 val prefix = continuationPrefix
-                                client.generate(selected, requestHistory, systemPrompt) { partial -> emit(prefix + partial) }
+                                // generateDetailed + the same throw-on-truncation
+                                // contract as client.generate, so AutoRouter's
+                                // failover sees identical behavior; the ending is
+                                // kept so the winner's can be adopted below.
+                                val result = client.generateDetailed(selected, requestHistory, systemPrompt) { partial -> emit(prefix + partial) }
+                                attemptEndings[modelKey(selected.provider, selected.model)] = result
+                                if (!result.endedCleanly) throw ApiException("The connection ended before the reply finished. You can retry.")
+                                result.text
                             }, onText = { chunk -> updates.trySend(replyId to chunk) }, onPartialFailure = { partial ->
                                 // Seamless: the same bubble keeps streaming; the next attempt's
                                 // chunks are appended after the preserved prefix, with a
@@ -641,6 +701,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                     ChatMessage(text = "The previous reply was interrupted. Continue from its last unfinished point, preserve the user's requirements, and avoid repeating completed content.", role = ChatMessage.Role.USER)
                             })
                         profile = winner
+                        attemptEndings[modelKey(winner.provider, winner.model)]?.let { ending ->
+                            resultFinishReason = ending.finishReason
+                            resultEndedCleanly = ending.endedCleanly
+                        }
                         continuationPrefix + reply
                     }
                     else {
