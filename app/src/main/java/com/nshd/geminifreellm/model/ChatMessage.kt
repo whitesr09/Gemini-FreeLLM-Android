@@ -37,15 +37,19 @@ data class ChatMessage(
     enum class Role { USER, ASSISTANT, ERROR }
 
     /**
-     * True when this partial reply may be resumed in place by a continuation:
-     * positive token-limit evidence, or an interrupted stream that ended with
-     * no recorded finish reason (network drop, timeout, process death).
-     * Normal completions and explicit user stops are never continuable.
+     * True when this partial reply may be resumed in place by a continuation.
+     * The primary signal is [interrupted] itself — the same flag the UI uses
+     * to label the reply "Reply incomplete" — so any preserved partial that
+     * ended incomplete is continuable, however it ended: token limit, dropped
+     * stream, or a stop (an explicit stop tap, or the implicit stop fired by
+     * switching chats mid-generation, which the user never chose as a
+     * permanent cancel). A recorded token-limit finish also qualifies on its
+     * own. Normal completions are never continuable, and neither is the
+     * empty "Reply stopped." placeholder.
      */
     val isContinuable: Boolean
         get() = role == Role.ASSISTANT && text.isNotBlank() && text != "Reply stopped." &&
-            finishReason != FINISH_REASON_USER_CANCELLED &&
-            (isTokenLimitFinish(finishReason) || (interrupted && finishReason == null))
+            (interrupted || isTokenLimitFinish(finishReason))
 }
 
 /** Recorded as [ChatMessage.finishReason] when the user explicitly stops a generation. */
