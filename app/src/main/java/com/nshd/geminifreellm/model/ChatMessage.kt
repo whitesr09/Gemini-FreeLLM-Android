@@ -24,10 +24,38 @@ data class ChatMessage(
     val model: String = "",
     val interrupted: Boolean = false,
     val elapsedMs: Long = 0,
-    val firstTokenMs: Long = 0
+    val firstTokenMs: Long = 0,
+    /**
+     * Raw provider finish value recorded when generation ended
+     * ("stop", "length", "end_turn", "max_tokens", "STOP", "MAX_TOKENS", …),
+     * [FINISH_REASON_USER_CANCELLED] for an explicit user stop, or null when the
+     * provider reported nothing (including every message written before this
+     * field existed). Additive: old history files and backups simply omit it.
+     */
+    val finishReason: String? = null
 ) {
     enum class Role { USER, ASSISTANT, ERROR }
+
+    /**
+     * True when this partial reply may be resumed in place by a continuation:
+     * positive token-limit evidence, or an interrupted stream that ended with
+     * no recorded finish reason (network drop, timeout, process death).
+     * Normal completions and explicit user stops are never continuable.
+     */
+    val isContinuable: Boolean
+        get() = role == Role.ASSISTANT && text.isNotBlank() && text != "Reply stopped." &&
+            finishReason != FINISH_REASON_USER_CANCELLED &&
+            (isTokenLimitFinish(finishReason) || (interrupted && finishReason == null))
 }
+
+/** Recorded as [ChatMessage.finishReason] when the user explicitly stops a generation. */
+const val FINISH_REASON_USER_CANCELLED = "cancelled"
+
+private val TOKEN_LIMIT_FINISH_REASONS = setOf("length", "max_tokens", "MAX_TOKENS")
+
+/** True only on positive provider evidence that generation stopped at an output-token limit. */
+internal fun isTokenLimitFinish(finishReason: String?): Boolean =
+    finishReason != null && finishReason in TOKEN_LIMIT_FINISH_REASONS
 
 data class Conversation(
     val id: String = newId(),
