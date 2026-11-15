@@ -16,6 +16,30 @@ import kotlinx.coroutines.sync.withLock
 
 data class ConnectionTestResult(val models: List<String>?, val message: String, val error: Boolean)
 
+/** Instruction appended as the final user turn of a continuation request. */
+internal const val CONTINUATION_INSTRUCTION =
+    "Continue exactly where the previous response stopped. Do not repeat any content that was already generated. " +
+    "Preserve the original task, formatting and Markdown structure, and continue any unfinished code block, list or table. " +
+    "Do not restart the answer and do not add a new introduction."
+
+/**
+ * Plans an in-place continuation of the message [messageId] inside [messages].
+ * Returns the display history (every message through the partial reply, with
+ * trailing error notices from the failed attempt dropped) paired with the
+ * request history (display history — whose last turn is the partial assistant
+ * reply — plus a continue instruction), or null when the message cannot be
+ * continued: unknown id, not [ChatMessage.isContinuable], or anything other
+ * than error notices follows it.
+ */
+internal fun continuationPlan(messages: List<ChatMessage>, messageId: String): Pair<List<ChatMessage>, List<ChatMessage>>? {
+    val index = messages.indexOfFirst { it.id == messageId }
+    if (index < 0) return null
+    if (!messages[index].isContinuable) return null
+    if (messages.drop(index + 1).any { it.role != ChatMessage.Role.ERROR }) return null
+    val display = messages.take(index + 1)
+    return display to display + ChatMessage(text = CONTINUATION_INSTRUCTION, role = ChatMessage.Role.USER)
+}
+
 /** Owns requests across rotation. Requests are bound to a conversation and a unique generation ID. */
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     data class State(
@@ -480,10 +504,34 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         generate(chat.id, history, value, invokedSkill, apiHistory)
     }
 
+    /**
+     * Entry point kept for the existing per-message Continue action: continues
+     * the latest continuable assistant reply of the active chat. The old
+     * draft-based implementation (which produced a new user + assistant
+     * bubble) is gone; continuation now resumes the same message in place.
+     */
     fun continueReply() {
-        if (mutable.value.active?.draft?.isNotBlank() == true) { notice("Send or clear your current draft before continuing this reply."); return }
-        draft("Continue your previous response from where it stopped. Avoid repeating completed paragraphs.")
-        send()
+        val chat = mutable.value.active ?: return
+        val target = chat.messages.lastOrNull { it.isContinuable } ?: return
+        continueGeneration(target.id)
+    }
+
+    /**
+     * Resumes the unfinished assistant message [messageId] in place: the same
+     * message id keeps accumulating streamed text, no new bubble is created,
+     * and the result is persisted through the normal save path. No-op while
+     * any generation is running, so duplicate continuations cannot start.
+     */
+    fun continueGeneration(messageId: String) {
+        val value = mutable.value
+        if (value.generatingId != null || value.preparing || value.loading || value.storageBlocked) return
+        val chat = value.chats.firstOrNull { candidate -> candidate.messages.any { it.id == messageId } } ?: return
+        val (displayHistory, requestHistory) = continuationPlan(chat.messages, messageId) ?: return
+        if (!value.settings.autoRouting) FreeLlmApiClient.validate(value.settings.active)?.let { notice(it); return }
+        // Drop the trailing error notices of the failed attempt; the partial
+        // message itself stays untouched and keeps its identity.
+        if (displayHistory.size != chat.messages.size) changeChat(chat.id) { it.copy(messages = displayHistory) }
+        generate(chat.id, displayHistory, value, apiHistory = requestHistory, continueMessageId = messageId)
     }
 
     fun retry() {
@@ -514,19 +562,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun generate(chatId: String, history: List<ChatMessage>, snapshot: State, invokedSkill: AgentSkill? = null,
-                         apiHistory: List<ChatMessage>? = null) {
+                         apiHistory: List<ChatMessage>? = null, continueMessageId: String? = null) {
         stopAutoCheck()
         var profile = snapshot.settings.active
         val systemPrompt = snapshot.settings.agent.promptFor(invokedSkill)
         // apiHistory strips the "/SkillName" token so the model never sees it;
         // the chat bubble keeps it so the invocation stays visible.
         val request = apiHistory ?: history
-        val assistant = ChatMessage(text = "", role = ChatMessage.Role.ASSISTANT,
+        // Continuation resumes an existing message: no new placeholder bubble,
+        // and every streamed chunk is appended after the preserved prefix.
+        val resumeTarget = continueMessageId?.let { id -> history.lastOrNull { it.id == id } }
+        val resumePrefix = resumeTarget?.text.orEmpty()
+        val assistant = resumeTarget ?: ChatMessage(text = "", role = ChatMessage.Role.ASSISTANT,
             model = if (snapshot.settings.autoRouting) "Auto · discovering available models…" else "${profile.provider.label} · ${profile.model}", interrupted = true)
         val token = assistant.id
         generationToken = token
         mutable.update { it.copy(generatingId = chatId) }
-        changeChat(chatId) { it.copy(messages = history + assistant) }
+        changeChat(chatId) { it.copy(messages = if (resumeTarget == null) history + assistant else history) }
         generation = viewModelScope.launch {
             var replyId = assistant.id
             var requestHistory = request
@@ -547,11 +599,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             val checkpoint = now - lastCheckpoint >= 2000
                             if (checkpoint) lastCheckpoint = now
                             changeChat(chatId, save = checkpoint) { chat ->
-                                chat.copy(messages = chat.messages.map { if (it.id == id) it.copy(text = partial) else it })
+                                chat.copy(messages = chat.messages.map { if (it.id == id) it.copy(text = resumePrefix + partial) else it })
                             }
                         }
                     }
                 }
+                // How the provider ended this generation (manual path only; the
+                // Auto path resolves interruptions through its own failover and
+                // a returned reply there counts as a clean completion).
+                var resultFinishReason: String? = null
+                var resultEndedCleanly = true
                 val text = try {
                     if (snapshot.settings.autoRouting) {
                         var continuationPrefix = ""
@@ -586,14 +643,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         profile = winner
                         continuationPrefix + reply
                     }
-                    else client.generate(profile, requestHistory, systemPrompt) { updates.trySend(replyId to it) }
+                    else {
+                        val result = client.generateDetailed(profile, requestHistory, systemPrompt) { updates.trySend(replyId to it) }
+                        resultFinishReason = result.finishReason
+                        resultEndedCleanly = result.endedCleanly
+                        result.text
+                    }
                 } finally { updates.close(); collector.join() }
                 if (generationToken == token) {
                     val elapsed = android.os.SystemClock.elapsedRealtime() - started
                     markAccess(profile, AccessState.USABLE, firstToken.takeIf { it > 0 } ?: elapsed)
                     if (snapshot.settings.autoRouting) mutable.update { it.copy(autoChoice = "${profile.provider.label} · ${profile.model}") }
                     changeChat(chatId) { chat ->
-                        chat.copy(messages = chat.messages.map { if (it.id == replyId) it.copy(text = text, interrupted = false,
+                        chat.copy(messages = chat.messages.map { if (it.id == replyId) it.copy(text = resumePrefix + text,
+                            // A token-limit finish or a stream that ended without a
+                            // completion marker leaves the reply incomplete (and
+                            // continuable), never silently "complete".
+                            interrupted = !resultEndedCleanly || isTokenLimitFinish(resultFinishReason),
+                            finishReason = resultFinishReason,
                             elapsedMs = elapsed, firstTokenMs = firstToken) else it })
                     }
                 }
@@ -616,6 +683,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun stop() {
+        val stoppedToken = generationToken
         generationToken = null
         generation?.cancel()
         if (mutable.value.generatingId != null) catalogJobs.values.forEach { it.cancel() }
@@ -624,7 +692,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(generatingId = null) }
         if (id != null) changeChat(id) { chat ->
             chat.copy(messages = chat.messages.map {
-                if (it.role == ChatMessage.Role.ASSISTANT && it.text.isEmpty()) it.copy(text = "Reply stopped.", interrupted = true) else it
+                when {
+                    // An explicit stop is recorded as such: the reply stays
+                    // visible but is never offered as continuable.
+                    it.id == stoppedToken && it.interrupted -> it.copy(
+                        text = it.text.ifEmpty { "Reply stopped." },
+                        finishReason = FINISH_REASON_USER_CANCELLED)
+                    it.role == ChatMessage.Role.ASSISTANT && it.text.isEmpty() -> it.copy(text = "Reply stopped.", interrupted = true)
+                    else -> it
+                }
             })
         }
     }
