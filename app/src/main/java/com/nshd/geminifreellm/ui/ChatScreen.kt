@@ -10,7 +10,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
@@ -481,10 +480,13 @@ private fun ConversationMessages(chat: Conversation, busy: Boolean, vm: ChatView
     val dragging by list.interactionSource.collectIsDraggedAsState()
     suspend fun scrollToLatest() {
         if (chat.messages.isNotEmpty()) {
-            list.scrollToItem(chat.messages.lastIndex)
-            // The last reply may be taller than the viewport; bring its bottom into view.
-            val lastSize = list.layoutInfo.visibleItemsInfo.lastOrNull { it.index == chat.messages.lastIndex }?.size ?: 0
-            list.scrollBy(lastSize.toFloat())
+            // Single-step bottom alignment: a maximal scroll offset clamps to
+            // the end of the last item, so an over-viewport reply's bottom
+            // lands in view without the intermediate top-aligned position (and
+            // stale layoutInfo size read) of a scrollToItem + scrollBy pair —
+            // that two-step could flash or jitter while the last item is
+            // still growing during streaming.
+            list.scrollToItem(chat.messages.lastIndex, Int.MAX_VALUE)
         }
     }
     // Scroll position changes frequently. Derive the jump affordance separately so
