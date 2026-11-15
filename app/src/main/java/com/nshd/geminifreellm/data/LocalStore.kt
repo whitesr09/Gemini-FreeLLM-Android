@@ -147,6 +147,7 @@ internal fun conversationsToJson(chats: List<Conversation>) = JSONObject().put("
             .put("attachments", attachmentsJson(chat.attachments)).put("messages", JSONArray(chat.messages.takeLast(MAX_STORED_MESSAGES_PER_CHAT).map {
                 JSONObject().put("id", it.id).put("text", it.text).put("role", it.role.name)
                     .put("timestamp", it.timestamp).put("model", it.model).put("interrupted", it.interrupted).put("elapsedMs", it.elapsedMs).put("firstTokenMs", it.firstTokenMs)
+                    .put("finishReason", it.finishReason ?: JSONObject.NULL)
                     .put("attachments", attachmentsJson(it.attachments))
             }))
     }))
@@ -165,7 +166,9 @@ internal fun conversationsFromJson(json: JSONObject): List<Conversation> =
                             m.optLong("timestamp", System.currentTimeMillis()),
                             attachmentsFromJson(m.optJSONArray("attachments")),
                             m.optString("model"), m.optBoolean("interrupted"),
-                            m.optLong("elapsedMs"), m.optLong("firstTokenMs")
+                            m.optLong("elapsedMs"), m.optLong("firstTokenMs"),
+                            // Absent in history files written before this field existed.
+                            finishReason = m.optString("finishReason").takeIf { it.isNotBlank() && it != "null" }
                         )
                     }.getOrNull()
                 }.orEmpty()
