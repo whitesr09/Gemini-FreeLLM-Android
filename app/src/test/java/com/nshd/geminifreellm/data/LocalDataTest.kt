@@ -1,5 +1,7 @@
 package com.nshd.geminifreellm.data
 
+import com.nshd.geminifreellm.CONTINUATION_INSTRUCTION
+import com.nshd.geminifreellm.continuationPlan
 import com.nshd.geminifreellm.model.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,6 +18,72 @@ class LocalDataTest {
             attachments = listOf(attachment), messages = listOf(ChatMessage(text = "answer", role = ChatMessage.Role.ASSISTANT,
                 model = "provider/model", interrupted = true, attachments = listOf(attachment)))))
         assertEquals(chats, conversationsFromJson(conversationsToJson(chats)))
+    }
+
+    @Test fun finishReasonRoundTrips() {
+        val chats = listOf(Conversation(title = "Limits", messages = listOf(
+            ChatMessage(text = "partial code", role = ChatMessage.Role.ASSISTANT,
+                interrupted = true, finishReason = "length"),
+            ChatMessage(text = "full answer", role = ChatMessage.Role.ASSISTANT, finishReason = "STOP"))))
+        assertEquals(chats, conversationsFromJson(conversationsToJson(chats)))
+    }
+
+    @Test fun historyWrittenBeforeFinishReasonStillLoads() {
+        val chats = listOf(Conversation(title = "Old", messages = listOf(
+            ChatMessage(text = "answer", role = ChatMessage.Role.ASSISTANT, interrupted = true))))
+        val json = conversationsToJson(chats)
+        // Simulate a pre-upgrade history file: the field was never written.
+        json.getJSONArray("chats").getJSONObject(0).getJSONArray("messages").getJSONObject(0).remove("finishReason")
+        val restored = conversationsFromJson(json)
+        assertEquals(chats, restored)
+        assertNull(restored.single().messages.single().finishReason)
+    }
+
+    @Test fun tokenLimitReplyIsContinuableAndPlanResumesTheSameMessage() {
+        val user = ChatMessage(text = "Write the app", role = ChatMessage.Role.USER)
+        val partial = ChatMessage(text = "fun main() {", role = ChatMessage.Role.ASSISTANT,
+            interrupted = true, finishReason = "length")
+        assertTrue(partial.isContinuable)
+        val (display, request) = continuationPlan(listOf(user, partial), partial.id)!!
+        assertEquals(listOf(user, partial), display)
+        // The partial appears exactly once, as the last assistant turn — the
+        // continuation appends to it instead of duplicating its prefix — and
+        // the only added turn is the continue instruction.
+        assertEquals(1, request.count { it.id == partial.id })
+        assertEquals(partial.text, request.last { it.role == ChatMessage.Role.ASSISTANT }.text)
+        assertEquals(ChatMessage.Role.USER, request.last().role)
+        assertEquals(CONTINUATION_INSTRUCTION, request.last().text)
+    }
+
+    @Test fun completedAndUserStoppedRepliesAreNotContinuable() {
+        val done = ChatMessage(text = "All of it", role = ChatMessage.Role.ASSISTANT,
+            interrupted = false, finishReason = "stop")
+        val stopped = ChatMessage(text = "Half of it", role = ChatMessage.Role.ASSISTANT,
+            interrupted = true, finishReason = FINISH_REASON_USER_CANCELLED)
+        assertFalse(done.isContinuable)
+        assertFalse(stopped.isContinuable)
+        assertNull(continuationPlan(listOf(done), done.id))
+        assertNull(continuationPlan(listOf(stopped), stopped.id))
+    }
+
+    @Test fun interruptedStreamWithoutFinishReasonIsContinuable() {
+        val partial = ChatMessage(text = "Half an answer", role = ChatMessage.Role.ASSISTANT, interrupted = true)
+        assertTrue(partial.isContinuable)
+        assertNotNull(continuationPlan(listOf(partial), partial.id))
+    }
+
+    @Test fun continuationPlanDropsTrailingErrorsAndRejectsNewerTurns() {
+        val user = ChatMessage(text = "Question", role = ChatMessage.Role.USER)
+        val partial = ChatMessage(text = "half", role = ChatMessage.Role.ASSISTANT,
+            interrupted = true, finishReason = "MAX_TOKENS")
+        val error = ChatMessage(text = "Could not complete this reply.", role = ChatMessage.Role.ERROR)
+        val (display, _) = continuationPlan(listOf(user, partial, error), partial.id)!!
+        assertEquals(listOf(user, partial), display)
+        // A newer user turn after the partial blocks continuation of the old reply.
+        assertNull(continuationPlan(listOf(user, partial,
+            ChatMessage(text = "Next question", role = ChatMessage.Role.USER)), partial.id))
+        // An unknown id cannot be continued.
+        assertNull(continuationPlan(listOf(user, partial), "missing"))
     }
 
     @Test fun settingsRoundTripSeparateProviderKeysAndCapabilities() {
