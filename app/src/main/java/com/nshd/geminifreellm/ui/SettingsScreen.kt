@@ -1,5 +1,7 @@
 package com.nshd.geminifreellm.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.net.Uri
 import android.view.WindowManager
 import androidx.compose.animation.AnimatedVisibility
@@ -18,6 +20,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.res.painterResource
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.layout.ContentScale
+import androidx.core.net.toUri
 import com.nshd.geminifreellm.R
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
@@ -118,6 +123,10 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
         selected = selected, activeProfileId = profile.id, theme = theme,
         reducedMotion = reducedMotion, showTimestamps = timestamps, compactSpacing = compact, haptics = haptics, chatStyle = chatStyle, agent = agent)
     fun leave() { if (!saving) { if (snapshot() != initialDraft) discard = true else onBack() } }
+    fun openLink(url: String) {
+        try { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        catch (_: ActivityNotFoundException) { /* No handler app on this device; nothing else to do. */ }
+    }
     val latestProfile by rememberUpdatedState(profile)
     fun update(value: ProviderProfile) {
         connectionTestToken++
@@ -460,6 +469,16 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Text chat, coding canvas and compatible image/video APIs. Provider access and billing apply. Live voice calls are not supported.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Developer", style = MaterialTheme.typography.titleSmall)
+                    Text("Developed by NSHD", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally)) {
+                        BrandIconButton({ DeveloperSocialIcon(R.drawable.social_instagram, "Instagram") }, "Instagram") { openLink("https://www.instagram.com/__nshd.__?stkn=emExd3hxZndzN21o") }
+                        BrandIconButton({ DeveloperSocialIcon(R.drawable.social_whatsapp, "WhatsApp") }, "WhatsApp") { openLink("https://wa.me/+918590455801") }
+                        BrandIconButton({ DeveloperSocialIcon(R.drawable.social_telegram, "Telegram") }, "Telegram") { openLink("https://t.me/nshd_0") }
+                        BrandIconButton({ DeveloperSocialIcon(R.drawable.social_email, "Email") }, "Email") { openLink("mailto:nishadahammed081@gmail.com") }
+                        BrandIconButton({ DeveloperSocialIcon(R.drawable.social_phone, "Phone") }, "Phone") { openLink("tel:+918590455801") }
+                    }
                     Text("Social icons by Grow studio, Magnific & Indygo from flaticon.com",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                     FreeLlmApiClient.validate(profile)?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
@@ -571,6 +590,18 @@ private fun SettingsCategoryCard(
             }
         }
     }
+}
+
+/**
+ * Flaticon PNG artwork for one About Developer-section social button (raw
+ * PNG drawable, never a layer-list). Every glyph gets the same 38dp
+ * container and the same inner padding, so wide artwork (Gmail's M) and
+ * round badges read as one visual size.
+ */
+@Composable
+private fun DeveloperSocialIcon(@DrawableRes resId: Int, description: String) {
+    Image(painterResource(resId), description, modifier = Modifier.size(38.dp).padding(4.dp),
+        contentScale = ContentScale.Fit)
 }
 
 @Composable private fun SectionTitle(text: String) {
