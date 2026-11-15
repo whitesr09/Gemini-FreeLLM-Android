@@ -55,15 +55,19 @@ class LocalDataTest {
         assertEquals(CONTINUATION_INSTRUCTION, request.last().text)
     }
 
-    @Test fun completedAndUserStoppedRepliesAreNotContinuable() {
+    @Test fun completedRepliesAreNotContinuableButStoppedPartialsAre() {
         val done = ChatMessage(text = "All of it", role = ChatMessage.Role.ASSISTANT,
             interrupted = false, finishReason = "stop")
         val stopped = ChatMessage(text = "Half of it", role = ChatMessage.Role.ASSISTANT,
             interrupted = true, finishReason = FINISH_REASON_USER_CANCELLED)
         assertFalse(done.isContinuable)
-        assertFalse(stopped.isContinuable)
         assertNull(continuationPlan(listOf(done), done.id))
-        assertNull(continuationPlan(listOf(stopped), stopped.id))
+        // Fix round 2: a stopped reply with preserved content is exactly the
+        // incomplete reply the user expects to resume — stop() also fires
+        // implicitly when switching chats mid-generation, which must not
+        // permanently forfeit the partial.
+        assertTrue(stopped.isContinuable)
+        assertNotNull(continuationPlan(listOf(stopped), stopped.id))
     }
 
     @Test fun interruptedStreamWithoutFinishReasonIsContinuable() {
