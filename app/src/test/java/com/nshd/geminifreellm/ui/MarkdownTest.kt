@@ -168,4 +168,52 @@ class MarkdownTest {
         assertTrue(spans.all { it.isNotEmpty() })
     }
 
+    // --- Interactive checklist flipping (fix round 2, Fix 4) ---
+
+    @Test fun toggleChecklistFlipsOpenToDoneAndBack() {
+        val source = "- [ ] Write tests\n- [ ] Ship it"
+        assertEquals("- [x] Write tests\n- [ ] Ship it", toggleChecklistItem(source, 0))
+        assertEquals("- [ ] Write tests\n- [ ] Ship it", toggleChecklistItem("- [x] Write tests\n- [ ] Ship it", 0))
+        assertEquals("- [ ] Write tests\n- [x] Ship it", toggleChecklistItem(source, 1))
+    }
+
+    @Test fun toggleChecklistHandlesUppercaseXAndStarBullets() {
+        assertEquals("- [ ] Done", toggleChecklistItem("- [X] Done", 0))
+        assertEquals("* [x] Star", toggleChecklistItem("* [ ] Star", 0))
+        assertEquals("+ [x] Plus", toggleChecklistItem("+ [ ] Plus", 0))
+    }
+
+    @Test fun toggleChecklistCountsOnlyChecklistItemsInDocumentOrder() {
+        val source = "# Plan\n\nSome intro\n- plain bullet\n1. [ ] ordered is not a checklist\n- [ ] first\n  - [ ] nested second"
+        assertEquals(source.replace("- [ ] first", "- [x] first"), toggleChecklistItem(source, 0))
+        assertEquals(source.replace("- [ ] nested second", "- [x] nested second"), toggleChecklistItem(source, 1))
+        assertNull(toggleChecklistItem(source, 2))
+    }
+
+    @Test fun toggleChecklistIgnoresFencedCode() {
+        val source = "```\n- [ ] not a real item\n```\n- [ ] real item"
+        assertEquals("```\n- [ ] not a real item\n```\n- [x] real item", toggleChecklistItem(source, 0))
+        assertNull(toggleChecklistItem(source, 1))
+    }
+
+    @Test fun toggleChecklistIgnoresTableChunksAndQuotes() {
+        val table = "| Task | State |\n| --- | --- |\n| - [ ] cell text | open |\n\n- [ ] real item"
+        assertEquals(table.replace("- [ ] real item", "- [x] real item"), toggleChecklistItem(table, 0))
+        assertNull(toggleChecklistItem(table, 1))
+        assertNull(toggleChecklistItem("> - [ ] quoted, not rendered as a checklist", 0))
+    }
+
+    @Test fun toggleChecklistOutOfRangeReturnsNull() {
+        assertNull(toggleChecklistItem("", 0))
+        assertNull(toggleChecklistItem("no lists here", 0))
+        assertNull(toggleChecklistItem("- [ ] only", 1))
+        assertNull(toggleChecklistItem("- [ ] only", -1))
+    }
+
+    @Test fun toggleChecklistPreservesEverythingElseByteForByte() {
+        val source = "Intro with [ ] brackets in prose\n\n- [ ] task one  \n- [x] task two\n\nTrailing paragraph"
+        assertEquals("Intro with [ ] brackets in prose\n\n- [x] task one  \n- [x] task two\n\nTrailing paragraph",
+            toggleChecklistItem(source, 0))
+    }
+
 }
