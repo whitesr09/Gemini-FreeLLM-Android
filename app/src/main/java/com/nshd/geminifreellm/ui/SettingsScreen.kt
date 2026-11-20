@@ -244,6 +244,7 @@ fun SettingsScreen(settings: AppSettings, onTestConnection: suspend (ProviderPro
                     }
 
                     if (selected == Provider.DEEPSEEK) Text("Use a DeepSeek API key with api.deepseek.com. Keys from a gateway belong in that gateway's profile. Discover model IDs below; a chat subscription does not imply API credit.", style = MaterialTheme.typography.bodySmall)
+                    if (selected == Provider.RUNCRATE) Text("Free weekly quota shared across its models, resets every Monday. Sign up with GitHub (no card needed) — a Google sign-up asks for a card on file. Free models: DeepSeek V4.1 Flash, GLM 5.3, GLM 5.3 Flash, gpt-oss 120B, Qwen3.8 Flash. Use Test connection & find models to load them.", style = MaterialTheme.typography.bodySmall)
                     if (selected == Provider.OLLAMA) Text("On a phone, use your computer's LAN address and enable server access. 10.0.2.2 is for Android emulators.", style = MaterialTheme.typography.bodySmall)
                     val url = profile.baseUrl.toHttpUrlOrNull()
                     OutlinedTextField(profile.baseUrl, { update(profile.copy(baseUrl = it)) }, Modifier.fillMaxWidth(),
