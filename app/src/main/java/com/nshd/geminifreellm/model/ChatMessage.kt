@@ -83,6 +83,7 @@ enum class Provider(val label: String, val endpoint: String, val defaultModel: S
     OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1", "openrouter/free", ApiProtocol.OPENAI),
     GROQ("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", ApiProtocol.OPENAI),
     DEEPSEEK("DeepSeek", "https://api.deepseek.com", "deepseek-flash", ApiProtocol.OPENAI),
+    RUNCRATE("Runcrate", "https://api.runcrate.ai/v1", "deepseek-ai/DeepSeek-V4.1-Flash", ApiProtocol.OPENAI),
     MISTRAL("Mistral", "https://api.mistral.ai/v1", "mistral-small-latest", ApiProtocol.OPENAI),
     XAI("xAI", "https://api.x.ai/v1", "grok-3-mini", ApiProtocol.OPENAI),
     OLLAMA("Ollama / local", "http://10.0.2.2:11434/v1", "", ApiProtocol.OPENAI),
